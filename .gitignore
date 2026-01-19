@@ -1,0 +1,20 @@
+# Legacy Python source (cloned)
+legacy_opentui/
+
+# Rust build artifacts
+/target/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# bv (beads viewer) local config and caches
+.bv/
+
+# Environment files with secrets
+.env
+.env.*
