@@ -1,0 +1,51 @@
+---
+source: src/ansi/mod.rs
+expression: sequences
+---
+[
+  {
+    "description": "no_move",
+    "hex": "",
+    "readable": ""
+  },
+  {
+    "description": "right_5",
+    "hex": "1b 5b 35 43",
+    "readable": "ESC[5C"
+  },
+  {
+    "description": "left_5",
+    "hex": "1b 5b 35 44",
+    "readable": "ESC[5D"
+  },
+  {
+    "description": "down_3",
+    "hex": "1b 5b 33 42",
+    "readable": "ESC[3B"
+  },
+  {
+    "description": "up_3",
+    "hex": "1b 5b 33 41",
+    "readable": "ESC[3A"
+  },
+  {
+    "description": "right_down",
+    "hex": "1b 5b 33 42 1b 5b 35 43",
+    "readable": "ESC[3BESC[5C"
+  },
+  {
+    "description": "left_up",
+    "hex": "1b 5b 33 41 1b 5b 35 44",
+    "readable": "ESC[3AESC[5D"
+  },
+  {
+    "description": "right_up",
+    "hex": "1b 5b 33 41 1b 5b 35 43",
+    "readable": "ESC[3AESC[5C"
+  },
+  {
+    "description": "left_down",
+    "hex": "1b 5b 33 42 1b 5b 35 44",
+    "readable": "ESC[3BESC[5D"
+  }
+]

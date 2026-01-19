@@ -1,0 +1,21 @@
+---
+source: src/ansi/mod.rs
+expression: sequences
+---
+[
+  {
+    "description": "red",
+    "hex": "1b 5b 34 31 6d",
+    "readable": "ESC[41m"
+  },
+  {
+    "description": "green",
+    "hex": "1b 5b 31 30 32 6d",
+    "readable": "ESC[102m"
+  },
+  {
+    "description": "blue",
+    "hex": "1b 5b 34 34 6d",
+    "readable": "ESC[44m"
+  }
+]

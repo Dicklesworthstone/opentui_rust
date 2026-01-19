@@ -1,0 +1,16 @@
+---
+source: src/ansi/mod.rs
+expression: sequences
+---
+[
+  {
+    "description": "red_nocolor",
+    "hex": "",
+    "readable": ""
+  },
+  {
+    "description": "any_nocolor",
+    "hex": "",
+    "readable": ""
+  }
+]
