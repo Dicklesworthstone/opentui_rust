@@ -1,0 +1,887 @@
+{
+  "crate": "opentui",
+  "version": "0.1.0",
+  "captured_at": "2026-01-19T00:00:00Z",
+  "tests": [
+    {
+      "name": "rgba_blend_half_red_over_blue",
+      "category": "color",
+      "input": {
+        "fg": "#FF000080",
+        "bg": "#0000FF"
+      },
+      "expected_output": {
+        "hex": "#80007E"
+      }
+    },
+    {
+      "name": "rgba_blend_opaque_over_any",
+      "category": "color",
+      "input": {
+        "fg": "#FF0000",
+        "bg": "#00FF00"
+      },
+      "expected_output": {
+        "hex": "#FF0000"
+      }
+    },
+    {
+      "name": "rgba_blend_transparent_over_any",
+      "category": "color",
+      "input": {
+        "fg": "#FF000000",
+        "bg": "#00FF00"
+      },
+      "expected_output": {
+        "hex": "#00FF00"
+      }
+    },
+    {
+      "name": "rgba_blend_quarter_alpha",
+      "category": "color",
+      "input": {
+        "fg": "#FFFFFF40",
+        "bg": "#000000"
+      },
+      "expected_output": {
+        "hex": "#404040"
+      }
+    },
+    {
+      "name": "rgba_from_hex_short",
+      "category": "color",
+      "input": {
+        "hex": "#F00"
+      },
+      "expected_output": {
+        "r": 255,
+        "g": 0,
+        "b": 0,
+        "valid": true
+      }
+    },
+    {
+      "name": "rgba_from_hex_standard",
+      "category": "color",
+      "input": {
+        "hex": "#00FF00"
+      },
+      "expected_output": {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "valid": true
+      }
+    },
+    {
+      "name": "rgba_from_hex_with_alpha",
+      "category": "color",
+      "input": {
+        "hex": "#0000FF80"
+      },
+      "expected_output": {
+        "r": 0,
+        "g": 0,
+        "b": 255,
+        "a": 128,
+        "valid": true
+      }
+    },
+    {
+      "name": "rgba_from_hex_invalid",
+      "category": "color",
+      "input": {
+        "hex": "#GGGGGG"
+      },
+      "expected_output": {
+        "valid": false
+      }
+    },
+    {
+      "name": "rgba_from_hsv_red",
+      "category": "color",
+      "input": {
+        "h": 0.0,
+        "s": 1.0,
+        "v": 1.0
+      },
+      "expected_output": {
+        "r": 255,
+        "g": 0,
+        "b": 0
+      }
+    },
+    {
+      "name": "rgba_from_hsv_green",
+      "category": "color",
+      "input": {
+        "h": 120.0,
+        "s": 1.0,
+        "v": 1.0
+      },
+      "expected_output": {
+        "r": 0,
+        "g": 255,
+        "b": 0
+      }
+    },
+    {
+      "name": "rgba_from_hsv_blue",
+      "category": "color",
+      "input": {
+        "h": 240.0,
+        "s": 1.0,
+        "v": 1.0
+      },
+      "expected_output": {
+        "r": 0,
+        "g": 0,
+        "b": 255
+      }
+    },
+    {
+      "name": "rgba_from_hsv_gray",
+      "category": "color",
+      "input": {
+        "h": 0.0,
+        "s": 0.0,
+        "v": 0.5
+      },
+      "expected_output": {
+        "r": 127,
+        "g": 127,
+        "b": 127
+      }
+    },
+    {
+      "name": "rgba_to_256_color_red",
+      "category": "color",
+      "input": {
+        "hex": "#FF0000"
+      },
+      "expected_output": {
+        "index_min": 16,
+        "index_max": 231
+      }
+    },
+    {
+      "name": "rgba_to_256_color_gray",
+      "category": "color",
+      "input": {
+        "hex": "#808080"
+      },
+      "expected_output": {
+        "index_min": 232,
+        "index_max": 255
+      }
+    },
+    {
+      "name": "rgba_to_16_color_bright_red",
+      "category": "color",
+      "input": {
+        "hex": "#FF0000"
+      },
+      "expected_output": {
+        "index": 1,
+        "note": "Pure red has low luminance (76/255), so maps to dark red (1) not bright red (9)"
+      }
+    },
+    {
+      "name": "rgba_to_16_color_black",
+      "category": "color",
+      "input": {
+        "hex": "#000000"
+      },
+      "expected_output": {
+        "index": 0
+      }
+    },
+    {
+      "name": "buffer_draw_box_title",
+      "category": "buffer",
+      "input": {
+        "width": 10,
+        "height": 4,
+        "title": "Title"
+      },
+      "expected_output": {
+        "lines": [
+          "┌Title───┐",
+          "│        │",
+          "│        │",
+          "└────────┘"
+        ]
+      }
+    },
+    {
+      "name": "buffer_draw_box_no_title",
+      "category": "buffer",
+      "input": {
+        "width": 6,
+        "height": 3,
+        "title": null
+      },
+      "expected_output": {
+        "lines": [
+          "┌────┐",
+          "│    │",
+          "└────┘"
+        ]
+      }
+    },
+    {
+      "name": "buffer_clear_size",
+      "category": "buffer",
+      "input": {
+        "width": 5,
+        "height": 3
+      },
+      "expected_output": {
+        "all_empty": true,
+        "cell_count": 15
+      }
+    },
+    {
+      "name": "buffer_draw_text_ascii",
+      "category": "buffer",
+      "input": {
+        "width": 20,
+        "height": 1,
+        "text": "Hello, World!",
+        "x": 0,
+        "y": 0
+      },
+      "expected_output": {
+        "line": "Hello, World!       "
+      }
+    },
+    {
+      "name": "buffer_draw_text_unicode",
+      "category": "buffer",
+      "input": {
+        "width": 10,
+        "height": 1,
+        "text": "日本語",
+        "x": 0,
+        "y": 0
+      },
+      "expected_output": {
+        "line": "日本語    ",
+        "note": "CJK chars are double-width"
+      }
+    },
+    {
+      "name": "buffer_scissor_clip",
+      "category": "buffer",
+      "input": {
+        "width": 10,
+        "height": 5,
+        "scissor": { "x": 2, "y": 1, "w": 4, "h": 2 },
+        "fill_char": "X"
+      },
+      "expected_output": {
+        "lines": [
+          "          ",
+          "  XXXX    ",
+          "  XXXX    ",
+          "          ",
+          "          "
+        ]
+      }
+    },
+    {
+      "name": "text_wrap_char_count",
+      "category": "text",
+      "input": {
+        "text": "abcdef",
+        "width": 3
+      },
+      "expected_output": {
+        "line_count": 2
+      }
+    },
+    {
+      "name": "text_wrap_word_count",
+      "category": "text",
+      "input": {
+        "text": "hello world foo bar",
+        "width": 10,
+        "mode": "word"
+      },
+      "expected_output": {
+        "line_count": 3,
+        "note": "Line 1: hello, Line 2: world foo (9), Line 3: bar"
+      }
+    },
+    {
+      "name": "text_wrap_none_count",
+      "category": "text",
+      "input": {
+        "text": "abcdefghij",
+        "width": 5,
+        "mode": "none"
+      },
+      "expected_output": {
+        "line_count": 1
+      }
+    },
+    {
+      "name": "text_multiline_count",
+      "category": "text",
+      "input": {
+        "text": "line1\nline2\nline3",
+        "width": 100,
+        "mode": "none"
+      },
+      "expected_output": {
+        "line_count": 3
+      }
+    },
+    {
+      "name": "selection_text",
+      "category": "text",
+      "input": {
+        "text": "Hello, world",
+        "start": 7,
+        "end": 12
+      },
+      "expected_output": {
+        "selected": "world"
+      }
+    },
+    {
+      "name": "selection_empty",
+      "category": "text",
+      "input": {
+        "text": "Hello",
+        "start": 2,
+        "end": 2
+      },
+      "expected_output": {
+        "selected": ""
+      }
+    },
+    {
+      "name": "selection_full",
+      "category": "text",
+      "input": {
+        "text": "Test",
+        "start": 0,
+        "end": 4
+      },
+      "expected_output": {
+        "selected": "Test"
+      }
+    },
+    {
+      "name": "input_parse_arrow_up",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 65]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Up",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_arrow_down",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 66]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Down",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_arrow_right",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 67]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Right",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_arrow_left",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 68]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Left",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_ctrl_shift_up",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 49, 59, 54, 65]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Up",
+        "modifiers": ["Ctrl", "Shift"]
+      }
+    },
+    {
+      "name": "input_parse_f1",
+      "category": "input",
+      "input": {
+        "bytes": [27, 79, 80]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "F1",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_f5",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 49, 53, 126]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "F5",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_insert",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 50, 126]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Insert",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_delete",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 51, 126]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Delete",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_home",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 72]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Home",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_end",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 70]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "End",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_pageup",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 53, 126]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "PageUp",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_pagedown",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 54, 126]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "PageDown",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_backspace",
+      "category": "input",
+      "input": {
+        "bytes": [127]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Backspace",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "input_parse_ctrl_a",
+      "category": "input",
+      "input": {
+        "bytes": [1]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Char",
+        "char": "a",
+        "modifiers": ["Ctrl"]
+      }
+    },
+    {
+      "name": "input_parse_ctrl_c",
+      "category": "input",
+      "input": {
+        "bytes": [3]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Char",
+        "char": "c",
+        "modifiers": ["Ctrl"]
+      }
+    },
+    {
+      "name": "input_parse_alt_x",
+      "category": "input",
+      "input": {
+        "bytes": [27, 120]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Char",
+        "char": "x",
+        "modifiers": ["Alt"]
+      }
+    },
+    {
+      "name": "input_parse_sgr_mouse_click",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 48, 59, 49, 48, 59, 50, 48, 77]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "button": "Left",
+        "kind": "Press",
+        "x": 9,
+        "y": 19
+      }
+    },
+    {
+      "name": "input_parse_sgr_mouse_release",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 48, 59, 53, 59, 53, 109]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "button": "Left",
+        "kind": "Release",
+        "x": 4,
+        "y": 4
+      }
+    },
+    {
+      "name": "input_parse_sgr_mouse_right",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 50, 59, 49, 59, 49, 77]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "button": "Right",
+        "kind": "Press",
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "name": "input_parse_sgr_mouse_middle",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 49, 59, 49, 59, 49, 77]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "button": "Middle",
+        "kind": "Press",
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "name": "input_parse_sgr_scroll_up",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 54, 52, 59, 49, 59, 49, 77]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "kind": "ScrollUp",
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "name": "input_parse_sgr_scroll_down",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 60, 54, 53, 59, 49, 59, 49, 77]
+      },
+      "expected_output": {
+        "event_type": "mouse",
+        "kind": "ScrollDown",
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "name": "input_parse_focus_gained",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 73]
+      },
+      "expected_output": {
+        "event_type": "focus",
+        "gained": true
+      }
+    },
+    {
+      "name": "input_parse_focus_lost",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 79]
+      },
+      "expected_output": {
+        "event_type": "focus",
+        "gained": false
+      }
+    },
+    {
+      "name": "input_parse_paste_simple",
+      "category": "input",
+      "input": {
+        "bytes": [27, 91, 50, 48, 48, 126, 72, 101, 108, 108, 111, 27, 91, 50, 48, 49, 126]
+      },
+      "expected_output": {
+        "event_type": "paste",
+        "content": "Hello"
+      }
+    },
+    {
+      "name": "input_parse_utf8_emoji",
+      "category": "input",
+      "input": {
+        "bytes": [240, 159, 152, 128]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Char",
+        "char": "😀"
+      }
+    },
+    {
+      "name": "input_parse_ascii_char",
+      "category": "input",
+      "input": {
+        "bytes": [65]
+      },
+      "expected_output": {
+        "event_type": "key",
+        "key_code": "Char",
+        "char": "A",
+        "modifiers": []
+      }
+    },
+    {
+      "name": "ansi_cursor_position",
+      "category": "ansi",
+      "input": {
+        "row": 5,
+        "col": 10
+      },
+      "expected_output": {
+        "sequence": "\u001b[6;11H"
+      }
+    },
+    {
+      "name": "ansi_cursor_position_home",
+      "category": "ansi",
+      "input": {
+        "row": 0,
+        "col": 0
+      },
+      "expected_output": {
+        "sequence": "\u001b[1;1H"
+      }
+    },
+    {
+      "name": "ansi_fg_true_color",
+      "category": "ansi",
+      "input": {
+        "r": 255,
+        "g": 128,
+        "b": 64,
+        "mode": "true_color"
+      },
+      "expected_output": {
+        "sequence": "\u001b[38;2;255;128;64m"
+      }
+    },
+    {
+      "name": "ansi_bg_true_color",
+      "category": "ansi",
+      "input": {
+        "r": 0,
+        "g": 100,
+        "b": 200,
+        "mode": "true_color",
+        "is_bg": true
+      },
+      "expected_output": {
+        "sequence": "\u001b[48;2;0;100;200m"
+      }
+    },
+    {
+      "name": "ansi_256_color_index",
+      "category": "ansi",
+      "input": {
+        "index": 196,
+        "mode": "256_color"
+      },
+      "expected_output": {
+        "sequence": "\u001b[38;5;196m"
+      }
+    },
+    {
+      "name": "ansi_16_color_red",
+      "category": "ansi",
+      "input": {
+        "index": 1,
+        "mode": "16_color"
+      },
+      "expected_output": {
+        "sequence": "\u001b[31m"
+      }
+    },
+    {
+      "name": "ansi_16_color_bright_green",
+      "category": "ansi",
+      "input": {
+        "index": 10,
+        "mode": "16_color"
+      },
+      "expected_output": {
+        "sequence": "\u001b[92m"
+      }
+    },
+    {
+      "name": "ansi_attributes_bold",
+      "category": "ansi",
+      "input": {
+        "attributes": ["bold"]
+      },
+      "expected_output": {
+        "sequence": "\u001b[1m"
+      }
+    },
+    {
+      "name": "ansi_attributes_italic_underline",
+      "category": "ansi",
+      "input": {
+        "attributes": ["italic", "underline"]
+      },
+      "expected_output": {
+        "sequence": "\u001b[3;4m",
+        "note": "Attributes are combined into a single SGR sequence"
+      }
+    },
+    {
+      "name": "unicode_grapheme_count",
+      "category": "unicode",
+      "input": {
+        "text": "café"
+      },
+      "expected_output": {
+        "grapheme_count": 4
+      }
+    },
+    {
+      "name": "unicode_grapheme_emoji_zwj",
+      "category": "unicode",
+      "input": {
+        "text": "👨‍👩‍👧‍👦"
+      },
+      "expected_output": {
+        "grapheme_count": 1
+      }
+    },
+    {
+      "name": "unicode_width_ascii",
+      "category": "unicode",
+      "input": {
+        "text": "Hello"
+      },
+      "expected_output": {
+        "display_width": 5
+      }
+    },
+    {
+      "name": "unicode_width_cjk",
+      "category": "unicode",
+      "input": {
+        "text": "日本"
+      },
+      "expected_output": {
+        "display_width": 4
+      }
+    },
+    {
+      "name": "unicode_width_mixed",
+      "category": "unicode",
+      "input": {
+        "text": "A日B"
+      },
+      "expected_output": {
+        "display_width": 4
+      }
+    },
+    {
+      "name": "unicode_width_emoji",
+      "category": "unicode",
+      "input": {
+        "text": "😀"
+      },
+      "expected_output": {
+        "display_width": 2
+      }
+    }
+  ]
+}
