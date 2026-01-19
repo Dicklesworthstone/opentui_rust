@@ -1,0 +1,52 @@
+version: 2
+
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # Rust dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      # Group minor and patch updates together
+      rust-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns: ["*"]
+        exclude-patterns:
+          - "ropey"
+          - "unicode-*"
+      # Keep critical dependencies separate for careful review
+      unicode:
+        patterns:
+          - "unicode-segmentation"
+          - "unicode-width"
+      rope:
+        patterns:
+          - "ropey"
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 10
