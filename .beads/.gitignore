@@ -1,0 +1,17 @@
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Lock files
+*.lock
+
+# Temporary
+last-touched
+*.tmp
+
+# Local history backups
+.br_history/
+
+# bv (beads viewer) lock file
+.bv.lock
