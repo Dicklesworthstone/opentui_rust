@@ -148,17 +148,64 @@ impl OptimizedBuffer {
 
     /// Clear entire buffer with background color.
     pub fn clear(&mut self, bg: Rgba) {
-        for cell in &mut self.cells {
-            *cell = Cell::clear(bg);
-        }
+        // Create the clear cell once and fill the entire buffer
+        // This is more efficient than creating Cell::clear(bg) per cell
+        let clear_cell = Cell::clear(bg);
+        self.cells.fill(clear_cell);
     }
 
     /// Fill a rectangular region with background color.
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, bg: Rgba) {
-        for row in y..y.saturating_add(h).min(self.height) {
-            for col in x..x.saturating_add(w).min(self.width) {
-                self.set(col, row, Cell::clear(bg));
-            }
+        if w == 0 || h == 0 || self.width == 0 || self.height == 0 {
+            return;
+        }
+
+        let mut x0 = x.min(self.width);
+        let mut y0 = y.min(self.height);
+        let mut x1 = x.saturating_add(w).min(self.width);
+        let mut y1 = y.saturating_add(h).min(self.height);
+
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        let scissor = self.scissor_stack.current();
+        if scissor.is_empty() {
+            return;
+        }
+
+        let scissor_start_x = scissor.x.max(0) as u32;
+        let scissor_start_y = scissor.y.max(0) as u32;
+        let scissor_end_x = scissor
+            .x
+            .saturating_add_unsigned(scissor.width)
+            .max(0) as u32;
+        let scissor_end_y = scissor
+            .y
+            .saturating_add_unsigned(scissor.height)
+            .max(0) as u32;
+
+        x0 = x0.max(scissor_start_x);
+        y0 = y0.max(scissor_start_y);
+        x1 = x1.min(scissor_end_x);
+        y1 = y1.min(scissor_end_y);
+
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        let opacity = self.opacity_stack.current();
+        let mut cell = Cell::clear(bg);
+        if opacity < 1.0 {
+            cell.blend_with_opacity(opacity);
+        }
+
+        let row_width = self.width as usize;
+        for row in y0..y1 {
+            let row_start = row as usize * row_width;
+            let start = row_start + x0 as usize;
+            let end = row_start + x1 as usize;
+            self.cells[start..end].fill(cell.clone());
         }
     }
 
