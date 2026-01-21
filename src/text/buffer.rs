@@ -1,4 +1,9 @@
 //! Styled text buffer with highlighting support.
+//!
+//! This module provides [`TextBuffer`], a rope-backed text storage that
+//! supports styled segments and syntax highlighting. Use this for read-only
+//! or display-oriented text. For editing with cursor and undo, see
+//! [`EditBuffer`](super::EditBuffer).
 
 use crate::highlight::SyntaxStyleRegistry;
 use crate::style::Style;
@@ -60,6 +65,17 @@ impl MemRegistry {
 }
 
 /// Text buffer with styled segments and highlights.
+///
+/// `TextBuffer` uses a rope data structure internally for O(log n) insertions
+/// and deletions, making it suitable for large documents. It also supports:
+///
+/// - Styled segments for syntax highlighting or markup
+/// - Memory registry for efficient string deduplication
+/// - Tab width configuration
+/// - Unicode width calculation methods
+///
+/// For editing with cursor movement and undo/redo, wrap this in an
+/// [`EditBuffer`](super::EditBuffer).
 #[derive(Clone, Debug, Default)]
 pub struct TextBuffer {
     rope: RopeWrapper,

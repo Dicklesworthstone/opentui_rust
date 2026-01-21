@@ -1,4 +1,25 @@
 //! Editable text buffer with cursor and undo/redo.
+//!
+//! This module provides [`EditBuffer`], which wraps a [`TextBuffer`] with
+//! editing capabilities including cursor movement, text insertion/deletion,
+//! and undo/redo history.
+//!
+//! # Examples
+//!
+//! ```
+//! use opentui::EditBuffer;
+//!
+//! let mut buf = EditBuffer::with_text("Hello World");
+//!
+//! // Move cursor and delete
+//! buf.move_to_end();
+//! buf.delete_backward(); // Removes 'd'
+//! assert_eq!(buf.text(), "Hello Worl");
+//!
+//! // Undo restores deleted text
+//! buf.undo();
+//! assert_eq!(buf.text(), "Hello World");
+//! ```
 
 // Iterator patterns are clearer in their current form
 #![allow(clippy::while_let_on_iterator)]
@@ -145,6 +166,20 @@ impl History {
 }
 
 /// Text buffer with editing operations, cursor, and undo/redo.
+///
+/// `EditBuffer` is the primary type for text editing. It tracks cursor
+/// position, maintains undo/redo history, and provides operations for:
+///
+/// - **Cursor movement**: Lines, words, characters, document bounds
+/// - **Text editing**: Insert, delete, backspace with cursor tracking
+/// - **Line operations**: Duplicate, move, delete lines
+/// - **History**: Grouped undo/redo with configurable depth limit
+///
+/// # History Management
+///
+/// Edit operations are grouped automatically. Call [`commit_edit`](Self::commit_edit)
+/// to force a group boundary (e.g., after a pause in typing). The history depth
+/// is bounded (default 1000 groups) to limit memory usage.
 #[derive(Clone, Debug, Default)]
 pub struct EditBuffer {
     buffer: TextBuffer,
