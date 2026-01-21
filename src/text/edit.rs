@@ -11,9 +11,10 @@
 //!
 //! let mut buf = EditBuffer::with_text("Hello World");
 //!
-//! // Move cursor and delete
-//! buf.move_to_end();
+//! // Move cursor to end of line and delete backward
+//! buf.move_to_line_end();
 //! buf.delete_backward(); // Removes 'd'
+//! buf.commit(); // Create undo checkpoint
 //! assert_eq!(buf.text(), "Hello Worl");
 //!
 //! // Undo restores deleted text

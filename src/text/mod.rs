@@ -15,9 +15,9 @@
 //! ```
 //! use opentui::TextBuffer;
 //!
-//! let mut buffer = TextBuffer::with_text("Hello, world!");
+//! let buffer = TextBuffer::with_text("Hello, world!");
 //! assert_eq!(buffer.len_chars(), 13);
-//! assert_eq!(buffer.line_count(), 1);
+//! assert_eq!(buffer.len_lines(), 1);
 //! ```
 //!
 //! ## Editable Buffer with Undo
@@ -27,7 +27,9 @@
 //!
 //! let mut editor = EditBuffer::new();
 //! editor.insert("Hello");
+//! editor.commit(); // Create undo checkpoint
 //! editor.insert(" World");
+//! editor.commit();
 //! assert_eq!(editor.text(), "Hello World");
 //!
 //! // Undo the last insert
