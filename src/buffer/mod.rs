@@ -176,14 +176,8 @@ impl OptimizedBuffer {
 
         let scissor_start_x = scissor.x.max(0) as u32;
         let scissor_start_y = scissor.y.max(0) as u32;
-        let scissor_end_x = scissor
-            .x
-            .saturating_add_unsigned(scissor.width)
-            .max(0) as u32;
-        let scissor_end_y = scissor
-            .y
-            .saturating_add_unsigned(scissor.height)
-            .max(0) as u32;
+        let scissor_end_x = scissor.x.saturating_add_unsigned(scissor.width).max(0) as u32;
+        let scissor_end_y = scissor.y.saturating_add_unsigned(scissor.height).max(0) as u32;
 
         x0 = x0.max(scissor_start_x);
         y0 = y0.max(scissor_start_y);
