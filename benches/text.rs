@@ -22,7 +22,7 @@ fn text_buffer_creation(c: &mut Criterion) {
 }
 
 fn text_buffer_ops(c: &mut Criterion) {
-    let mut buffer = TextBuffer::with_text("Hello, World!\nLine 2\nLine 3\nLine 4");
+    let buffer = TextBuffer::with_text("Hello, World!\nLine 2\nLine 3\nLine 4");
 
     c.bench_function("textbuffer_len_chars", |b| {
         b.iter(|| black_box(&buffer).len_chars());
@@ -80,7 +80,11 @@ fn edit_buffer_insertion(c: &mut Criterion) {
 }
 
 fn edit_buffer_cursor_movement(c: &mut Criterion) {
-    let text = (0..100).map(|i| format!("Line number {} with some content\n", i)).collect::<String>();
+    let mut text = String::with_capacity(4000);
+    for i in 0..100 {
+        use std::fmt::Write;
+        writeln!(text, "Line number {i} with some content").unwrap();
+    }
     let mut editor = EditBuffer::with_text(&text);
     editor.move_to(50, 10);
 

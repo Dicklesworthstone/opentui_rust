@@ -12,7 +12,14 @@ fn color_creation(c: &mut Criterion) {
     });
 
     c.bench_function("color_from_rgba_u8", |b| {
-        b.iter(|| Rgba::from_rgba_u8(black_box(100), black_box(149), black_box(237), black_box(128)));
+        b.iter(|| {
+            Rgba::from_rgba_u8(
+                black_box(100),
+                black_box(149),
+                black_box(237),
+                black_box(128),
+            )
+        });
     });
 
     c.bench_function("color_from_hex", |b| {

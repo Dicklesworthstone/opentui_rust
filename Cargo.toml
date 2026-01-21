@@ -27,6 +27,22 @@ serde_json = "1"
 name = "buffer"
 harness = false
 
+[[bench]]
+name = "color"
+harness = false
+
+[[bench]]
+name = "text"
+harness = false
+
+[[bench]]
+name = "renderer"
+harness = false
+
+[[bench]]
+name = "unicode"
+harness = false
+
 [profile.release]
 opt-level = "z"
 lto = true
