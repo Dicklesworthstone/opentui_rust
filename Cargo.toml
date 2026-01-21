@@ -18,8 +18,8 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
-proptest = "1.6"
-insta = { version = "1.42", features = ["json"] }
+proptest = "1.9"
+insta = { version = "1.46", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
