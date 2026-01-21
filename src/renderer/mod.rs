@@ -1,4 +1,51 @@
 //! Double-buffered terminal renderer with diff detection.
+//!
+//! This module provides [`Renderer`], the main entry point for rendering to
+//! the terminal. It implements double-buffering with diff detection to minimize
+//! the amount of ANSI output needed per frame.
+//!
+//! # Architecture
+//!
+//! The renderer maintains two buffers:
+//! - **Back buffer**: Where your application draws (via [`Renderer::buffer`])
+//! - **Front buffer**: The previous frame (used for diff detection)
+//!
+//! On [`present`](Renderer::present), the renderer computes which cells changed
+//! and only outputs ANSI sequences for those cells. This dramatically reduces
+//! output bandwidth for UIs that change incrementally.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use opentui::{Renderer, Style, Rgba};
+//!
+//! fn main() -> std::io::Result<()> {
+//!     // Create renderer (enters alt screen, hides cursor)
+//!     let mut renderer = Renderer::new(80, 24)?;
+//!
+//!     // Main loop
+//!     loop {
+//!         // Clear and draw to back buffer
+//!         renderer.clear();
+//!         renderer.buffer().draw_text(10, 5, "Hello!", Style::fg(Rgba::GREEN));
+//!
+//!         // Present (diff-based, only changed cells written)
+//!         renderer.present()?;
+//!
+//!         // Handle input, break on quit...
+//!         break;
+//!     }
+//!
+//!     Ok(())
+//!     // Renderer::drop() restores terminal automatically
+//! }
+//! ```
+//!
+//! # Hit Testing
+//!
+//! The renderer includes a hit grid for mouse interaction. Register clickable
+//! areas with [`register_hit_area`](Renderer::register_hit_area) and query
+//! them with [`hit_test`](Renderer::hit_test).
 
 mod diff;
 mod hitgrid;
@@ -15,6 +62,8 @@ use std::io::{self, Stdout, Write};
 use std::time::{Duration, Instant};
 
 /// Renderer configuration options.
+///
+/// These options control terminal setup behavior when creating a [`Renderer`].
 #[derive(Clone, Copy, Debug)]
 pub struct RendererOptions {
     /// Use the alternate screen buffer.
@@ -51,6 +100,23 @@ pub struct RenderStats {
 }
 
 /// CLI renderer with double buffering.
+///
+/// The renderer is the main entry point for terminal rendering. It manages:
+/// - Double-buffered cell storage for flicker-free updates
+/// - Diff-based output to minimize ANSI sequences
+/// - Terminal state (cursor, alt screen, mouse tracking)
+/// - Hit testing grid for mouse interaction
+/// - Hyperlink pool for OSC 8 links
+///
+/// # Terminal Cleanup
+///
+/// The renderer implements [`Drop`] to restore terminal state automatically.
+/// For explicit cleanup, call [`cleanup`](Self::cleanup).
+///
+/// # Thread Safety
+///
+/// `Renderer` is not `Send` because it holds a reference to stdout. Keep it
+/// on the main thread and send drawing commands via channels if needed.
 pub struct Renderer {
     width: u32,
     height: u32,

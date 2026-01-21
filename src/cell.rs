@@ -1,4 +1,30 @@
 //! Terminal cell type representing a single character position.
+//!
+//! A terminal display is a grid of cells, where each cell contains a single
+//! character (or grapheme cluster) along with styling information. This module
+//! provides [`Cell`] and [`CellContent`] types for representing this data.
+//!
+//! # Wide Characters and Graphemes
+//!
+//! Some characters (CJK, emoji) have display width 2. When a wide character
+//! is placed in a cell, the following cell becomes a [`CellContent::Continuation`]
+//! to indicate it's occupied by the previous character.
+//!
+//! # Examples
+//!
+//! ```
+//! use opentui::{Cell, Style, Rgba};
+//!
+//! // Create a simple character cell
+//! let cell = Cell::new('A', Style::fg(Rgba::GREEN));
+//!
+//! // Create a cell with an emoji (grapheme cluster)
+//! let emoji = Cell::from_grapheme("👍", Style::NONE);
+//! assert_eq!(emoji.display_width(), 2);
+//!
+//! // Clear a cell (renders as space)
+//! let empty = Cell::clear(Rgba::BLACK);
+//! ```
 
 use crate::color::Rgba;
 use crate::style::{Style, TextAttributes};
@@ -6,6 +32,10 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 /// Content of a terminal cell.
+///
+/// Represents what is displayed in a single cell position. Most cells contain
+/// either a simple character or are empty. Wide characters and emoji use
+/// grapheme clusters and leave continuation markers in following cells.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CellContent {
     /// Simple ASCII or single-codepoint character (display width 1-2).
@@ -62,6 +92,19 @@ impl CellContent {
 }
 
 /// A single terminal cell with content and styling.
+///
+/// Cells are the fundamental unit of terminal rendering. Each cell occupies
+/// one column position and contains:
+/// - Content: A character, grapheme cluster, or empty/continuation marker
+/// - Foreground and background colors (with alpha for blending)
+/// - Text attributes (bold, italic, etc.)
+/// - Optional hyperlink ID for OSC 8 links
+///
+/// # Alpha Blending
+///
+/// Cells support alpha blending via [`Cell::blend_over`], which composites
+/// one cell on top of another using Porter-Duff "over" compositing. This
+/// enables transparent overlays and layered UI elements.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cell {
     /// The character or grapheme content.

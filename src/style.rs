@@ -1,10 +1,39 @@
 //! Text styling with attributes and colors.
+//!
+//! This module provides types for styling text in the terminal:
+//!
+//! - [`TextAttributes`]: Bitflags for bold, italic, underline, etc.
+//! - [`Style`]: Complete styling including colors, attributes, and hyperlinks
+//! - [`StyleBuilder`]: Fluent builder for constructing styles
+//!
+//! # Examples
+//!
+//! ```
+//! use opentui::{Style, TextAttributes, Rgba};
+//!
+//! // Quick style creation
+//! let title_style = Style::fg(Rgba::WHITE).with_bold();
+//!
+//! // Builder pattern for complex styles
+//! let highlight = Style::builder()
+//!     .fg(Rgba::from_hex("#FFD700").unwrap())
+//!     .bg(Rgba::from_hex("#1a1a2e").unwrap())
+//!     .bold()
+//!     .underline()
+//!     .build();
+//!
+//! // Merge styles (overlay takes precedence)
+//! let combined = Style::bold().merge(Style::fg(Rgba::RED));
+//! ```
 
 use crate::color::Rgba;
 use bitflags::bitflags;
 
 bitflags! {
     /// Text rendering attributes (bold, italic, etc.).
+    ///
+    /// Attributes are represented as bitflags and can be combined using
+    /// bitwise OR. Not all terminals support all attributes.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
     pub struct TextAttributes: u8 {
         /// Bold/increased intensity.
@@ -27,6 +56,19 @@ bitflags! {
 }
 
 /// Complete text style including colors, attributes, and optional hyperlink.
+///
+/// Styles are immutable and cheap to copy. Use the builder methods to create
+/// modified versions, or [`Style::merge`] to combine multiple styles.
+///
+/// # Default Values
+///
+/// `None` for colors means "use terminal default" rather than a specific color.
+/// This allows styled text to respect the user's terminal theme.
+///
+/// # Hyperlinks
+///
+/// The `link_id` field references URLs stored in a [`LinkPool`](crate::LinkPool).
+/// Terminals supporting OSC 8 will render these as clickable links.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Style {
     /// Foreground color (None = terminal default).

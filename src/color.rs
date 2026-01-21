@@ -1,8 +1,55 @@
 //! RGBA color type with alpha blending operations.
+//!
+//! This module provides the [`Rgba`] type, which represents colors using
+//! floating-point RGBA components. It supports:
+//!
+//! - **Color creation**: From f32/u8 components, hex strings, or HSV values
+//! - **Alpha blending**: Porter-Duff "over" compositing for layered rendering
+//! - **Color conversion**: To/from 256-color and 16-color terminal palettes
+//! - **Interpolation**: Linear interpolation between colors
+//!
+//! # Examples
+//!
+//! ```
+//! use opentui::Rgba;
+//!
+//! // Create colors in various ways
+//! let red = Rgba::RED;
+//! let custom = Rgba::from_hex("#1a1a2e").unwrap();
+//! let semi_transparent = Rgba::BLUE.with_alpha(0.5);
+//!
+//! // Blend colors using Porter-Duff "over"
+//! let result = semi_transparent.blend_over(Rgba::WHITE);
+//!
+//! // Convert to terminal palette
+//! let ansi_256 = red.to_256_color();
+//! ```
 
 use std::fmt;
 
 /// RGBA color with f32 components in range [0.0, 1.0].
+///
+/// Colors are stored as floating-point values for precision during blending
+/// operations. Terminal output converts to appropriate formats (true color,
+/// 256-color, or 16-color) based on terminal capabilities.
+///
+/// # Examples
+///
+/// ```
+/// use opentui::Rgba;
+///
+/// // Use predefined constants
+/// let bg = Rgba::BLACK;
+///
+/// // Create from RGB (opaque)
+/// let accent = Rgba::from_rgb_u8(100, 149, 237);
+///
+/// // Create with transparency
+/// let overlay = Rgba::RED.with_alpha(0.5);
+///
+/// // Blend: overlay on top of background
+/// let blended = overlay.blend_over(bg);
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rgba {
     pub r: f32,

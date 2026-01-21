@@ -1,4 +1,38 @@
 //! Cell-based frame buffer with alpha blending and scissoring.
+//!
+//! This module provides [`OptimizedBuffer`], the primary drawing surface for
+//! terminal rendering. Buffers are 2D grids of cells that support:
+//!
+//! - **Basic drawing**: Set individual cells, draw text, draw boxes
+//! - **Scissor clipping**: Restrict drawing to rectangular regions
+//! - **Opacity stacking**: Apply transparency to groups of operations
+//! - **Alpha blending**: Composite cells using Porter-Duff "over"
+//! - **Buffer compositing**: Draw one buffer onto another
+//!
+//! # Examples
+//!
+//! ```
+//! use opentui::{OptimizedBuffer, Style, Rgba, Cell};
+//! use opentui::buffer::ClipRect;
+//!
+//! let mut buf = OptimizedBuffer::new(80, 24);
+//!
+//! // Clear with background
+//! buf.clear(Rgba::BLACK);
+//!
+//! // Draw styled text
+//! buf.draw_text(10, 5, "Hello!", Style::fg(Rgba::GREEN));
+//!
+//! // Use scissor to clip drawing
+//! buf.push_scissor(ClipRect::new(0, 0, 40, 12));
+//! buf.draw_text(0, 0, "This text is clipped to left half", Style::NONE);
+//! buf.pop_scissor();
+//!
+//! // Use opacity for transparent overlays
+//! buf.push_opacity(0.5);
+//! buf.fill_rect(20, 10, 40, 5, Rgba::BLUE);
+//! buf.pop_opacity();
+//! ```
 
 // Buffer operations naturally have many parameters for region copying
 #![allow(clippy::too_many_arguments)]
@@ -16,6 +50,20 @@ use crate::color::Rgba;
 use crate::style::Style;
 
 /// Optimized cell buffer for terminal rendering.
+///
+/// The buffer maintains a 2D grid of [`Cell`]s along with scissor and opacity
+/// stacks for controlling how drawing operations are applied.
+///
+/// # Coordinate System
+///
+/// Coordinates are (x, y) where (0, 0) is the top-left corner. X increases
+/// to the right, Y increases downward.
+///
+/// # Drawing Behavior
+///
+/// All drawing operations respect the current scissor stack (clipping) and
+/// opacity stack (transparency). Use [`set_blended`](Self::set_blended) for
+/// alpha-compositing or [`set`](Self::set) for direct replacement.
 #[derive(Clone, Debug)]
 pub struct OptimizedBuffer {
     width: u32,
