@@ -824,7 +824,9 @@ mod tests {
 
     #[test]
     fn test_virtual_line_byte_range_last_line() {
-        eprintln!("[TEST] test_virtual_line_byte_range_last_line: Verifying byte range for last line");
+        eprintln!(
+            "[TEST] test_virtual_line_byte_range_last_line: Verifying byte range for last line"
+        );
 
         let buffer = TextBuffer::with_text("Hello World");
         let view = TextBufferView::new(&buffer)
@@ -836,13 +838,17 @@ mod tests {
 
         // Test the byte range for the last (and only) virtual line
         let range = info.virtual_line_byte_range(0);
-        eprintln!("[TEST] Byte range for line 0: {:?}", range);
+        eprintln!("[TEST] Byte range for line 0: {range:?}");
 
-        assert_eq!(range, Some((0, 11)), "Last line should have correct byte range (0, 11)");
+        assert_eq!(
+            range,
+            Some((0, 11)),
+            "Last line should have correct byte range (0, 11)"
+        );
 
         // Verify the content matches
         let text = &buffer.to_string()[0..11];
-        eprintln!("[TEST] Text in range: {:?}", text);
+        eprintln!("[TEST] Text in range: {text:?}");
         assert_eq!(text, "Hello World");
 
         eprintln!("[TEST] PASS: Last line byte range is correct");
@@ -850,7 +856,9 @@ mod tests {
 
     #[test]
     fn test_virtual_line_byte_range_wrapped() {
-        eprintln!("[TEST] test_virtual_line_byte_range_wrapped: Verifying byte ranges with wrapping");
+        eprintln!(
+            "[TEST] test_virtual_line_byte_range_wrapped: Verifying byte ranges with wrapping"
+        );
 
         let buffer = TextBuffer::with_text("abcdefgh");
         let view = TextBufferView::new(&buffer)
@@ -867,9 +875,9 @@ mod tests {
         let range1 = info.virtual_line_byte_range(1);
         let range2 = info.virtual_line_byte_range(2);
 
-        eprintln!("[TEST] Line 0 range: {:?}", range0);
-        eprintln!("[TEST] Line 1 range: {:?}", range1);
-        eprintln!("[TEST] Line 2 range: {:?}", range2);
+        eprintln!("[TEST] Line 0 range: {range0:?}");
+        eprintln!("[TEST] Line 1 range: {range1:?}");
+        eprintln!("[TEST] Line 2 range: {range2:?}");
 
         assert_eq!(range0, Some((0, 3)), "First line: bytes 0-3");
         assert_eq!(range1, Some((3, 6)), "Second line: bytes 3-6");
@@ -907,9 +915,15 @@ mod tests {
         eprintln!("[TEST]   max_width = {}", measure.max_width);
 
         // Without wrapping, should have exactly 3 lines
-        assert_eq!(measure.line_count, 3, "Should have 3 source lines without wrapping");
+        assert_eq!(
+            measure.line_count, 3,
+            "Should have 3 source lines without wrapping"
+        );
         // Max width should be the longest line: "very long line of text here" = 27 chars
-        assert_eq!(measure.max_width, 27, "Max width should be longest line (27 chars)");
+        assert_eq!(
+            measure.max_width, 27,
+            "Max width should be longest line (27 chars)"
+        );
 
         eprintln!("[TEST] PASS: No-wrap measurement correct");
     }
@@ -926,7 +940,10 @@ mod tests {
         // Wrap at width 3
         let measure = view.measure_for_dimensions(3, 10);
         eprintln!("[TEST] With width=3, char wrap:");
-        eprintln!("[TEST]   line_count = {} (expected 4: 'abc', 'def', 'ghi', 'j')", measure.line_count);
+        eprintln!(
+            "[TEST]   line_count = {} (expected 4: 'abc', 'def', 'ghi', 'j')",
+            measure.line_count
+        );
         eprintln!("[TEST]   max_width = {}", measure.max_width);
 
         assert_eq!(measure.line_count, 4, "10 chars / 3 = 4 wrapped lines");
@@ -935,7 +952,10 @@ mod tests {
         // Wrap at width 5
         let measure2 = view.measure_for_dimensions(5, 10);
         eprintln!("[TEST] With width=5:");
-        eprintln!("[TEST]   line_count = {} (expected 2: 'abcde', 'fghij')", measure2.line_count);
+        eprintln!(
+            "[TEST]   line_count = {} (expected 2: 'abcde', 'fghij')",
+            measure2.line_count
+        );
 
         assert_eq!(measure2.line_count, 2, "10 chars / 5 = 2 wrapped lines");
         assert_eq!(measure2.max_width, 5, "Max width capped at wrap width");
@@ -959,7 +979,10 @@ mod tests {
         eprintln!("[TEST]   max_width = {}", measure.max_width);
 
         assert_eq!(measure.line_count, 2, "Should wrap to 2 lines at width 12");
-        assert!(measure.max_width <= 12, "Max width should not exceed wrap width");
+        assert!(
+            measure.max_width <= 12,
+            "Max width should not exceed wrap width"
+        );
 
         // Wrap at width 6 - each word should be on its own line
         let measure2 = view.measure_for_dimensions(6, 10);
@@ -986,7 +1009,10 @@ mod tests {
         eprintln!("[TEST]   max_width = {}", measure.max_width);
 
         // Empty buffer should have 0 or 1 line depending on implementation
-        assert!(measure.line_count <= 1, "Empty buffer should have 0 or 1 line");
+        assert!(
+            measure.line_count <= 1,
+            "Empty buffer should have 0 or 1 line"
+        );
         assert_eq!(measure.max_width, 0, "Empty buffer should have max_width 0");
 
         eprintln!("[TEST] PASS: Empty buffer measurement correct");
@@ -1015,7 +1041,10 @@ mod tests {
         // Wrap at width 33
         let measure2 = view.measure_for_dimensions(33, 10);
         eprintln!("[TEST] With width=33:");
-        eprintln!("[TEST]   line_count = {} (expected 4: 33+33+33+1)", measure2.line_count);
+        eprintln!(
+            "[TEST]   line_count = {} (expected 4: 33+33+33+1)",
+            measure2.line_count
+        );
 
         assert_eq!(measure2.line_count, 4, "100 chars / 33 = 4 wrapped lines");
 
@@ -1039,7 +1068,10 @@ mod tests {
         eprintln!("[TEST]   max_width = {}", measure.max_width);
 
         // Should wrap to 2 lines: "你好" (4 cols) and "世界" (4 cols)
-        assert_eq!(measure.line_count, 2, "4 CJK chars at width 4 should be 2 lines");
+        assert_eq!(
+            measure.line_count, 2,
+            "4 CJK chars at width 4 should be 2 lines"
+        );
         assert_eq!(measure.max_width, 4, "Max width should be 4");
 
         // With width 8, all 4 chars should fit on one line
@@ -1047,7 +1079,10 @@ mod tests {
         eprintln!("[TEST] With width=8:");
         eprintln!("[TEST]   line_count = {}", measure2.line_count);
 
-        assert_eq!(measure2.line_count, 1, "All CJK chars should fit at width 8");
+        assert_eq!(
+            measure2.line_count, 1,
+            "All CJK chars should fit at width 8"
+        );
 
         eprintln!("[TEST] PASS: CJK content measurement correct");
     }
@@ -1061,7 +1096,10 @@ mod tests {
 
         let view = TextBufferView::new(&buffer).wrap_mode(WrapMode::Char);
         let measure1 = view.measure_for_dimensions(10, 10);
-        eprintln!("[TEST] Initial measure: line_count={}, max_width={}", measure1.line_count, measure1.max_width);
+        eprintln!(
+            "[TEST] Initial measure: line_count={}, max_width={}",
+            measure1.line_count, measure1.max_width
+        );
 
         assert_eq!(measure1.line_count, 1);
         assert_eq!(measure1.max_width, 5);
@@ -1073,10 +1111,16 @@ mod tests {
         // Create new view with updated buffer
         let view2 = TextBufferView::new(&buffer).wrap_mode(WrapMode::Char);
         let measure2 = view2.measure_for_dimensions(10, 10);
-        eprintln!("[TEST] Updated measure: line_count={}, max_width={}", measure2.line_count, measure2.max_width);
+        eprintln!(
+            "[TEST] Updated measure: line_count={}, max_width={}",
+            measure2.line_count, measure2.max_width
+        );
 
         // "this is a much longer line now" = 30 chars, at width 10 = 3 lines
-        assert_eq!(measure2.line_count, 3, "30 chars at width 10 should be 3 lines");
+        assert_eq!(
+            measure2.line_count, 3,
+            "30 chars at width 10 should be 3 lines"
+        );
         assert_eq!(measure2.max_width, 10);
 
         eprintln!("[TEST] PASS: Measurement updates correctly after edit");
@@ -1096,7 +1140,10 @@ mod tests {
             .wrap_mode(WrapMode::Char);
 
         let measure = view.measure_for_dimensions(8, 10);
-        eprintln!("[TEST] Measure: line_count={}, max_width={}", measure.line_count, measure.max_width);
+        eprintln!(
+            "[TEST] Measure: line_count={}, max_width={}",
+            measure.line_count, measure.max_width
+        );
 
         // Now render and count actual lines
         let mut output = OptimizedBuffer::new(8, 10);
@@ -1104,7 +1151,7 @@ mod tests {
 
         // Count rendered lines by checking for non-default content
         let virtual_count = view.virtual_line_count();
-        eprintln!("[TEST] virtual_line_count() = {}", virtual_count);
+        eprintln!("[TEST] virtual_line_count() = {virtual_count}");
 
         // Measure should match virtual line count
         assert_eq!(
@@ -1306,7 +1353,11 @@ mod tests {
         }
 
         assert_eq!(info.virtual_line_count(), 3, "Should have 3 virtual lines");
-        assert_eq!(info.sources, vec![0, 1, 2], "Each virtual line maps to its source");
+        assert_eq!(
+            info.sources,
+            vec![0, 1, 2],
+            "Each virtual line maps to its source"
+        );
         assert_eq!(info.wraps, vec![false, false, false], "No wrapping");
         assert_eq!(info.max_width, 11, "Max width should be 'Hello World' = 11");
 
@@ -1318,7 +1369,11 @@ mod tests {
         eprintln!("[TEST] test_line_cache_char_wrap_exact: Testing char wrap at exact boundary");
 
         let buffer = TextBuffer::with_text("abcdef");
-        eprintln!("[TEST] Input: {:?}, length: {}", buffer.to_string(), buffer.len_chars());
+        eprintln!(
+            "[TEST] Input: {:?}, length: {}",
+            buffer.to_string(),
+            buffer.len_chars()
+        );
 
         let view = TextBufferView::new(&buffer)
             .viewport(0, 0, 3, 10)
@@ -1345,7 +1400,11 @@ mod tests {
         eprintln!("[TEST] test_line_cache_char_wrap_overflow: Testing char wrap with overflow");
 
         let buffer = TextBuffer::with_text("abcdefgh");
-        eprintln!("[TEST] Input: {:?}, length: {}", buffer.to_string(), buffer.len_chars());
+        eprintln!(
+            "[TEST] Input: {:?}, length: {}",
+            buffer.to_string(),
+            buffer.len_chars()
+        );
 
         let view = TextBufferView::new(&buffer)
             .viewport(0, 0, 3, 10)
@@ -1389,7 +1448,10 @@ mod tests {
 
         // "Hello " (6) + "world" would exceed 10, so wrap at "Hello "
         // Then "world " (6) + "test" (4) = 10, fits
-        assert!(info.virtual_line_count() >= 2, "Should wrap into at least 2 lines");
+        assert!(
+            info.virtual_line_count() >= 2,
+            "Should wrap into at least 2 lines"
+        );
 
         eprintln!("[TEST] PASS: Word wrap breaks at word boundaries");
     }
@@ -1399,7 +1461,11 @@ mod tests {
         eprintln!("[TEST] test_line_cache_word_wrap_long_word: Testing word wrap with long word");
 
         let buffer = TextBuffer::with_text("supercalifragilisticexpialidocious");
-        eprintln!("[TEST] Input: {:?}, length: {}", buffer.to_string(), buffer.len_chars());
+        eprintln!(
+            "[TEST] Input: {:?}, length: {}",
+            buffer.to_string(),
+            buffer.len_chars()
+        );
 
         let view = TextBufferView::new(&buffer)
             .viewport(0, 0, 10, 10)
@@ -1415,7 +1481,10 @@ mod tests {
         }
 
         // Long word without spaces should still break at char boundaries
-        assert!(info.virtual_line_count() >= 3, "Long word should split across lines");
+        assert!(
+            info.virtual_line_count() >= 3,
+            "Long word should split across lines"
+        );
 
         eprintln!("[TEST] PASS: Long word breaks at character boundaries when no spaces");
     }
@@ -1427,7 +1496,7 @@ mod tests {
         let buffer = TextBuffer::with_text("Short\nThis is longer\nEnd");
         eprintln!("[TEST] Input with 3 logical lines:");
         for (i, line) in buffer.to_string().lines().enumerate() {
-            eprintln!("[TEST]   Line {}: {:?}", i, line);
+            eprintln!("[TEST]   Line {i}: {line:?}");
         }
 
         let view = TextBufferView::new(&buffer)
@@ -1470,7 +1539,11 @@ mod tests {
             );
         }
 
-        assert_eq!(info.virtual_line_count(), 3, "Should have 3 lines including empty");
+        assert_eq!(
+            info.virtual_line_count(),
+            3,
+            "Should have 3 lines including empty"
+        );
         assert_eq!(info.widths[1], 0, "Empty line has width 0");
 
         eprintln!("[TEST] PASS: Empty lines handled correctly");
@@ -1481,7 +1554,11 @@ mod tests {
         eprintln!("[TEST] test_line_cache_utf8_width: Testing UTF-8 character widths");
 
         let buffer = TextBuffer::with_text("Hëllo");
-        eprintln!("[TEST] Input: {:?}, byte len: {}", buffer.to_string(), buffer.to_string().len());
+        eprintln!(
+            "[TEST] Input: {:?}, byte len: {}",
+            buffer.to_string(),
+            buffer.to_string().len()
+        );
 
         let view = TextBufferView::new(&buffer)
             .viewport(0, 0, 80, 24)
@@ -1532,16 +1609,13 @@ mod tests {
         let info = view.line_info();
         eprintln!("[TEST] Wrap width: 5, LineInfo:");
         for i in 0..info.virtual_line_count() {
-            eprintln!(
-                "[TEST]   Line {}: width={}",
-                i, info.widths[i]
-            );
+            eprintln!("[TEST]   Line {}: width={}", i, info.widths[i]);
         }
 
         // Verify no line has an odd-width ending that would split a CJK char
         for (i, &width) in info.widths.iter().enumerate() {
-            eprintln!("[TEST] Verifying line {} width {} <= 5", i, width);
-            assert!(width <= 5, "Line {} width {} exceeds wrap width 5", i, width);
+            eprintln!("[TEST] Verifying line {i} width {width} <= 5");
+            assert!(width <= 5, "Line {i} width {width} exceeds wrap width 5");
         }
 
         eprintln!("[TEST] PASS: CJK characters not broken mid-character");
@@ -1557,7 +1631,11 @@ mod tests {
             .wrap_mode(WrapMode::None);
 
         let info1 = view.line_info();
-        eprintln!("[TEST] Initial info: lines={}, max_width={}", info1.virtual_line_count(), info1.max_width);
+        eprintln!(
+            "[TEST] Initial info: lines={}, max_width={}",
+            info1.virtual_line_count(),
+            info1.max_width
+        );
 
         // Create new buffer with different content
         let buffer2 = TextBuffer::with_text("Hello World Extended");
@@ -1566,9 +1644,16 @@ mod tests {
             .wrap_mode(WrapMode::None);
 
         let info2 = view2.line_info();
-        eprintln!("[TEST] New info: lines={}, max_width={}", info2.virtual_line_count(), info2.max_width);
+        eprintln!(
+            "[TEST] New info: lines={}, max_width={}",
+            info2.virtual_line_count(),
+            info2.max_width
+        );
 
-        assert_ne!(info1.max_width, info2.max_width, "Different content should have different width");
+        assert_ne!(
+            info1.max_width, info2.max_width,
+            "Different content should have different width"
+        );
 
         eprintln!("[TEST] PASS: Cache correctly reflects content changes");
     }
@@ -1583,13 +1668,19 @@ mod tests {
             .viewport(0, 0, 10, 10)
             .wrap_mode(WrapMode::None);
         let info_none = view_none.line_info();
-        eprintln!("[TEST] WrapMode::None: lines={}", info_none.virtual_line_count());
+        eprintln!(
+            "[TEST] WrapMode::None: lines={}",
+            info_none.virtual_line_count()
+        );
 
         let view_char = TextBufferView::new(&buffer)
             .viewport(0, 0, 10, 10)
             .wrap_mode(WrapMode::Char);
         let info_char = view_char.line_info();
-        eprintln!("[TEST] WrapMode::Char: lines={}", info_char.virtual_line_count());
+        eprintln!(
+            "[TEST] WrapMode::Char: lines={}",
+            info_char.virtual_line_count()
+        );
 
         assert_ne!(
             info_none.virtual_line_count(),
@@ -1620,22 +1711,22 @@ mod tests {
         // Test source_to_virtual
         for src in 0..=2 {
             let virt = info.source_to_virtual(src);
-            eprintln!("[TEST] source_to_virtual({}) = {:?}", src, virt);
-            assert!(virt.is_some(), "Source {} should map to a virtual line", src);
+            eprintln!("[TEST] source_to_virtual({src}) = {virt:?}");
+            assert!(virt.is_some(), "Source {src} should map to a virtual line");
         }
 
         // Test virtual_to_source
         for virt in 0..info.virtual_line_count() {
             let src = info.virtual_to_source(virt);
-            eprintln!("[TEST] virtual_to_source({}) = {:?}", virt, src);
-            assert!(src.is_some(), "Virtual {} should map to a source line", virt);
+            eprintln!("[TEST] virtual_to_source({virt}) = {src:?}");
+            assert!(src.is_some(), "Virtual {virt} should map to a source line");
         }
 
         // Test round-trip: source -> virtual -> source
         for src in 0..=2 {
             if let Some(virt) = info.source_to_virtual(src) {
                 let back = info.virtual_to_source(virt).unwrap();
-                eprintln!("[TEST] Round-trip: {} -> {} -> {}", src, virt, back);
+                eprintln!("[TEST] Round-trip: {src} -> {virt} -> {back}");
                 assert_eq!(back, src, "Round-trip should preserve source line");
             }
         }
@@ -1658,10 +1749,7 @@ mod tests {
         for virt in 0..info.virtual_line_count() {
             let src = info.virtual_to_source(virt);
             let is_cont = info.is_continuation(virt);
-            eprintln!(
-                "[TEST] Virtual {} -> source {:?}, is_continuation: {:?}",
-                virt, src, is_cont
-            );
+            eprintln!("[TEST] Virtual {virt} -> source {src:?}, is_continuation: {is_cont:?}");
         }
 
         // Verify out-of-bounds returns None
@@ -1688,10 +1776,16 @@ mod tests {
         eprintln!("[TEST] max_source_line: {:?}", info.max_source_line());
         assert_eq!(info.max_source_line(), Some(1));
 
-        eprintln!("[TEST] virtual_lines_for_source(0): {}", info.virtual_lines_for_source(0));
+        eprintln!(
+            "[TEST] virtual_lines_for_source(0): {}",
+            info.virtual_lines_for_source(0)
+        );
         assert_eq!(info.virtual_lines_for_source(0), 1);
 
-        eprintln!("[TEST] virtual_line_width(0): {:?}", info.virtual_line_width(0));
+        eprintln!(
+            "[TEST] virtual_line_width(0): {:?}",
+            info.virtual_line_width(0)
+        );
         assert_eq!(info.virtual_line_width(0), Some(5));
 
         eprintln!("[TEST] is_continuation(0): {:?}", info.is_continuation(0));
@@ -1702,17 +1796,26 @@ mod tests {
 
     #[test]
     fn test_line_cache_performance() {
+        use std::fmt::Write as _;
         use std::time::Instant;
 
         eprintln!("[PERF] test_line_cache_performance: Testing cache performance");
 
         // Generate 10K lines of text
-        let text: String = (0..10_000)
-            .map(|i| format!("Line {} with some content that might wrap when narrow\n", i))
-            .collect();
+        let mut text = String::new();
+        for i in 0..10_000 {
+            let _ = writeln!(
+                text,
+                "Line {i} with some content that might wrap when narrow"
+            );
+        }
 
         let buffer = TextBuffer::with_text(&text);
-        eprintln!("[PERF] Buffer size: {} bytes, {} lines", text.len(), buffer.len_lines());
+        eprintln!(
+            "[PERF] Buffer size: {} bytes, {} lines",
+            text.len(),
+            buffer.len_lines()
+        );
 
         let view = TextBufferView::new(&buffer)
             .viewport(0, 0, 80, 100)
@@ -1722,20 +1825,19 @@ mod tests {
         let info = view.line_info();
         let elapsed = start.elapsed();
 
-        eprintln!("[PERF] Cache computation time: {:?}", elapsed);
+        eprintln!("[PERF] Cache computation time: {elapsed:?}");
         eprintln!("[PERF] Virtual lines: {}", info.virtual_line_count());
         eprintln!("[PERF] Max width: {}", info.max_width);
         let lines_per_ms = 10_000.0 / elapsed.as_secs_f64() / 1000.0;
-        eprintln!("[PERF] Lines per millisecond: {:.0}", lines_per_ms);
+        eprintln!("[PERF] Lines per millisecond: {lines_per_ms:.0}");
 
         // Allow up to 100ms for CI/slow machines, but log if over 10ms
         if elapsed.as_millis() > 10 {
-            eprintln!("[PERF] WARNING: Took {:?}, expected <10ms", elapsed);
+            eprintln!("[PERF] WARNING: Took {elapsed:?}, expected <10ms");
         }
         assert!(
             elapsed.as_millis() < 100,
-            "Cache computation took {:?}, should be <100ms",
-            elapsed
+            "Cache computation took {elapsed:?}, should be <100ms"
         );
 
         eprintln!("[PERF] PASS: 10K lines processed efficiently");

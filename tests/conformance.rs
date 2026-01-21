@@ -4,6 +4,18 @@
 //! behavior captured in JSON fixtures. Following the porting-to-rust skill
 //! methodology: capture expected outputs, then verify against them.
 
+// Allow common patterns in test code that clippy flags as pedantic
+#![allow(
+    clippy::redundant_closure_for_method_calls,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::uninlined_format_args,
+    clippy::too_many_lines,
+    clippy::unnecessary_map_or,
+    clippy::map_unwrap_or
+)]
+
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -151,17 +163,17 @@ fn run_hex_parse_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
     let valid_expected = case
         .expected_output
         .get("valid")
-        .and_then(|v| v.as_bool())
+        .and_then(Value::as_bool)
         .unwrap_or(true);
 
     if !valid_expected {
-        let passed = parsed.is_none();
-        if !passed {
+        let success = parsed.is_none();
+        if !success {
             let actual = serde_json::json!({ "valid": true });
             let expected = serde_json::json!({ "valid": false });
             logger.log_case(&case.name, &expected, &actual);
         }
-        return passed;
+        return success;
     }
 
     let Some(color) = parsed else {
@@ -175,33 +187,22 @@ fn run_hex_parse_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 
     // Include alpha if expected
     if case.expected_output.get("a").is_some() {
-        let a = (color.a * 255.0).round() as u8;
-        actual["a"] = serde_json::json!(a);
+        let alpha_byte = (color.a * 255.0).round() as u8;
+        actual["a"] = serde_json::json!(alpha_byte);
     }
 
-    let passed = actual == case.expected_output;
-    if !passed {
+    let success = actual == case.expected_output;
+    if !success {
         logger.log_case(&case.name, &case.expected_output, &actual);
     }
-    passed
+    success
 }
 
+#[allow(clippy::many_single_char_names)]
 fn run_hsv_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
-    let h = case
-        .input
-        .get("h")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as f32;
-    let s = case
-        .input
-        .get("s")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as f32;
-    let v = case
-        .input
-        .get("v")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0) as f32;
+    let h = case.input.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let s = case.input.get("s").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let v = case.input.get("v").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
     let color = Rgba::from_hsv(h, s, v);
     let (r, g, b) = color.to_rgb_u8();
@@ -464,9 +465,7 @@ fn run_scissor_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 
 fn run_text_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
     match case.name.as_str() {
-        name if name.contains("wrap") || name.contains("multiline") => {
-            run_wrap_test(case, logger)
-        }
+        name if name.contains("wrap") || name.contains("multiline") => run_wrap_test(case, logger),
         name if name.starts_with("selection") => run_selection_test(case, logger),
         _ => {
             eprintln!("Unknown text test: {}", case.name);
@@ -510,8 +509,10 @@ fn run_wrap_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 
     let passed = count == expected_count;
     if !passed {
-        eprintln!("  [DEBUG] wrap test: text='{}' width={} mode={:?} actual={} expected={}",
-                  text, width, wrap_mode, count, expected_count);
+        eprintln!(
+            "  [DEBUG] wrap test: text='{}' width={} mode={:?} actual={} expected={}",
+            text, width, wrap_mode, count, expected_count
+        );
         let actual = serde_json::json!({ "line_count": count });
         logger.log_case(&case.name, &case.expected_output, &actual);
     }
@@ -555,7 +556,11 @@ fn run_input_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
         .input
         .get("bytes")
         .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut parser = InputParser::new();
@@ -649,12 +654,12 @@ fn verify_input_event(case: &FixtureCase, event: &Event, logger: &ArtifactLogger
             };
 
             let mods_match = {
-                let has_ctrl =
-                    key_event.modifiers.contains(KeyModifiers::CTRL) == expected_mods.contains(&"Ctrl".to_string());
+                let has_ctrl = key_event.modifiers.contains(KeyModifiers::CTRL)
+                    == expected_mods.contains(&"Ctrl".to_string());
                 let has_shift = key_event.modifiers.contains(KeyModifiers::SHIFT)
                     == expected_mods.contains(&"Shift".to_string());
-                let has_alt =
-                    key_event.modifiers.contains(KeyModifiers::ALT) == expected_mods.contains(&"Alt".to_string());
+                let has_alt = key_event.modifiers.contains(KeyModifiers::ALT)
+                    == expected_mods.contains(&"Alt".to_string());
                 has_ctrl && has_shift && has_alt
             };
 
@@ -703,19 +708,16 @@ fn verify_input_event(case: &FixtureCase, event: &Event, logger: &ArtifactLogger
 
             button_matches && kind_matches && pos_matches
         }
-        ("focus", Event::FocusGained) => {
-            case.expected_output
-                .get("gained")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        }
-        ("focus", Event::FocusLost) => {
-            !case
-                .expected_output
-                .get("gained")
-                .and_then(Value::as_bool)
-                .unwrap_or(true)
-        }
+        ("focus", Event::FocusGained) => case
+            .expected_output
+            .get("gained")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        ("focus", Event::FocusLost) => !case
+            .expected_output
+            .get("gained")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
         ("paste", Event::Paste(paste_event)) => {
             let expected_content = case
                 .expected_output
@@ -755,16 +757,8 @@ fn run_ansi_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 }
 
 fn run_cursor_position_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
-    let row = case
-        .input
-        .get("row")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as u32;
-    let col = case
-        .input
-        .get("col")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as u32;
+    let row = case.input.get("row").and_then(Value::as_u64).unwrap_or(0) as u32;
+    let col = case.input.get("col").and_then(Value::as_u64).unwrap_or(0) as u32;
 
     let sequence = ansi::cursor_position(row, col);
     let expected = case
@@ -813,11 +807,7 @@ fn run_true_color_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 }
 
 fn run_256_color_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
-    let index = case
-        .input
-        .get("index")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as u8;
+    let index = case.input.get("index").and_then(Value::as_u64).unwrap_or(0) as u8;
 
     // Generate 256-color foreground sequence: ESC[38;5;{index}m
     let sequence = format!("\x1b[38;5;{index}m");
@@ -836,11 +826,7 @@ fn run_256_color_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 }
 
 fn run_16_color_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
-    let index = case
-        .input
-        .get("index")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as u8;
+    let index = case.input.get("index").and_then(Value::as_u64).unwrap_or(0) as u8;
 
     // Generate 16-color foreground sequence:
     // 0-7: normal colors (30-37)
@@ -903,7 +889,11 @@ fn run_attributes_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
         return passed;
     }
 
-    if let Some(contains_arr) = case.expected_output.get("contains").and_then(Value::as_array) {
+    if let Some(contains_arr) = case
+        .expected_output
+        .get("contains")
+        .and_then(Value::as_array)
+    {
         let all_found = contains_arr.iter().all(|v| {
             v.as_str()
                 .map(|expected| sequence.contains(expected))

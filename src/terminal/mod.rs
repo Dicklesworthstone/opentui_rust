@@ -99,7 +99,10 @@ impl<W: Write> Terminal<W> {
     /// Update capabilities based on a parsed response.
     fn update_capabilities_from_response(&mut self, response: &TerminalResponse) {
         match response {
-            TerminalResponse::DeviceAttributes { primary: true, params } => {
+            TerminalResponse::DeviceAttributes {
+                primary: true,
+                params,
+            } => {
                 // DA1 param 4 indicates sixel support
                 if params.contains(&4) {
                     self.capabilities.sixel = true;
@@ -335,7 +338,7 @@ mod tests {
         }
 
         let s = String::from_utf8_lossy(&output);
-        eprintln!("[TEST] Output: {:?}", s);
+        eprintln!("[TEST] Output: {s:?}");
 
         // Check that the save cursor sequence is present (terminal cleanup adds extra sequences)
         assert!(
@@ -356,7 +359,7 @@ mod tests {
         }
 
         let s = String::from_utf8_lossy(&output);
-        eprintln!("[TEST] Output: {:?}", s);
+        eprintln!("[TEST] Output: {s:?}");
 
         // Check that the restore cursor sequence is present (terminal cleanup adds extra sequences)
         assert!(
@@ -381,7 +384,7 @@ mod tests {
         }
 
         let s = String::from_utf8_lossy(&output);
-        eprintln!("[TEST] Full sequence: {:?}", s);
+        eprintln!("[TEST] Full sequence: {s:?}");
 
         // Should contain save, move, restore in order
         assert!(s.contains("\x1b7"), "Should contain save sequence");
@@ -401,7 +404,7 @@ mod tests {
         }
 
         let s = String::from_utf8_lossy(&output);
-        eprintln!("[TEST] Output: {:?}", s);
+        eprintln!("[TEST] Output: {s:?}");
 
         // Should start with OSC 12 sequence: \x1b]12;#ff8000\x07
         assert!(
@@ -422,7 +425,7 @@ mod tests {
         }
 
         let s = String::from_utf8_lossy(&output);
-        eprintln!("[TEST] Output: {:?}", s);
+        eprintln!("[TEST] Output: {s:?}");
 
         // Should start with OSC 112: \x1b]112\x07
         assert!(

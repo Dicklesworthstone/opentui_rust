@@ -175,11 +175,7 @@ impl E2EHarness {
     /// 1. Call `inject_input(b"\x1b[200~")` to enter paste mode
     /// 2. Call `inject_input(b"content\x1b[201~")` to get the paste event
     pub fn inject_input(&mut self, bytes: &[u8]) -> Vec<Event> {
-        eprintln!(
-            "[HARNESS] Injecting {} bytes: {:02x?}",
-            bytes.len(),
-            bytes
-        );
+        eprintln!("[HARNESS] Injecting {} bytes: {:02x?}", bytes.len(), bytes);
         self.input_buffer.extend_from_slice(bytes);
 
         let mut events = Vec::new();
@@ -192,7 +188,7 @@ impl E2EHarness {
             match self.parser.parse(&self.input_buffer) {
                 Ok((event, consumed)) => {
                     let elapsed = self.start_time.elapsed();
-                    eprintln!("[HARNESS] {:?} Parsed event: {:?}", elapsed, event);
+                    eprintln!("[HARNESS] {elapsed:?} Parsed event: {event:?}");
                     self.events.push((elapsed, event.clone()));
                     events.push(event);
                     self.input_buffer.drain(..consumed);
@@ -214,12 +210,12 @@ impl E2EHarness {
     }
 
     /// Get the output buffer for rendering.
-    pub fn buffer_mut(&mut self) -> &mut OptimizedBuffer {
+    pub const fn buffer_mut(&mut self) -> &mut OptimizedBuffer {
         &mut self.output_buffer
     }
 
     /// Get the output buffer (immutable).
-    pub fn buffer(&self) -> &OptimizedBuffer {
+    pub const fn buffer(&self) -> &OptimizedBuffer {
         &self.output_buffer
     }
 
@@ -233,7 +229,7 @@ impl E2EHarness {
                         opentui::CellContent::Char(c) => output.push(*c),
                         opentui::CellContent::Grapheme(g) => output.push_str(g),
                         opentui::CellContent::Empty | opentui::CellContent::Continuation => {
-                            output.push(' ')
+                            output.push(' ');
                         }
                     }
                 } else {
@@ -259,9 +255,7 @@ impl E2EHarness {
         };
         let expected = expected_char.to_string();
 
-        eprintln!(
-            "[HARNESS] assert_cell({x},{y}) expected='{expected}' actual='{actual}'"
-        );
+        eprintln!("[HARNESS] assert_cell({x},{y}) expected='{expected}' actual='{actual}'");
 
         assert_eq!(actual, expected, "{msg} at ({x},{y})");
     }
@@ -278,7 +272,7 @@ impl E2EHarness {
             attributes: cell.attributes,
             link_id: cell.link_id,
         };
-        eprintln!("[HARNESS] assert_style({x},{y}) style={:?}", style);
+        eprintln!("[HARNESS] assert_style({x},{y}) style={style:?}");
 
         assert!(predicate(&style), "{msg} at ({x},{y})");
     }

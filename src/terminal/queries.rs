@@ -171,17 +171,24 @@ impl TerminalResponse {
             .windows(2)
             .position(|w| w == b"\x1b\\")
             .map(|p| content_start + p)
-            .or_else(|| input[content_start..].iter().position(|&b| b == 0x9c).map(|p| content_start + p))?;
+            .or_else(|| {
+                input[content_start..]
+                    .iter()
+                    .position(|&b| b == 0x9c)
+                    .map(|p| content_start + p)
+            })?;
 
         let content = std::str::from_utf8(&input[content_start..st_pos]).ok()?;
 
         // Parse "name version" format
         let (name, version) = content.find(' ').map_or_else(
             || (content.to_string(), String::new()),
-            |space_pos| (
-                content[..space_pos].to_string(),
-                content[space_pos + 1..].to_string(),
-            ),
+            |space_pos| {
+                (
+                    content[..space_pos].to_string(),
+                    content[space_pos + 1..].to_string(),
+                )
+            },
         );
 
         Some(TerminalResponse::XtVersion { name, version })
@@ -233,7 +240,11 @@ impl TerminalResponse {
     /// Sixel is indicated by parameter 4 in the DA1 response.
     #[must_use]
     pub fn has_sixel(&self) -> bool {
-        if let TerminalResponse::DeviceAttributes { primary: true, params } = self {
+        if let TerminalResponse::DeviceAttributes {
+            primary: true,
+            params,
+        } = self
+        {
             params.contains(&4)
         } else {
             false

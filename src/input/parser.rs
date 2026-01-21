@@ -391,7 +391,10 @@ impl InputParser {
             let content = String::from_utf8_lossy(&self.paste_buffer).into_owned();
             self.paste_buffer.clear();
 
-            Ok((Event::Paste(PasteEvent::new(content)), content_start + pos + END_SEQ.len()))
+            Ok((
+                Event::Paste(PasteEvent::new(content)),
+                content_start + pos + END_SEQ.len(),
+            ))
         } else {
             self.paste_buffer.extend_from_slice(effective_input);
             Err(ParseError::Incomplete)
@@ -524,6 +527,7 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 #[cfg(test)]
+#[allow(clippy::uninlined_format_args)]
 mod tests {
     use super::*;
 
@@ -809,7 +813,9 @@ mod tests {
 
     #[test]
     fn test_bracketed_paste_full_sequence_at_once() {
-        eprintln!("[TEST] test_bracketed_paste_full_sequence_at_once: Testing full paste sequence in single call");
+        eprintln!(
+            "[TEST] test_bracketed_paste_full_sequence_at_once: Testing full paste sequence in single call"
+        );
         let mut parser = InputParser::new();
 
         // First call parses the CSI 200~ and enters paste mode, returns Incomplete
@@ -834,8 +840,14 @@ mod tests {
         eprintln!("[TEST] Consumed: {} bytes", consumed);
 
         // Content should NOT include the start sequence
-        assert_eq!(paste.content, "hello world", "Start sequence should be stripped");
-        assert!(!paste.content.contains("\x1b[200~"), "Content should not contain start sequence");
+        assert_eq!(
+            paste.content, "hello world",
+            "Start sequence should be stripped"
+        );
+        assert!(
+            !paste.content.contains("\x1b[200~"),
+            "Content should not contain start sequence"
+        );
         assert_eq!(consumed, full_input.len(), "Should consume entire input");
 
         eprintln!("[TEST] SUCCESS: Full sequence at once correctly strips start sequence");
@@ -884,7 +896,10 @@ mod tests {
         let (event, _) = parser.parse(input).unwrap();
         let mouse = event.mouse().expect("Should be a mouse event");
 
-        eprintln!("[TEST] Mouse: button={:?} at ({}, {})", mouse.button, mouse.x, mouse.y);
+        eprintln!(
+            "[TEST] Mouse: button={:?} at ({}, {})",
+            mouse.button, mouse.x, mouse.y
+        );
         assert_eq!(mouse.button, MouseButton::Right);
         assert_eq!(mouse.kind, MouseEventKind::Press);
         assert_eq!(mouse.x, 29);
@@ -1165,9 +1180,7 @@ mod tests {
 
     #[test]
     fn test_parse_sgr_mouse_coordinate_boundary() {
-        eprintln!(
-            "[TEST] test_parse_sgr_mouse_coordinate_boundary: Testing coordinate edge cases"
-        );
+        eprintln!("[TEST] test_parse_sgr_mouse_coordinate_boundary: Testing coordinate edge cases");
         let mut parser = InputParser::new();
 
         // Minimum coordinates (1,1) -> (0,0)

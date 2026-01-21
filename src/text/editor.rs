@@ -797,7 +797,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::None);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] WrapMode: None");
 
         let cursor = view.edit_buffer().cursor();
@@ -841,7 +841,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
 
@@ -890,7 +890,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Text length: {} chars", text.len());
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
@@ -942,7 +942,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::None);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] WrapMode: None");
 
         let cursor = view.edit_buffer().cursor();
@@ -984,7 +984,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
 
@@ -1030,7 +1030,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Text length: {} chars", text.len());
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
@@ -1079,7 +1079,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
 
@@ -1096,7 +1096,7 @@ mod tests {
         );
 
         let sol = view.get_visual_sol(10, 24);
-        eprintln!("[TEST] Visual SOL offset: {}", sol);
+        eprintln!("[TEST] Visual SOL offset: {sol}");
         eprintln!(
             "[TEST] Character at SOL: {:?}",
             text.chars().nth(sol).unwrap_or(' ')
@@ -1120,7 +1120,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
         eprintln!("[TEST] WrapMode: Char");
 
@@ -1137,7 +1137,7 @@ mod tests {
         );
 
         let eol = view.get_visual_eol(10, 24);
-        eprintln!("[TEST] Visual EOL offset: {}", eol);
+        eprintln!("[TEST] Visual EOL offset: {eol}");
         eprintln!(
             "[TEST] Character before EOL: {:?}",
             text.chars().nth(eol.saturating_sub(1)).unwrap_or(' ')
@@ -1207,7 +1207,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::None);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
 
         let cursor = view.edit_buffer().cursor();
         eprintln!(
@@ -1239,7 +1239,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::None);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
 
         let cursor = view.edit_buffer().cursor();
         eprintln!(
@@ -1271,7 +1271,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Text char count: {}", text.chars().count());
         eprintln!("[TEST] Expected widths:");
         eprintln!("[TEST]   'ABC' = 3 cols");
@@ -1316,11 +1316,10 @@ mod tests {
         );
 
         // Convert to byte offset to verify byte boundary
-        let byte_offset: usize = text.chars().take(cursor.offset).map(|c| c.len_utf8()).sum();
+        let byte_offset: usize = text.chars().take(cursor.offset).map(char::len_utf8).sum();
         assert!(
             text.is_char_boundary(byte_offset),
-            "Byte offset {} should be at valid char boundary",
-            byte_offset
+            "Byte offset {byte_offset} should be at valid char boundary"
         );
         eprintln!(
             "[TEST] Verified: char offset={} -> byte offset={} is valid",
@@ -1339,7 +1338,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Word);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 8");
         eprintln!("[TEST] WrapMode: Word");
 
@@ -1382,7 +1381,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
 
         let cursor = view.edit_buffer().cursor();
@@ -1394,10 +1393,7 @@ mod tests {
         view.move_to_visual_sol(10, 24);
 
         let cursor = view.edit_buffer().cursor();
-        eprintln!(
-            "[TEST] After move_to_visual_sol: offset={}",
-            cursor.offset
-        );
+        eprintln!("[TEST] After move_to_visual_sol: offset={}", cursor.offset);
 
         // Should be at start of second visual line
         assert_eq!(cursor.offset, 10, "Should move to visual line start");
@@ -1413,7 +1409,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
 
         let cursor = view.edit_buffer().cursor();
@@ -1425,10 +1421,7 @@ mod tests {
         view.move_to_visual_eol(10, 24);
 
         let cursor = view.edit_buffer().cursor();
-        eprintln!(
-            "[TEST] After move_to_visual_eol: offset={}",
-            cursor.offset
-        );
+        eprintln!("[TEST] After move_to_visual_eol: offset={}", cursor.offset);
 
         // Should be at end of first visual line
         assert_eq!(cursor.offset, 10, "Should move to visual line end");
@@ -1444,7 +1437,7 @@ mod tests {
         let mut view = EditorView::new(edit);
         view.set_wrap_mode(WrapMode::Char);
 
-        eprintln!("[TEST] Text: {:?}", text);
+        eprintln!("[TEST] Text: {text:?}");
         eprintln!("[TEST] Viewport width: 10");
 
         let vc = view.visual_cursor(10, 24);
@@ -1588,7 +1581,10 @@ mod tests {
         view.extend_selection_to_cursor();
 
         let sel = view.selection.unwrap();
-        eprintln!("[TEST] Extended to end: start={} end={}", sel.start, sel.end);
+        eprintln!(
+            "[TEST] Extended to end: start={} end={}",
+            sel.start, sel.end
+        );
         assert_eq!(sel.end, 13);
 
         eprintln!("[TEST] PASS: extend_selection_to_cursor works");
@@ -1636,20 +1632,20 @@ mod tests {
         view.set_selection(0, 5); // "Hello"
 
         let text = view.selected_text();
-        eprintln!("[TEST] Selected text: {:?}", text);
+        eprintln!("[TEST] Selected text: {text:?}");
 
         assert_eq!(text, Some("Hello".to_string()));
 
         // Backward selection should also work
         view.set_selection(13, 7); // "World!" backward
         let text = view.selected_text();
-        eprintln!("[TEST] Backward selection text: {:?}", text);
+        eprintln!("[TEST] Backward selection text: {text:?}");
         assert_eq!(text, Some("World!".to_string()));
 
         // Empty selection (start == end) should return None
         view.set_selection(5, 5);
         let text = view.selected_text();
-        eprintln!("[TEST] Empty selection text: {:?}", text);
+        eprintln!("[TEST] Empty selection text: {text:?}");
         assert!(text.is_none(), "Empty selection should return None");
 
         eprintln!("[TEST] PASS: selected_text returns correct content");
@@ -1677,7 +1673,7 @@ mod tests {
 
         // Should have selected from start to current position
         let text = view.selected_text().unwrap();
-        eprintln!("[TEST] Selected: {:?}", text);
+        eprintln!("[TEST] Selected: {text:?}");
 
         assert!(text.contains("Line"));
 

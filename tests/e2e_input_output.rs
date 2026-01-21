@@ -18,7 +18,7 @@ fn test_e2e_key_input_and_render() {
     // Inject right arrow key input (ESC [ C)
     let events = harness.inject_input(b"\x1b[C");
 
-    eprintln!("[TEST] Parsed events: {:?}", events);
+    eprintln!("[TEST] Parsed events: {events:?}");
     assert_eq!(events.len(), 1, "Should parse exactly one event");
 
     if let Event::Key(key) = &events[0] {
@@ -57,7 +57,7 @@ fn test_e2e_mouse_click_and_selection() {
     // Format: ESC [ < Cb ; Cx ; Cy M
     let events = harness.inject_input(b"\x1b[<0;6;1M");
 
-    eprintln!("[TEST] Mouse events: {:?}", events);
+    eprintln!("[TEST] Mouse events: {events:?}");
     assert!(!events.is_empty(), "Should parse at least one event");
 
     if let Some(Event::Mouse(mouse)) = events.first() {
@@ -96,23 +96,22 @@ fn test_e2e_bracketed_paste() {
     // 2. Second call provides content + end marker (returns Paste event)
     // Format: ESC [ 200 ~ <content> ESC [ 201 ~
     let events1 = harness.inject_input(b"\x1b[200~");
-    eprintln!("[TEST] After start sequence: {:?}", events1);
-    assert!(events1.is_empty(), "Start sequence should not produce events yet");
+    eprintln!("[TEST] After start sequence: {events1:?}");
+    assert!(
+        events1.is_empty(),
+        "Start sequence should not produce events yet"
+    );
 
     let events = harness.inject_input(b"Pasted text\x1b[201~");
 
-    eprintln!("[TEST] Paste events: {:?}", events);
+    eprintln!("[TEST] Paste events: {events:?}");
     assert!(!events.is_empty(), "Should parse paste event");
 
     let mut paste_found = false;
     for event in &events {
         if let Event::Paste(paste) = event {
             eprintln!("[TEST] Paste content: {:?}", paste.content());
-            assert_eq!(
-                paste.content(),
-                "Pasted text",
-                "Paste content should match"
-            );
+            assert_eq!(paste.content(), "Pasted text", "Paste content should match");
             paste_found = true;
 
             // Insert pasted text into editor
