@@ -272,12 +272,17 @@ impl OptimizedBuffer {
     ) {
         let max_y = (src_y + src_h).min(src.height);
         let max_x = (src_x + src_w).min(src.width);
+        let opacity = self.opacity_stack.current();
+        let use_blend = respect_alpha && self.respect_alpha;
 
         for sy in src_y..max_y {
             let dest_y = y + (sy - src_y) as i32;
             if dest_y < 0 || dest_y >= self.height as i32 {
                 continue;
             }
+            let dest_y_u = dest_y as u32;
+            let src_row = (sy * src.width) as usize;
+            let dest_row = (dest_y_u * self.width) as usize;
 
             for sx in src_x..max_x {
                 let dest_x = x + (sx - src_x) as i32;
@@ -285,12 +290,27 @@ impl OptimizedBuffer {
                     continue;
                 }
 
-                if let Some(cell) = src.get(sx, sy) {
-                    if respect_alpha {
-                        self.set_blended(dest_x as u32, dest_y as u32, cell.clone());
-                    } else {
-                        self.set(dest_x as u32, dest_y as u32, cell.clone());
+                if !self.scissor_stack.contains(dest_x, dest_y) {
+                    continue;
+                }
+
+                let src_idx = src_row + sx as usize;
+                let dest_idx = dest_row + dest_x as usize;
+                let src_cell = &src.cells[src_idx];
+                let dest_cell = &mut self.cells[dest_idx];
+
+                if use_blend {
+                    let mut blended = src_cell.clone();
+                    if opacity < 1.0 {
+                        blended.blend_with_opacity(opacity);
                     }
+                    *dest_cell = blended.blend_over(dest_cell);
+                } else if opacity < 1.0 {
+                    let mut blended = src_cell.clone();
+                    blended.blend_with_opacity(opacity);
+                    *dest_cell = blended;
+                } else {
+                    dest_cell.clone_from(src_cell);
                 }
             }
         }

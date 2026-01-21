@@ -56,7 +56,9 @@ impl BufferDiff {
     #[must_use]
     pub fn compute(old: &OptimizedBuffer, new: &OptimizedBuffer) -> Self {
         let (width, height) = old.size();
-        let mut changed_cells = Vec::new();
+        let total_cells = (width as usize).saturating_mul(height as usize);
+        let reserve = (total_cells / 8).max(32).min(total_cells);
+        let mut changed_cells = Vec::with_capacity(reserve);
 
         for y in 0..height {
             for x in 0..width {
