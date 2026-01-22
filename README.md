@@ -1,17 +1,16 @@
 # OpenTUI
 
-```
-   ___                   _____ _   _ ___
-  / _ \ _ __   ___ _ __ |_   _| | | |_ _|
- | | | | '_ \ / _ \ '_ \  | | | | | || |
- | |_| | |_) |  __/ | | | | | | |_| || |
-  \___/| .__/ \___|_| |_| |_|  \___/|___|
-       |_|
-```
+<div align="center">
+  <img src="opentui_rust.webp" alt="OpenTUI - High-performance terminal UI library">
+</div>
+
+<div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-purple.svg)](https://doc.rust-lang.org/edition-guide/)
+
+</div>
 
 **High-performance terminal UI library with alpha blending, scissoring, and double-buffered rendering.**
 
