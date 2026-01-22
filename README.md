@@ -1,7 +1,7 @@
-# OpenTUI
+# OpenTUI Rust
 
 <div align="center">
-  <img src="opentui_rust.webp" alt="OpenTUI - High-performance terminal UI library">
+  <img src="opentui_rust.webp" alt="OpenTUI Rust - High-performance terminal UI library">
 </div>
 
 <div align="center">
@@ -9,6 +9,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-purple.svg)](https://doc.rust-lang.org/edition-guide/)
+
+*A Rust port of [anomalyco/opentui](https://github.com/anomalyco/opentui) (TypeScript), with native Rust performance and extended features.*
 
 </div>
 
