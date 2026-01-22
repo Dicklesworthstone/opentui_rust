@@ -18,3 +18,4 @@ Thumbs.db
 # Environment files with secrets
 .env
 .env.*
+._*
