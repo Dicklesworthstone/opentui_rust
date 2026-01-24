@@ -97,7 +97,7 @@ log "Artifacts: $ARTIFACTS_DIR/conformance"
 
 for test in "${CONFORMANCE_TESTS[@]}"; do
   if [[ -n "$FILTER" ]] && [[ ! "$test" =~ $FILTER ]]; then
-    ((SKIPPED++))
+    SKIPPED=$((SKIPPED + 1))
     continue
   fi
 
@@ -111,10 +111,10 @@ for test in "${CONFORMANCE_TESTS[@]}"; do
 
   if timeout "$TIMEOUT" cargo test --test "$test" -- $NOCAPTURE_FLAG 2>&1; then
     RESULT="pass"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
   else
     RESULT="fail"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
   fi
 
   TEST_END=$(date +%s.%N)
