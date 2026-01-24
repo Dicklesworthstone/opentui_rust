@@ -178,7 +178,7 @@ impl History {
 ///
 /// # History Management
 ///
-/// Edit operations are grouped automatically. Call [`commit_edit`](Self::commit_edit)
+/// Edit operations are grouped automatically. Call [`commit`](Self::commit)
 /// to force a group boundary (e.g., after a pause in typing). The history depth
 /// is bounded (default 1000 groups) to limit memory usage.
 #[derive(Clone, Debug, Default)]

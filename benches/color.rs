@@ -96,6 +96,7 @@ fn color_interpolation(c: &mut Criterion) {
         b.iter(|| {
             let mut colors = [Rgba::BLACK; 10];
             for (i, color) in colors.iter_mut().enumerate() {
+                #[allow(clippy::cast_precision_loss)]
                 let t = i as f32 / 9.0;
                 *color = black_box(from).lerp(black_box(to), t);
             }

@@ -8,7 +8,7 @@ use std::hint::black_box;
 
 fn text_buffer_creation(c: &mut Criterion) {
     c.bench_function("textbuffer_new", |b| {
-        b.iter(|| TextBuffer::new());
+        b.iter(TextBuffer::new);
     });
 
     c.bench_function("textbuffer_with_text_short", |b| {
@@ -43,7 +43,7 @@ fn text_buffer_ops(c: &mut Criterion) {
 
 fn edit_buffer_creation(c: &mut Criterion) {
     c.bench_function("editbuffer_new", |b| {
-        b.iter(|| EditBuffer::new());
+        b.iter(EditBuffer::new);
     });
 
     c.bench_function("editbuffer_with_text", |b| {
