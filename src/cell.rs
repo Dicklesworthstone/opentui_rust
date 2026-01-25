@@ -225,16 +225,22 @@ impl Cell {
     /// Blend this cell over a background cell using alpha compositing.
     #[must_use]
     pub fn blend_over(self, background: &Cell) -> Cell {
+        let (content, attributes, link_id) = if self.content.is_empty() {
+            (
+                background.content.clone(),
+                background.attributes,
+                background.link_id,
+            )
+        } else {
+            (self.content, self.attributes, self.link_id)
+        };
+
         Cell {
-            content: if self.content.is_empty() {
-                background.content.clone()
-            } else {
-                self.content
-            },
+            content,
             fg: self.fg.blend_over(background.fg),
             bg: self.bg.blend_over(background.bg),
-            attributes: self.attributes | background.attributes,
-            link_id: self.link_id.or(background.link_id),
+            attributes,
+            link_id,
         }
     }
 }
@@ -257,6 +263,28 @@ mod tests {
         assert!(matches!(cell.content, CellContent::Grapheme(_)));
         // ZWJ family emoji has width 2
         assert_eq!(cell.display_width(), 2);
+    }
+
+    #[test]
+    fn test_blend_over_attributes_override_for_content() {
+        let bg = Cell::new('A', Style::bold());
+        let fg = Cell::new('B', Style::NONE);
+        let fg_attrs = fg.attributes;
+        let blended = fg.blend_over(&bg);
+
+        assert_eq!(blended.content, CellContent::Char('B'));
+        assert_eq!(blended.attributes, fg_attrs);
+    }
+
+    #[test]
+    fn test_blend_over_empty_preserves_background_attrs_and_link() {
+        let bg = Cell::new('A', Style::bold().with_link(7));
+        let fg = Cell::clear(Rgba::TRANSPARENT);
+        let blended = fg.blend_over(&bg);
+
+        assert_eq!(blended.content, CellContent::Char('A'));
+        assert_eq!(blended.attributes, bg.attributes);
+        assert_eq!(blended.link_id, bg.link_id);
     }
 
     #[test]

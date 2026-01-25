@@ -40,8 +40,6 @@ pub type ParseResult = Result<(Event, usize), ParseError>;
 /// Parser state for multi-byte sequences.
 #[derive(Clone, Debug, Default)]
 pub struct InputParser {
-    /// Buffer for incomplete sequences.
-    buffer: Vec<u8>,
     /// Whether we're in bracketed paste mode.
     in_paste: bool,
     /// Accumulated paste content.
@@ -428,7 +426,6 @@ impl InputParser {
 
     /// Clear any buffered state.
     pub fn clear(&mut self) {
-        self.buffer.clear();
         self.in_paste = false;
         self.paste_buffer.clear();
     }
