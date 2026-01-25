@@ -237,17 +237,33 @@ impl OptimizedBuffer {
         }
 
         let opacity = self.opacity_stack.current();
+        let needs_blend = opacity < 1.0 || !bg.is_opaque();
         let mut cell = Cell::clear(bg);
         if opacity < 1.0 {
             cell.blend_with_opacity(opacity);
         }
 
+        // Optimized path for opaque fill (erasure) or when alpha is disabled
+        if !needs_blend || !self.respect_alpha {
+            let row_width = self.width as usize;
+            for row in y0..y1 {
+                let row_start = row as usize * row_width;
+                let start = row_start + x0 as usize;
+                let end = row_start + x1 as usize;
+                self.cells[start..end].fill(cell.clone());
+            }
+            return;
+        }
+
+        // Blending path for transparent fill (overlay/tint)
         let row_width = self.width as usize;
         for row in y0..y1 {
             let row_start = row as usize * row_width;
-            let start = row_start + x0 as usize;
-            let end = row_start + x1 as usize;
-            self.cells[start..end].fill(cell.clone());
+            for col in x0..x1 {
+                let dest_idx = row_start + col as usize;
+                let dest_cell = &mut self.cells[dest_idx];
+                *dest_cell = cell.clone().blend_over(dest_cell);
+            }
         }
     }
 

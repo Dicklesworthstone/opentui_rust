@@ -97,7 +97,8 @@ impl<W: Write> AnsiWriter<W> {
         let dx = col as i32 - self.cursor_col as i32;
 
         // Calculate cost of absolute vs relative move
-        let abs_cost = 6 + digits(row + 1) + digits(col + 1); // ESC[r;cH
+        // ESC[r;cH = 1+1+digits(r)+1+digits(c)+1 = 4 + digits
+        let abs_cost = 4 + digits(row + 1) + digits(col + 1);
         let rel_cost = if dy != 0 {
             3 + digits(dy.unsigned_abs())
         } else {
@@ -143,11 +144,35 @@ impl<W: Write> AnsiWriter<W> {
         // Check what needs to be turned off
         let removed = self.current_attrs - attrs;
         if !removed.is_empty() {
-            // Reset and reapply - simpler than tracking individual resets
-            self.write_str(ansi::RESET);
-            self.current_attrs = TextAttributes::empty();
-            self.current_fg = None;
-            self.current_bg = None;
+            let mut codes = Vec::new();
+            if removed.contains(TextAttributes::BOLD) || removed.contains(TextAttributes::DIM) {
+                codes.push("22");
+            }
+            if removed.contains(TextAttributes::ITALIC) {
+                codes.push("23");
+            }
+            if removed.contains(TextAttributes::UNDERLINE) {
+                codes.push("24");
+            }
+            if removed.contains(TextAttributes::BLINK) {
+                codes.push("25");
+            }
+            if removed.contains(TextAttributes::INVERSE) {
+                codes.push("27");
+            }
+            if removed.contains(TextAttributes::HIDDEN) {
+                codes.push("28");
+            }
+            if removed.contains(TextAttributes::STRIKETHROUGH) {
+                codes.push("29");
+            }
+
+            if !codes.is_empty() {
+                self.write_str(&format!("\x1b[{}m", codes.join(";")));
+            }
+
+            // Update current attributes to reflect removal
+            self.current_attrs -= removed;
         }
 
         // Apply new attributes

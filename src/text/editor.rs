@@ -303,10 +303,11 @@ impl EditorView {
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
         // Find current visual line
+        // Use strict inequality for end to prefer next line at wrap points
         let current_vline_idx = vlines
             .iter()
-            .position(|vl| byte_offset >= vl.byte_start && byte_offset <= vl.byte_end)
-            .unwrap_or(0);
+            .position(|vl| byte_offset >= vl.byte_start && byte_offset < vl.byte_end)
+            .unwrap_or_else(|| vlines.len().saturating_sub(1));
 
         if current_vline_idx == 0 {
             return; // Already at top
@@ -339,10 +340,11 @@ impl EditorView {
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
         // Find current visual line
+        // Use strict inequality for end to prefer next line at wrap points
         let current_vline_idx = vlines
             .iter()
-            .position(|vl| byte_offset >= vl.byte_start && byte_offset <= vl.byte_end)
-            .unwrap_or(0);
+            .position(|vl| byte_offset >= vl.byte_start && byte_offset < vl.byte_end)
+            .unwrap_or_else(|| vlines.len().saturating_sub(1));
 
         if current_vline_idx + 1 >= vlines.len() {
             return; // Already at bottom
@@ -375,8 +377,9 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        for vline in &vlines {
-            if byte_offset >= vline.byte_start && byte_offset <= vline.byte_end {
+        for (i, vline) in vlines.iter().enumerate() {
+            let is_last = i == vlines.len() - 1;
+            if byte_offset >= vline.byte_start && (byte_offset < vline.byte_end || is_last) {
                 return self
                     .edit_buffer
                     .buffer()
@@ -409,8 +412,9 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        for vline in &vlines {
-            if byte_offset >= vline.byte_start && byte_offset <= vline.byte_end {
+        for (i, vline) in vlines.iter().enumerate() {
+            let is_last = i == vlines.len() - 1;
+            if byte_offset >= vline.byte_start && (byte_offset < vline.byte_end || is_last) {
                 return self
                     .edit_buffer
                     .buffer()

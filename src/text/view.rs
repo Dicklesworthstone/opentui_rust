@@ -569,7 +569,11 @@ impl<'a> TextBufferView<'a> {
         let tab_width = self.buffer.tab_width().max(1) as usize;
 
         for (row, vline) in cache.virtual_lines.iter().enumerate() {
-            if byte_offset < vline.byte_start || byte_offset > vline.byte_end {
+            let is_last_line = row == cache.virtual_lines.len() - 1;
+            if byte_offset < vline.byte_start {
+                continue;
+            }
+            if byte_offset >= vline.byte_end && !is_last_line {
                 continue;
             }
 
@@ -1192,22 +1196,20 @@ mod tests {
         eprintln!("[TEST] Cell at tab position (5,0): {cell_at_tab:?}");
 
         // The tab should render as space(s) but preserve the GREEN style
-        if let Some(cell) = cell_at_tab {
-            // The foreground should be GREEN since that's the style at the tab position
-            eprintln!("[TEST] Tab cell foreground: {:?}", cell.fg);
-            // Note: without tab_indicator set, the cell is a space with the style from style_at
-            assert!(
-                matches!(cell.content, CellContent::Char(' ')),
-                "Tab should render as space by default"
-            );
-            assert_eq!(
-                cell.fg,
-                Rgba::GREEN,
-                "Tab should preserve syntax highlighting (GREEN)"
-            );
-        } else {
-            panic!("Cell at tab position should exist");
-        }
+        assert!(cell_at_tab.is_some(), "Cell at tab position should exist");
+        let cell = cell_at_tab.unwrap();
+        // The foreground should be GREEN since that's the style at the tab position
+        eprintln!("[TEST] Tab cell foreground: {:?}", cell.fg);
+        // Note: without tab_indicator set, the cell is a space with the style from style_at
+        assert!(
+            matches!(cell.content, CellContent::Char(' ')),
+            "Tab should render as space by default"
+        );
+        assert_eq!(
+            cell.fg,
+            Rgba::GREEN,
+            "Tab should preserve syntax highlighting (GREEN)"
+        );
 
         // Verify "world" has blue style
         let cell_at_world = output.get(8, 0); // Tab expands to position 8

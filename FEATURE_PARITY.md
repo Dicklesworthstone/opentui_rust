@@ -171,22 +171,82 @@
 
 ---
 
-## Remaining Deviations / Deferred Features
+## Parity Decision Record (2026-01-25)
 
-1. **Grapheme Pool** - Uses `Arc<str>` instead of 24-bit ID pool (intentional)
-2. **Threaded Rendering** - Deferred; current renderer is single-threaded
+Purpose: freeze parity decisions for the remaining spec gaps so downstream work can proceed
+without re-reading plan docs. All decisions below are "match Zig spec" (no intentional
+divergence).
+
+### Decision A - Grapheme pool encoding (match Zig)
+
+Target behavior (EXISTING_OPENTUI_STRUCTURE.md - sections 3 and 1.3):
+- Ref-counted grapheme pool with 24-bit IDs.
+- `Cell.char` encodes grapheme usage via high bit, width in bits 24-30, and ID in low 24 bits.
+- Pool operations: alloc, incref, decref, get.
+
+API impact (Rust):
+- Replace `CellContent::Grapheme(Arc<str>)` with ID-backed representation (ID + width).
+- `Cell`/`OptimizedBuffer`/text drawing must allocate from a pool and encode width + ID in
+  the stored `u32` char field.
+- Public APIs that expose grapheme content must provide a way to resolve IDs to UTF-8 bytes
+  (likely via a `GraphemePool` handle).
+
+Migration strategy:
+- Update text/buffer/conformance fixtures to compare resolved grapheme strings via the pool.
+- Add test helpers to allocate graphemes and assert refcount reuse.
+- Replace Arc<str>-specific expectations in text/editor tests.
+
+Accept/reject criteria for parity:
+- Encoding uses high-bit flag + width bits + 24-bit ID exactly as spec.
+- Pool reuse/refcount behavior matches Zig; repeated graphemes reuse IDs and decref frees.
+- Conformance fixtures for grapheme width/rendering match legacy outputs.
+
+### Decision B - Link ID packing into TextAttributes (match Zig)
+
+Target behavior (EXISTING_OPENTUI_STRUCTURE.md - section 1.2):
+- `attributes` is a u32; bits 0-7 are style flags, bits 8-31 store link ID.
+- `link_id == 0` means no link; set/get must preserve style bits.
+
+API impact (Rust):
+- `TextAttributes` and `Style` become 32-bit with packed link ID.
+- `Cell` stores packed attributes; hyperlink resolution uses the packed ID (no separate field).
+- Any public API that accepted raw bitflags must be updated (breaking change).
+
+Migration strategy:
+- Update attribute tests to assert bit packing and link ID extraction.
+- Update hyperlink fixtures and API examples; adjust serialization/Debug output as needed.
+
+Accept/reject criteria for parity:
+- Bit layout matches spec; style bits unchanged when link ID is set/cleared.
+- Link ID propagates through render/diff and OSC 8 output without regression.
+
+### Decision C - Threaded renderer parity (match Zig)
+
+Target behavior (EXISTING_OPENTUI_STRUCTURE.md - section 10.1):
+- Renderer supports optional threaded mode (`useThread`) with synchronization (mutex) around
+  render operations.
+- Threaded mode must not change diff output, sync-output behavior, or hit-grid semantics.
+
+API impact (Rust):
+- `Renderer` gains a threaded variant or options to enable a render thread.
+- Concurrency boundaries must be explicit (channel or guarded access to buffers).
+- This is a breaking API addition but optional at runtime.
+
+Migration strategy:
+- Extend renderer tests/fixtures to cover threaded mode parity with single-threaded output.
+- Add deterministic shutdown tests to avoid terminal state leaks.
+
+Accept/reject criteria for parity:
+- Threaded mode produces identical ANSI output for a given frame sequence.
+- Render thread starts/stops cleanly and restores terminal state; no data races.
 
 ---
 
-## Known Deviations from Spec (Intentional)
+## Open Parity Gaps (must match Zig spec)
 
-1. **Grapheme Storage:** Uses `Arc<str>` instead of grapheme pool with 24-bit IDs
-   - Simpler implementation
-   - Slightly higher memory for repeated graphemes
-   - Trade-off accepted for cleaner Rust idioms
-2. **Threaded Rendering:** Deferred
-   - Current renderer is single-threaded for simplicity
-   - Can be added later if needed for very large buffers
+1. Grapheme pool encoding + ID-backed cells (Decision A).
+2. Link ID packing into TextAttributes bits 8-31 (Decision B).
+3. Threaded renderer support and API (Decision C).
 
 ---
 
@@ -234,7 +294,6 @@ Benchmarks implemented:
 
 ---
 
-## Next Steps (Optional Enhancements)
+## Next Steps (Post-Parity Enhancements)
 
-1. **Threaded Rendering** - For very large buffers or async rendering pipelines
-2. **Grapheme Pool** - Memory optimization for repeated graphemes
+Reserved for non-spec improvements after the parity gaps above are closed.

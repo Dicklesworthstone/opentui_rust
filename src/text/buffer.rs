@@ -57,6 +57,9 @@ impl MemRegistry {
     }
 
     fn get(&self, id: u32) -> Option<&str> {
+        if id == 0 {
+            return None;
+        }
         let idx = id.saturating_sub(1) as usize;
         self.entries
             .get(idx)
@@ -292,9 +295,20 @@ impl TextBuffer {
         priority: u8,
         ref_id: Option<u16>,
     ) {
+        let Some(line_slice) = self.rope.line(line) else {
+            return;
+        };
+        let line_len = line_slice.len_chars();
+        let safe_start = col_start.min(line_len);
+        let safe_end = col_end.min(line_len);
+
+        if safe_start >= safe_end {
+            return;
+        }
+
         let line_start = self.rope.line_to_char(line);
-        let start = self.rope.char_to_byte(line_start + col_start);
-        let end = self.rope.char_to_byte(line_start + col_end);
+        let start = self.rope.char_to_byte(line_start + safe_start);
+        let end = self.rope.char_to_byte(line_start + safe_end);
         let mut segment = StyledSegment::new(start..end, style)
             .with_priority(priority)
             .with_line(line);

@@ -98,7 +98,15 @@ impl BufferDiff {
 
         for &(x, y) in cells {
             if current_row == Some(y) {
-                row_end = x;
+                if x > row_end + 1 {
+                    if let Some(row) = current_row {
+                        regions.push(DirtyRegion::new(row_start, row, row_end - row_start + 1, 1));
+                    }
+                    row_start = x;
+                    row_end = x;
+                } else {
+                    row_end = x;
+                }
             } else {
                 if let Some(row) = current_row {
                     regions.push(DirtyRegion::new(row_start, row, row_end - row_start + 1, 1));

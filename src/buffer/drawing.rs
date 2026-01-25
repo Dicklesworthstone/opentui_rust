@@ -160,11 +160,11 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
         let cell = Cell::from_grapheme(grapheme, style);
         let width = cell.display_width();
 
-        buffer.set(col, y, cell);
+        buffer.set_blended(col, y, cell);
 
         // Add continuation cells for wide characters
         for i in 1..width {
-            buffer.set(
+            buffer.set_blended(
                 col + i as u32,
                 y,
                 Cell::continuation(style.bg.unwrap_or(Rgba::TRANSPARENT)),
@@ -184,10 +184,10 @@ pub fn draw_box(buffer: &mut OptimizedBuffer, x: u32, y: u32, w: u32, h: u32, bo
     let style = box_style.style;
 
     // Corners
-    buffer.set(x, y, Cell::new(box_style.top_left, style));
-    buffer.set(x + w - 1, y, Cell::new(box_style.top_right, style));
-    buffer.set(x, y + h - 1, Cell::new(box_style.bottom_left, style));
-    buffer.set(
+    buffer.set_blended(x, y, Cell::new(box_style.top_left, style));
+    buffer.set_blended(x + w - 1, y, Cell::new(box_style.top_right, style));
+    buffer.set_blended(x, y + h - 1, Cell::new(box_style.bottom_left, style));
+    buffer.set_blended(
         x + w - 1,
         y + h - 1,
         Cell::new(box_style.bottom_right, style),
@@ -195,14 +195,14 @@ pub fn draw_box(buffer: &mut OptimizedBuffer, x: u32, y: u32, w: u32, h: u32, bo
 
     // Horizontal edges
     for col in (x + 1)..(x + w - 1) {
-        buffer.set(col, y, Cell::new(box_style.horizontal, style));
-        buffer.set(col, y + h - 1, Cell::new(box_style.horizontal, style));
+        buffer.set_blended(col, y, Cell::new(box_style.horizontal, style));
+        buffer.set_blended(col, y + h - 1, Cell::new(box_style.horizontal, style));
     }
 
     // Vertical edges
     for row in (y + 1)..(y + h - 1) {
-        buffer.set(x, row, Cell::new(box_style.vertical, style));
-        buffer.set(x + w - 1, row, Cell::new(box_style.vertical, style));
+        buffer.set_blended(x, row, Cell::new(box_style.vertical, style));
+        buffer.set_blended(x + w - 1, row, Cell::new(box_style.vertical, style));
     }
 }
 
@@ -230,16 +230,16 @@ pub fn draw_box_with_options(
 
     // Corners
     if options.sides.top && options.sides.left {
-        buffer.set(x, y, Cell::new(options.style.top_left, style));
+        buffer.set_blended(x, y, Cell::new(options.style.top_left, style));
     }
     if options.sides.top && options.sides.right {
-        buffer.set(x + w - 1, y, Cell::new(options.style.top_right, style));
+        buffer.set_blended(x + w - 1, y, Cell::new(options.style.top_right, style));
     }
     if options.sides.bottom && options.sides.left {
-        buffer.set(x, y + h - 1, Cell::new(options.style.bottom_left, style));
+        buffer.set_blended(x, y + h - 1, Cell::new(options.style.bottom_left, style));
     }
     if options.sides.bottom && options.sides.right {
-        buffer.set(
+        buffer.set_blended(
             x + w - 1,
             y + h - 1,
             Cell::new(options.style.bottom_right, style),
@@ -249,24 +249,24 @@ pub fn draw_box_with_options(
     // Horizontal edges
     if options.sides.top {
         for col in (x + 1)..(x + w - 1) {
-            buffer.set(col, y, Cell::new(options.style.horizontal, style));
+            buffer.set_blended(col, y, Cell::new(options.style.horizontal, style));
         }
     }
     if options.sides.bottom {
         for col in (x + 1)..(x + w - 1) {
-            buffer.set(col, y + h - 1, Cell::new(options.style.horizontal, style));
+            buffer.set_blended(col, y + h - 1, Cell::new(options.style.horizontal, style));
         }
     }
 
     // Vertical edges
     if options.sides.left {
         for row in (y + 1)..(y + h - 1) {
-            buffer.set(x, row, Cell::new(options.style.vertical, style));
+            buffer.set_blended(x, row, Cell::new(options.style.vertical, style));
         }
     }
     if options.sides.right {
         for row in (y + 1)..(y + h - 1) {
-            buffer.set(x + w - 1, row, Cell::new(options.style.vertical, style));
+            buffer.set_blended(x + w - 1, row, Cell::new(options.style.vertical, style));
         }
     }
 
@@ -293,14 +293,14 @@ pub fn draw_box_with_options(
 /// Draw a horizontal line.
 pub fn draw_hline(buffer: &mut OptimizedBuffer, x: u32, y: u32, len: u32, ch: char, style: Style) {
     for col in x..x.saturating_add(len) {
-        buffer.set(col, y, Cell::new(ch, style));
+        buffer.set_blended(col, y, Cell::new(ch, style));
     }
 }
 
 /// Draw a vertical line.
 pub fn draw_vline(buffer: &mut OptimizedBuffer, x: u32, y: u32, len: u32, ch: char, style: Style) {
     for row in y..y.saturating_add(len) {
-        buffer.set(x, row, Cell::new(ch, style));
+        buffer.set_blended(x, row, Cell::new(ch, style));
     }
 }
 

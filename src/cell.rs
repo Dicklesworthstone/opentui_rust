@@ -226,7 +226,7 @@ impl Cell {
     #[must_use]
     pub fn blend_over(self, background: &Cell) -> Cell {
         Cell {
-            content: if self.content.is_empty() || self.content.is_continuation() {
+            content: if self.content.is_empty() {
                 background.content.clone()
             } else {
                 self.content
