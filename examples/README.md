@@ -4,6 +4,86 @@ Interactive examples demonstrating OpenTUI's terminal UI capabilities.
 
 ## Examples
 
+### 01_hello_terminal.rs
+
+A minimal end-to-end renderer example that draws to the terminal and exits on key press.
+
+```bash
+cargo run --example 01_hello_terminal
+```
+
+Shows basic renderer setup, buffer drawing, and clean terminal restoration.
+
+### 02_colors.rs
+
+Demonstrates OpenTUI's RGBA color system, alpha blending, and gradients.
+
+```bash
+cargo run --example 02_colors
+```
+
+Shows color creation methods (RGB, hex, HSV), `set_blended` alpha compositing, and `lerp` gradients.
+
+### 03_styles.rs
+
+Demonstrates text attributes, style builder usage, and background colors.
+
+```bash
+cargo run --example 03_styles
+```
+
+Shows bold/italic/underline/dim/inverse/strikethrough, builder patterns, and color combos.
+
+### 04_drawing.rs
+
+Demonstrates drawing primitives (boxes, lines, fills) and simple layouts.
+
+```bash
+cargo run --example 04_drawing
+```
+
+Shows box styles, horizontal/vertical lines, filled rectangles, and composite panels.
+
+### 05_scissor.rs
+
+Demonstrates scissor clipping with nested clip regions.
+
+```bash
+cargo run --example 05_scissor
+```
+
+Shows how `push_scissor` limits drawing and how nested clips intersect.
+
+### 06_opacity.rs
+
+Demonstrates opacity stack and alpha blending for layered UI elements.
+
+```bash
+cargo run --example 06_opacity
+```
+
+Shows global opacity with overlays and blended rectangles.
+
+### 07_input.rs
+
+Demonstrates keyboard and mouse input parsing with `InputParser`.
+
+```bash
+cargo run --example 07_input
+```
+
+Shows latest key/mouse events and exits on `q` or Ctrl+C.
+
+### 08_animation.rs
+
+Demonstrates a simple render loop with a moving sprite.
+
+```bash
+cargo run --example 08_animation
+```
+
+Shows frame pacing and a bouncing dot animation.
+
 ### hello.rs
 
 A minimal buffer creation example that doesn't require terminal I/O.
@@ -40,6 +120,35 @@ cargo run --example editor
 - Ctrl+L: Toggle line numbers
 - Ctrl+D: Toggle debug overlay (shows FPS stats)
 - Ctrl+Q: Quit
+
+### 11_highlighting.rs
+
+Demonstrates syntax highlighting with theme switching.
+
+```bash
+cargo run --example 11_highlighting
+```
+
+**Features demonstrated:**
+- Built-in Rust tokenizer integration
+- Theme switching at runtime
+- Highlighted rendering via `EditorView`
+
+**Controls:**
+- 1-4: Switch themes (Dark, Light, Solarized, High Contrast)
+- q / Ctrl+C: Quit
+
+### threaded.rs
+
+Demonstrates `ThreadedRenderer` to move terminal I/O off the main thread.
+
+```bash
+cargo run --example threaded
+```
+
+**Features demonstrated:**
+- Channel-based render thread
+- `ThreadedRenderer::present()` and `shutdown()`
 
 ## Debug Mode
 

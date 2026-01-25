@@ -57,7 +57,11 @@ pub fn fg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
 }
 
 /// Write SGR sequence for foreground color to a writer.
-pub fn write_fg_color_with_mode(w: &mut impl Write, color: Rgba, mode: ColorMode) -> io::Result<()> {
+pub fn write_fg_color_with_mode(
+    w: &mut impl Write,
+    color: Rgba,
+    mode: ColorMode,
+) -> io::Result<()> {
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();
@@ -86,7 +90,11 @@ pub fn bg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
 }
 
 /// Write SGR sequence for background color to a writer.
-pub fn write_bg_color_with_mode(w: &mut impl Write, color: Rgba, mode: ColorMode) -> io::Result<()> {
+pub fn write_bg_color_with_mode(
+    w: &mut impl Write,
+    color: Rgba,
+    mode: ColorMode,
+) -> io::Result<()> {
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();

@@ -135,7 +135,7 @@ fn main() -> io::Result<()> {
         buffer.draw_text(2, 0, " OpenTUI Editor ", title_style);
 
         // Render editor content
-        render_editor(&editor, buffer, 1, 2, width - 2, height - 4);
+        render_editor(&mut editor, buffer, 1, 2, width - 2, height - 4);
 
         // Draw status bar
         draw_status_bar(buffer, &editor, width, height, wrap_mode, show_debug);
@@ -341,7 +341,7 @@ fn handle_event(
 
 /// Render the editor to a buffer region.
 fn render_editor(
-    editor: &EditorView,
+    editor: &mut EditorView,
     buffer: &mut OptimizedBuffer,
     _x: u32,
     _y: u32,

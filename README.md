@@ -280,6 +280,9 @@ loop {
 | `TextAttributes` | Bold, italic, underline, etc. (bitflags) |
 | `Cell` | Single terminal cell (char + colors + attributes) |
 | `CellContent` | Char, grapheme cluster, empty, or continuation |
+| `GraphemeId` | Packed grapheme ID + width encoding for cells |
+| `GraphemePool` | Interned grapheme storage with ref counting |
+| `LinkPool` | Hyperlink URL storage for OSC 8 output |
 
 ### Buffer Operations
 
@@ -313,6 +316,38 @@ loop {
 | `renderer.register_hit_area(...)` | Register mouse hit zone |
 | `renderer.hit_test(x, y)` | Test mouse position |
 
+### Threaded Renderer
+
+Use the threaded renderer when you want terminal I/O off the main thread:
+
+```rust
+use opentui::renderer::ThreadedRenderer;
+
+let mut renderer = ThreadedRenderer::new(80, 24)?;
+renderer.buffer().draw_text(1, 1, "Threaded!", Style::fg(Rgba::GREEN));
+renderer.present()?;
+renderer.shutdown()?;
+```
+
+### Grapheme Pools and Hyperlinks
+
+Use the grapheme pool for multi-codepoint graphemes so they can be resolved
+back to their full UTF-8 sequence during rendering:
+
+```rust
+let (buffer, pool) = renderer.buffer_with_pool();
+let grapheme = "\u{0061}\u{0301}"; // "a" + combining acute accent
+buffer.draw_text_with_pool(pool, 0, 0, grapheme, Style::fg(Rgba::WHITE));
+```
+
+Hyperlinks are stored in a link pool and referenced by link ID in text styles:
+
+```rust
+let link_id = renderer.link_pool().alloc("https://example.com");
+let style = Style::fg(Rgba::BLUE).with_underline().with_link(link_id);
+renderer.buffer().draw_text(0, 1, "example.com", style);
+```
+
 ### Color Operations
 
 ```rust
@@ -339,6 +374,10 @@ color.to_rgb_u8()               // Convert to (u8, u8, u8)
 | `TextBufferView` | Viewport with wrapping and selection |
 | `EditBuffer` | Editable text with cursor and undo/redo |
 | `WrapMode` | None, Char, or Word wrapping |
+| `HighlightedBuffer` | Text buffer wrapper with syntax highlighting |
+| `SyntaxStyleRegistry` | Style registry for token kinds |
+| `TokenizerRegistry` | Language tokenizer registry |
+| `Theme` | TokenKind → Style mapping |
 
 ---
 
@@ -388,6 +427,8 @@ opentui/
 ├── color.rs        # RGBA type, blending, conversions
 ├── style.rs        # TextAttributes, Style builder
 ├── cell.rs         # Cell type, CellContent enum
+├── grapheme_pool.rs# Grapheme pool + ID encoding
+├── link.rs         # Hyperlink pool (OSC 8)
 ├── ansi/           # ANSI escape sequence generation
 │   ├── mod.rs
 │   ├── sequences.rs
@@ -408,7 +449,8 @@ opentui/
 ├── renderer/       # Display rendering
 │   ├── mod.rs
 │   ├── diff.rs     # Buffer diffing
-│   └── hitgrid.rs  # Mouse hit testing
+│   ├── hitgrid.rs  # Mouse hit testing
+│   └── threaded.rs # Threaded renderer
 ├── terminal/       # Terminal abstraction
 │   ├── mod.rs
 │   ├── capabilities.rs
@@ -420,7 +462,12 @@ opentui/
 │   └── width.rs
 └── highlight/      # Syntax highlighting
     ├── mod.rs
-    └── syntax.rs
+    ├── highlighted_buffer.rs
+    ├── languages/  # Language tokenizers
+    ├── syntax.rs
+    ├── theme.rs
+    ├── token.rs
+    └── tokenizer.rs
 ```
 
 ---

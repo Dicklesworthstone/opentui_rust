@@ -250,18 +250,16 @@ impl Rgba {
     /// Convert to u8 RGB tuple, clamping values to [0, 255].
     #[must_use]
     pub fn to_rgb_u8(self) -> (u8, u8, u8) {
-        (
-            (self.r * 255.0).clamp(0.0, 255.0) as u8,
-            (self.g * 255.0).clamp(0.0, 255.0) as u8,
-            (self.b * 255.0).clamp(0.0, 255.0) as u8,
-        )
+        let to_u8 = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;
+        (to_u8(self.r), to_u8(self.g), to_u8(self.b))
     }
 
     /// Convert to u8 RGBA tuple, clamping values to [0, 255].
     #[must_use]
     pub fn to_rgba_u8(self) -> (u8, u8, u8, u8) {
         let (r, g, b) = self.to_rgb_u8();
-        (r, g, b, (self.a * 255.0).clamp(0.0, 255.0) as u8)
+        let a = (self.a * 255.0).round().clamp(0.0, 255.0) as u8;
+        (r, g, b, a)
     }
 
     /// Check if this color is fully transparent.
@@ -438,11 +436,14 @@ impl Rgba {
 impl fmt::Display for Rgba {
     #[allow(clippy::many_single_char_names)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (r, g, b) = self.to_rgb_u8();
+        let to_hex_u8 = |value: f32| (value.clamp(0.0, 1.0) * 255.0).floor() as u8;
+        let r = to_hex_u8(self.r);
+        let g = to_hex_u8(self.g);
+        let b = to_hex_u8(self.b);
         if self.a >= 1.0 {
             write!(f, "#{r:02X}{g:02X}{b:02X}")
         } else {
-            let a = (self.a * 255.0).clamp(0.0, 255.0) as u8;
+            let a = to_hex_u8(self.a);
             write!(f, "#{r:02X}{g:02X}{b:02X}{a:02X}")
         }
     }

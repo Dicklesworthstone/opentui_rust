@@ -1,6 +1,6 @@
 # Dependency Upgrade Log
 
-**Date:** 2026-01-19  |  **Project:** opentui  |  **Language:** Rust
+**Date:** 2026-01-25  |  **Project:** opentui  |  **Language:** Rust
 
 ## Summary
 
@@ -11,6 +11,10 @@
 - **TextAttributes:** now `u32` with link ID packed into bits 8-31 (flags remain bits 0-7).
 - **Style:** removed `link_id` field; use `Style::with_link()` or `TextAttributes::with_link_id()`.
 - **Cell/Renderer/AnsiWriter:** hyperlink handling now reads link IDs from packed attributes.
+- **GraphemePool/GraphemeId:** new interned grapheme storage with width-aware `GraphemeId` encoding.
+- **LinkPool:** new hyperlink pool used by renderers to resolve OSC 8 URLs.
+- **ThreadedRenderer:** added channel-based renderer (`opentui::renderer::ThreadedRenderer`) with `present()`, `invalidate()`, and `shutdown()`.
+- **Highlighting:** added `HighlightedBuffer`, `SyntaxStyleRegistry`, `TokenizerRegistry`, and `Theme` types to the highlight module.
 
 ## Current Versions (Already at Latest)
 
@@ -56,7 +60,9 @@
 ## Verification
 
 ```bash
-cargo check      # ✓ Passed
-cargo test       # ✓ 79 tests passed
+cargo check --all-targets                  # ✓ Passed
 cargo clippy --all-targets -- -D warnings  # ✓ Passed
+cargo fmt --check                          # ✓ Passed
+cargo test                                 # ✓ Passed
+cargo bench --bench buffer                 # ✓ Completed
 ```

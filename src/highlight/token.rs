@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 /// Semantic token categories used by tokenizers and themes.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
@@ -51,6 +52,47 @@ pub enum TokenKind {
 
     // Default
     Text,
+}
+
+impl TokenKind {
+    pub const ALL: [TokenKind; 29] = [
+        TokenKind::Keyword,
+        TokenKind::KeywordControl,
+        TokenKind::KeywordType,
+        TokenKind::KeywordModifier,
+        TokenKind::String,
+        TokenKind::StringEscape,
+        TokenKind::Number,
+        TokenKind::Boolean,
+        TokenKind::Identifier,
+        TokenKind::Type,
+        TokenKind::Constant,
+        TokenKind::Function,
+        TokenKind::Macro,
+        TokenKind::Comment,
+        TokenKind::CommentBlock,
+        TokenKind::CommentDoc,
+        TokenKind::Operator,
+        TokenKind::Punctuation,
+        TokenKind::Delimiter,
+        TokenKind::Attribute,
+        TokenKind::Lifetime,
+        TokenKind::Label,
+        TokenKind::Heading,
+        TokenKind::Link,
+        TokenKind::Emphasis,
+        TokenKind::CodeInline,
+        TokenKind::CodeBlock,
+        TokenKind::Error,
+        TokenKind::Text,
+    ];
+
+    pub const COUNT: usize = Self::ALL.len();
+
+    #[must_use]
+    pub const fn as_usize(self) -> usize {
+        self as usize
+    }
 }
 
 /// A token produced by a tokenizer.

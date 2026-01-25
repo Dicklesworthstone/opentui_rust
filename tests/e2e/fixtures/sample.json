@@ -1,0 +1,11 @@
+{
+  "name": "opentui",
+  "version": 1,
+  "active": true,
+  "items": [1, 2, 3],
+  "config": {
+    "path": "C:\\tmp\\file.txt",
+    "escaped": "line\nnext"
+  },
+  "nested": [{"id": 1}, {"id": 2}]
+}

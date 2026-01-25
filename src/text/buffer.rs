@@ -352,6 +352,12 @@ impl TextBuffer {
         self.segments.retain(|seg| seg.line != Some(line));
     }
 
+    /// Clear highlights for a specific line and reference ID.
+    pub fn clear_line_highlights_by_ref(&mut self, line: usize, ref_id: u16) {
+        self.segments
+            .retain(|seg| !(seg.line == Some(line) && seg.ref_id == Some(ref_id)));
+    }
+
     /// Register external text in the memory registry.
     pub fn register_text(&mut self, text: &str, owned: bool) -> u32 {
         self.mem_registry.register(text, owned)

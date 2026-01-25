@@ -35,7 +35,7 @@ expression: sequences
   },
   {
     "description": "custom_rgb",
-    "hex": "1b 5b 33 38 3b 32 3b 31 32 37 3b 36 33 3b 31 39 31 6d",
-    "readable": "ESC[38;2;127;63;191m"
+    "hex": "1b 5b 33 38 3b 32 3b 31 32 38 3b 36 34 3b 31 39 31 6d",
+    "readable": "ESC[38;2;128;64;191m"
   }
 ]

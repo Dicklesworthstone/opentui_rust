@@ -5,6 +5,8 @@
 
 use crate::buffer::OptimizedBuffer;
 use crate::color::Rgba;
+use crate::highlight::theme::Theme;
+use crate::highlight::tokenizer::TokenizerRegistry;
 use crate::style::Style;
 use crate::text::view::{LocalSelection, Selection, Viewport};
 use crate::text::{EditBuffer, TextBufferView, WrapMode};
@@ -141,6 +143,35 @@ impl EditorView {
     /// Set line number style.
     pub fn set_line_number_style(&mut self, style: Style) {
         self.line_number_style = style;
+    }
+
+    /// Enable syntax highlighting using a tokenizer registry and file extension.
+    pub fn enable_highlighting_for_extension(
+        &mut self,
+        registry: &TokenizerRegistry,
+        extension: &str,
+    ) -> bool {
+        if let Some(tokenizer) = registry.for_extension_shared(extension) {
+            self.edit_buffer
+                .highlighted_buffer_mut()
+                .set_tokenizer(Some(tokenizer));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Disable syntax highlighting.
+    pub fn disable_highlighting(&mut self) {
+        self.edit_buffer
+            .highlighted_buffer_mut()
+            .set_tokenizer(None);
+    }
+
+    /// Set the highlighting theme.
+    pub fn set_highlighting_theme(&mut self, theme: Theme) {
+        self.line_number_style = Style::fg(theme.line_number());
+        self.edit_buffer.highlighted_buffer_mut().set_theme(theme);
     }
 
     /// Set selection range by character offsets.
@@ -697,7 +728,17 @@ impl EditorView {
     }
 
     /// Render to output buffer.
-    pub fn render_to(&self, output: &mut OptimizedBuffer, x: u32, y: u32, width: u32, height: u32) {
+    pub fn render_to(
+        &mut self,
+        output: &mut OptimizedBuffer,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) {
+        self.edit_buffer
+            .highlighted_buffer_mut()
+            .update_highlighting();
         let (x, y, width, height) = if let Some(viewport) = self.viewport {
             (viewport.x, viewport.y, viewport.width, viewport.height)
         } else {

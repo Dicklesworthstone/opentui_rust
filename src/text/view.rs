@@ -776,7 +776,7 @@ impl<'a> TextBufferView<'a> {
 
             for i in 0..width {
                 let screen_col = start_screen_col + i as i32;
-                
+
                 // Check visibility for this specific column
                 if screen_col >= 0 {
                     let mut cell = if i == 0 {

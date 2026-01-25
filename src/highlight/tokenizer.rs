@@ -1,6 +1,7 @@
 //! Tokenizer traits and line state for syntax highlighting.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::token::Token;
 
@@ -72,7 +73,7 @@ pub trait Tokenizer: Send + Sync {
 /// Registry for tokenizer lookup by extension or name.
 #[derive(Default)]
 pub struct TokenizerRegistry {
-    tokenizers: Vec<Box<dyn Tokenizer>>,
+    tokenizers: Vec<Arc<dyn Tokenizer>>,
     by_extension: HashMap<String, usize>,
     by_name: HashMap<String, usize>,
 }
@@ -85,6 +86,7 @@ impl TokenizerRegistry {
 
     /// Register a tokenizer. Later registrations override existing lookups.
     pub fn register(&mut self, tokenizer: Box<dyn Tokenizer>) {
+        let tokenizer: Arc<dyn Tokenizer> = Arc::from(tokenizer);
         let index = self.tokenizers.len();
         let name_key = tokenizer.name().to_ascii_lowercase();
         self.by_name.insert(name_key, index);
@@ -107,6 +109,14 @@ impl TokenizerRegistry {
         self.tokenizers.get(*index).map(AsRef::as_ref)
     }
 
+    /// Get tokenizer by file extension (case-insensitive, with or without dot).
+    #[must_use]
+    pub fn for_extension_shared(&self, ext: &str) -> Option<Arc<dyn Tokenizer>> {
+        let key = ext.trim_start_matches('.').to_ascii_lowercase();
+        let index = self.by_extension.get(&key)?;
+        self.tokenizers.get(*index).cloned()
+    }
+
     /// Get tokenizer by name (case-insensitive).
     #[must_use]
     pub fn by_name(&self, name: &str) -> Option<&dyn Tokenizer> {
@@ -115,11 +125,39 @@ impl TokenizerRegistry {
         self.tokenizers.get(*index).map(AsRef::as_ref)
     }
 
+    /// Get tokenizer by name (case-insensitive).
+    #[must_use]
+    pub fn by_name_shared(&self, name: &str) -> Option<Arc<dyn Tokenizer>> {
+        let key = name.to_ascii_lowercase();
+        let index = self.by_name.get(&key)?;
+        self.tokenizers.get(*index).cloned()
+    }
+
     /// Create registry with all built-in tokenizers.
     #[must_use]
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
-        registry.register(Box::new(crate::highlight::languages::rust::RustTokenizer::new()));
+        registry.register(Box::new(
+            crate::highlight::languages::javascript::JavaScriptTokenizer::javascript(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::javascript::JavaScriptTokenizer::typescript(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::json::JsonTokenizer::new(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::markdown::MarkdownTokenizer::new(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::python::PythonTokenizer::new(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::rust::RustTokenizer::new(),
+        ));
+        registry.register(Box::new(
+            crate::highlight::languages::toml::TomlTokenizer::new(),
+        ));
         registry
     }
 }
@@ -171,8 +209,10 @@ mod tests {
 
         assert!(registry.for_extension("rs").is_some());
         assert!(registry.for_extension(".RS").is_some());
+        assert!(registry.for_extension_shared("rs").is_some());
         assert!(registry.by_name("stub").is_some());
         assert!(registry.by_name("STUB").is_some());
+        assert!(registry.by_name_shared("stub").is_some());
         assert!(registry.by_name("missing").is_none());
     }
 

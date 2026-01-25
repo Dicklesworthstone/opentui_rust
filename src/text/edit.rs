@@ -27,6 +27,7 @@
 // if-let-else is clearer than map_or for complex logic
 #![allow(clippy::option_if_let_else)]
 
+use crate::highlight::HighlightedBuffer;
 use crate::text::TextBuffer;
 
 /// Cursor position in the buffer.
@@ -181,9 +182,9 @@ impl History {
 /// Edit operations are grouped automatically. Call [`commit`](Self::commit)
 /// to force a group boundary (e.g., after a pause in typing). The history depth
 /// is bounded (default 1000 groups) to limit memory usage.
-#[derive(Clone, Debug, Default)]
+#[derive(Default)]
 pub struct EditBuffer {
-    buffer: TextBuffer,
+    buffer: HighlightedBuffer,
     cursor: Cursor,
     history: History,
 }
@@ -199,7 +200,7 @@ impl EditBuffer {
     #[must_use]
     pub fn with_text(text: &str) -> Self {
         Self {
-            buffer: TextBuffer::with_text(text),
+            buffer: HighlightedBuffer::new(TextBuffer::with_text(text)),
             cursor: Cursor::start(),
             history: History::new(),
         }
@@ -212,7 +213,7 @@ impl EditBuffer {
     #[must_use]
     pub fn with_max_history_depth(max_depth: usize) -> Self {
         Self {
-            buffer: TextBuffer::new(),
+            buffer: HighlightedBuffer::new(TextBuffer::new()),
             cursor: Cursor::start(),
             history: History::with_max_depth(max_depth),
         }
@@ -235,11 +236,36 @@ impl EditBuffer {
     /// Get the underlying text buffer.
     #[must_use]
     pub fn buffer(&self) -> &TextBuffer {
-        &self.buffer
+        self.buffer.buffer()
+    }
+
+    /// Get the full text content.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.buffer.buffer().to_string()
+    }
+
+    /// Replace the entire text, resetting cursor and history.
+    pub fn set_text(&mut self, text: &str) {
+        self.buffer.set_text(text);
+        self.cursor = Cursor::start();
+        self.history.clear();
+        self.update_cursor_position();
     }
 
     /// Get mutable access to the text buffer.
     pub fn buffer_mut(&mut self) -> &mut TextBuffer {
+        self.buffer.buffer_mut()
+    }
+
+    /// Get the highlighted buffer.
+    #[must_use]
+    pub fn highlighted_buffer(&self) -> &HighlightedBuffer {
+        &self.buffer
+    }
+
+    /// Get mutable access to the highlighted buffer.
+    pub fn highlighted_buffer_mut(&mut self) -> &mut HighlightedBuffer {
         &mut self.buffer
     }
 
@@ -336,6 +362,7 @@ impl EditBuffer {
     pub fn insert(&mut self, text: &str) {
         let offset = self.cursor.offset;
         self.buffer.rope_mut().insert(offset, text);
+        self.buffer.mark_dirty(self.cursor.row);
         self.history.push(EditOp::Insert {
             offset,
             text: text.to_string(),
@@ -359,6 +386,7 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(start..self.cursor.offset);
+        self.buffer.mark_dirty(self.cursor.row.saturating_sub(1)); // might affect prev line
         self.history.push(EditOp::Delete {
             offset: start,
             text: deleted,
@@ -382,6 +410,7 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(self.cursor.offset..end);
+        self.buffer.mark_dirty(self.cursor.row);
         self.history.push(EditOp::Delete {
             offset: self.cursor.offset,
             text: deleted,
@@ -405,6 +434,10 @@ impl EditBuffer {
         let end = end.min(self.buffer.len_chars());
         let deleted = self.buffer.rope().slice(start..end).to_string();
         self.buffer.rope_mut().remove(start..end);
+
+        let start_row = self.buffer.rope().char_to_line(start);
+        self.buffer.mark_dirty(start_row);
+
         self.history.push(EditOp::Delete {
             offset: start,
             text: deleted,
@@ -441,6 +474,8 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(insert_pos, &text_to_insert);
+            self.buffer.mark_dirty(self.cursor.row);
+
             self.history.push(EditOp::Insert {
                 offset: insert_pos,
                 text: text_to_insert,
@@ -483,6 +518,8 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(prev_line_start, &new_text);
+            self.buffer.mark_dirty(target_row);
+
             self.history.push(EditOp::Insert {
                 offset: prev_line_start,
                 text: new_text,
@@ -529,6 +566,8 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(current_line_start, &new_text);
+            self.buffer.mark_dirty(self.cursor.row);
+
             self.history.push(EditOp::Insert {
                 offset: current_line_start,
                 text: new_text,
@@ -690,28 +729,23 @@ impl EditBuffer {
         self.history.commit();
     }
 
-    /// Get the text content.
-    #[must_use]
-    pub fn text(&self) -> String {
-        self.buffer.to_string()
-    }
-
-    /// Set the text content, clearing history.
-    pub fn set_text(&mut self, text: &str) {
-        self.buffer.set_text(text);
-        self.cursor = Cursor::start();
-        self.history.clear();
-    }
-
     fn apply_op(&mut self, op: &EditOp) {
         match op {
             EditOp::Insert { offset, text } => {
                 self.buffer.rope_mut().insert(*offset, text);
+
+                let row = self.buffer.rope().char_to_line(*offset);
+                self.buffer.mark_dirty(row);
+
                 self.cursor.offset = offset + text.chars().count();
             }
             EditOp::Delete { offset, text } => {
                 let end = offset + text.chars().count();
                 self.buffer.rope_mut().remove(*offset..end);
+
+                let row = self.buffer.rope().char_to_line(*offset);
+                self.buffer.mark_dirty(row);
+
                 self.cursor.offset = *offset;
             }
         }

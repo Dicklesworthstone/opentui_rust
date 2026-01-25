@@ -378,19 +378,34 @@ pub fn draw_box_with_options(
     // Title
     if let Some(title) = options.title {
         if options.sides.top && w > 2 {
-            let available = (w - 2) as usize;
-            let title_text = if title.len() > available {
-                title.chars().take(available).collect::<String>()
-            } else {
-                title
-            };
-            let start_offset = match options.title_align {
-                TitleAlign::Left => 0,
-                TitleAlign::Center => (available.saturating_sub(title_text.len())) / 2,
-                TitleAlign::Right => available.saturating_sub(title_text.len()),
-            };
-            let title_x = x + 1 + start_offset as u32;
-            buffer.draw_text(title_x, y, &title_text, style);
+            let title_width = crate::unicode::display_width(&title) as i32;
+            let box_width = w as i32;
+            let min_title_space = 4;
+
+            if title_width > 0 && box_width >= title_width + min_title_space {
+                let padding = 2;
+                let start_x = x as i32;
+                let end_x = start_x + box_width - 1;
+
+                let mut title_x = match options.title_align {
+                    TitleAlign::Left => start_x + padding,
+                    TitleAlign::Center => {
+                        let centered = (box_width - title_width) / 2;
+                        start_x + padding.max(centered)
+                    }
+                    TitleAlign::Right => start_x + box_width - padding - title_width,
+                };
+
+                let min_x = start_x + padding;
+                let max_x = end_x - title_width;
+                if title_x < min_x {
+                    title_x = min_x;
+                } else if title_x > max_x {
+                    title_x = max_x;
+                }
+
+                buffer.draw_text(title_x as u32, y, &title, style);
+            }
         }
     }
 }
@@ -478,6 +493,10 @@ mod tests {
         draw_box_with_options(&mut buffer, 0, 0, 10, 4, options);
         assert_eq!(
             buffer.get(1, 0).unwrap().content,
+            crate::cell::CellContent::Char('─')
+        );
+        assert_eq!(
+            buffer.get(2, 0).unwrap().content,
             crate::cell::CellContent::Char('T')
         );
     }

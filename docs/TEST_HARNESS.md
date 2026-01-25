@@ -41,6 +41,34 @@ scripts/conformance.sh --filter wrap
 scripts/conformance.sh --check-fixtures
 ```
 
+### Regenerating fixtures from legacy (reference capture)
+
+The legacy capture script recomputes `expected_output` using the legacy engine and overwrites
+`tests/conformance/fixtures/opentui.json` deterministically.
+
+```bash
+# 1) Build the legacy native library (requires Zig 0.15.2)
+cd legacy_opentui/packages/core/src/zig
+/opt/zig-0.15.2/zig build -Doptimize=ReleaseFast
+
+# 1.5) Record the legacy commit hash used for capture
+cd ../../../..
+git rev-parse HEAD
+
+# 2) Run the capture (writes fixtures in this repo)
+bun run capture:conformance --lib-path ./src/zig/lib/x86_64-linux/libopentui.so
+```
+
+Optional flags:
+```bash
+bun run capture:conformance \
+  --lib-path ./src/zig/lib/x86_64-linux/libopentui.so \
+  --input ../../../../tests/conformance/fixtures/opentui.json \
+  --output ../../../../tests/conformance/fixtures/opentui.json \
+  --captured-at 2026-01-25T00:00:00Z \
+  --version 0.1.74
+```
+
 **Output**
 - Summary JSON: `target/test-artifacts/conformance_summary.json`
 - Artifacts: `target/test-artifacts/conformance/<test>/`
@@ -58,6 +86,27 @@ scripts/bench.sh --baseline baseline-v1
 - Summary JSON: `target/test-artifacts/benchmark_summary.json`
 - Artifacts: `target/test-artifacts/benchmark/`
 - Criterion reports: `target/criterion/`
+
+### Highlight Benchmarks
+
+The `highlight` benchmark suite targets the syntax highlighting hot paths.
+
+```bash
+cargo bench --bench highlight
+```
+
+**Targets (guidance, not hard limits):**
+
+| Operation | Target |
+|-----------|--------|
+| Single line tokenize | <1μs |
+| Incremental update (1 line) | <1ms |
+| Full highlight (1000 lines) | <50ms |
+| Full highlight (10000 lines) | <500ms |
+| Theme switch | <100μs |
+
+`highlight_memory_estimate` reports token count and text bytes as a lightweight
+allocation proxy for highlight data structures.
 
 ## Artifact Logging
 

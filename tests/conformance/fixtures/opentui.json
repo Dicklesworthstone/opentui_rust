@@ -207,8 +207,8 @@
       "expected_output": {
         "lines": [
           "┌─Title──┐",
-          "│\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000│",
-          "│\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000│",
+          "│        │",
+          "│        │",
           "└────────┘"
         ]
       }
@@ -224,7 +224,7 @@
       "expected_output": {
         "lines": [
           "┌────┐",
-          "│\u0000\u0000\u0000\u0000│",
+          "│    │",
           "└────┘"
         ]
       }
@@ -252,7 +252,7 @@
         "y": 0
       },
       "expected_output": {
-        "line": "Hello, World!\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+        "line": "Hello, World!       "
       }
     },
     {
@@ -266,7 +266,7 @@
         "y": 0
       },
       "expected_output": {
-        "line": "日本語\u0000\u0000\u0000\u0000",
+        "line": "日本語    ",
         "note": "CJK chars are double-width"
       }
     },
@@ -286,11 +286,11 @@
       },
       "expected_output": {
         "lines": [
-          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
-          "\u0000\u0000XXXX\u0000\u0000\u0000\u0000",
-          "\u0000\u0000XXXX\u0000\u0000\u0000\u0000",
-          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
-          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+          "          ",
+          "  XXXX    ",
+          "  XXXX    ",
+          "          ",
+          "          "
         ]
       }
     },
@@ -623,7 +623,7 @@
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
-        "char": "\u0001",
+        "char": "a",
         "modifiers": [
           "Ctrl"
         ]
@@ -640,7 +640,7 @@
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
-        "char": "\u0003",
+        "char": "c",
         "modifiers": [
           "Ctrl"
         ]
@@ -897,10 +897,7 @@
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
-        "char": "A",
-        "modifiers": [
-          "Shift"
-        ]
+        "char": "A"
       }
     },
     {
