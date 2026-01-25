@@ -5,8 +5,8 @@ expression: sequences
 [
   {
     "description": "red",
-    "hex": "1b 5b 33 31 6d",
-    "readable": "ESC[31m"
+    "hex": "1b 5b 39 31 6d",
+    "readable": "ESC[91m"
   },
   {
     "description": "green",
@@ -15,8 +15,8 @@ expression: sequences
   },
   {
     "description": "blue",
-    "hex": "1b 5b 33 34 6d",
-    "readable": "ESC[34m"
+    "hex": "1b 5b 39 34 6d",
+    "readable": "ESC[94m"
   },
   {
     "description": "white",

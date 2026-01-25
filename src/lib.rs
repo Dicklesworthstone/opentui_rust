@@ -36,6 +36,7 @@ pub mod cell;
 pub mod color;
 pub mod error;
 pub mod event;
+pub mod grapheme_pool;
 pub mod highlight;
 pub mod input;
 pub mod link;
@@ -46,10 +47,11 @@ pub mod text;
 pub mod unicode;
 
 // Re-export core types at crate root
-pub use cell::{Cell, CellContent};
+pub use cell::{Cell, CellContent, GraphemeId};
 pub use color::Rgba;
 pub use error::{Error, Result};
 pub use event::{LogLevel, emit_event, emit_log, set_event_callback, set_log_callback};
+pub use grapheme_pool::GraphemePool;
 pub use link::LinkPool;
 pub use style::{Style, TextAttributes};
 

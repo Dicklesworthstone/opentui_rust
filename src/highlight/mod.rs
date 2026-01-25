@@ -1,6 +1,7 @@
 //! Syntax highlighting and style management.
 
 mod syntax;
+pub mod languages;
 pub mod token;
 pub mod tokenizer;
 

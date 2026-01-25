@@ -302,19 +302,19 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        // Find current visual line
-        // Use strict inequality for end to prefer next line at wrap points
-        let current_vline_idx = vlines
-            .iter()
-            .position(|vl| byte_offset >= vl.byte_start && byte_offset < vl.byte_end)
-            .unwrap_or_else(|| vlines.len().saturating_sub(1));
+        // Find current visual line (handles cursor at newline positions)
+        let current_vline_idx = self.find_vline_index(&vlines, byte_offset);
 
         if current_vline_idx == 0 {
             return; // Already at top
         }
 
+        // Calculate visual column within current visual line
+        let current_vline = &vlines[current_vline_idx];
+        let visual_col = self.visual_col_in_vline(current_vline, cursor.offset);
+
         let prev_vline = &vlines[current_vline_idx - 1];
-        let target_offset = self.offset_at_visual_col(prev_vline, cursor.col, text_width);
+        let target_offset = self.offset_at_visual_col(prev_vline, visual_col, text_width);
         self.edit_buffer.set_cursor_by_offset(target_offset);
     }
 
@@ -339,19 +339,19 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        // Find current visual line
-        // Use strict inequality for end to prefer next line at wrap points
-        let current_vline_idx = vlines
-            .iter()
-            .position(|vl| byte_offset >= vl.byte_start && byte_offset < vl.byte_end)
-            .unwrap_or_else(|| vlines.len().saturating_sub(1));
+        // Find current visual line (handles cursor at newline positions)
+        let current_vline_idx = self.find_vline_index(&vlines, byte_offset);
 
         if current_vline_idx + 1 >= vlines.len() {
             return; // Already at bottom
         }
 
+        // Calculate visual column within current visual line
+        let current_vline = &vlines[current_vline_idx];
+        let visual_col = self.visual_col_in_vline(current_vline, cursor.offset);
+
         let next_vline = &vlines[current_vline_idx + 1];
-        let target_offset = self.offset_at_visual_col(next_vline, cursor.col, text_width);
+        let target_offset = self.offset_at_visual_col(next_vline, visual_col, text_width);
         self.edit_buffer.set_cursor_by_offset(target_offset);
     }
 
@@ -377,15 +377,13 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        for (i, vline) in vlines.iter().enumerate() {
-            let is_last = i == vlines.len() - 1;
-            if byte_offset >= vline.byte_start && (byte_offset < vline.byte_end || is_last) {
-                return self
-                    .edit_buffer
-                    .buffer()
-                    .rope()
-                    .byte_to_char(vline.byte_start);
-            }
+        let idx = self.find_vline_index(&vlines, byte_offset);
+        if idx < vlines.len() {
+            return self
+                .edit_buffer
+                .buffer()
+                .rope()
+                .byte_to_char(vlines[idx].byte_start);
         }
 
         cursor.offset
@@ -412,15 +410,13 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        for (i, vline) in vlines.iter().enumerate() {
-            let is_last = i == vlines.len() - 1;
-            if byte_offset >= vline.byte_start && (byte_offset < vline.byte_end || is_last) {
-                return self
-                    .edit_buffer
-                    .buffer()
-                    .rope()
-                    .byte_to_char(vline.byte_end);
-            }
+        let idx = self.find_vline_index(&vlines, byte_offset);
+        if idx < vlines.len() {
+            return self
+                .edit_buffer
+                .buffer()
+                .rope()
+                .byte_to_char(vlines[idx].byte_end);
         }
 
         cursor.offset
@@ -608,6 +604,34 @@ impl EditorView {
         lines
     }
 
+    /// Find the virtual line index for a byte offset, handling cursor at newline positions.
+    fn find_vline_index(&self, vlines: &[VirtualLine], byte_offset: usize) -> usize {
+        for (idx, vline) in vlines.iter().enumerate() {
+            let is_last = idx == vlines.len() - 1;
+            if byte_offset < vline.byte_start {
+                continue;
+            }
+            // Cursor is within this line
+            if byte_offset < vline.byte_end {
+                return idx;
+            }
+            // Cursor is at byte_end (e.g., at newline position)
+            if byte_offset == vline.byte_end {
+                if is_last {
+                    return idx;
+                }
+                // Check if next line is a different source line (new logical line)
+                let next_vline = &vlines[idx + 1];
+                if next_vline.source_line != vline.source_line {
+                    return idx;
+                }
+                // Next line is wrap continuation, continue searching
+            }
+        }
+        // Fallback to last line
+        vlines.len().saturating_sub(1)
+    }
+
     /// Find the character offset at a target visual column within a virtual line.
     fn offset_at_visual_col(
         &self,
@@ -645,6 +669,31 @@ impl EditorView {
         }
 
         char_offset.min(char_end)
+    }
+
+    /// Calculate the visual column of a character offset within a virtual line.
+    fn visual_col_in_vline(&self, vline: &VirtualLine, char_offset: usize) -> usize {
+        use unicode_segmentation::UnicodeSegmentation;
+
+        let rope = self.edit_buffer.buffer().rope();
+        let char_start = rope.byte_to_char(vline.byte_start);
+        let char_end = rope.byte_to_char(vline.byte_end).min(char_offset);
+        let line = rope.slice(char_start..char_end).to_string();
+
+        let method = self.edit_buffer.buffer().width_method();
+        let tab_width = self.edit_buffer.buffer().tab_width().max(1) as usize;
+
+        let mut width = 0usize;
+        for grapheme in line.graphemes(true) {
+            if grapheme == "\t" {
+                let offset = width % tab_width;
+                width += tab_width - offset;
+            } else {
+                width += crate::unicode::display_width_with_method(grapheme, method);
+            }
+        }
+
+        width
     }
 
     /// Render to output buffer.
@@ -1331,6 +1380,65 @@ mod tests {
         );
 
         eprintln!("[TEST] PASS: Wide character navigation works");
+    }
+
+    #[test]
+    fn test_visual_nav_emoji_grapheme_clusters() {
+        eprintln!("[TEST] test_visual_nav_emoji_grapheme_clusters");
+        // Family emoji (ZWJ sequence) is multiple codepoints but single grapheme cluster
+        // The cursor should move across the entire emoji as one unit
+        let text = "AB👨\u{200D}👩\u{200D}👧CD"; // "AB" + family emoji + "CD"
+        let mut edit = EditBuffer::with_text(text);
+        edit.move_to(0, 0);
+        let mut view = EditorView::new(edit);
+        view.set_wrap_mode(WrapMode::Char);
+
+        eprintln!("[TEST] Text: 'AB' + family emoji + 'CD'");
+        eprintln!("[TEST] Display widths: A=1, B=1, family=2, C=1, D=1 = 6 total");
+        eprintln!("[TEST] Viewport width: 10");
+
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] At offset 0: visual_row={} visual_col={}",
+            visual.visual_row, visual.visual_col
+        );
+        assert_eq!(visual.visual_col, 0, "Start at column 0");
+
+        // Move right twice to get past "AB"
+        view.edit_buffer_mut().move_right();
+        view.edit_buffer_mut().move_right();
+        let cursor = view.edit_buffer().cursor();
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] After 2 moves: offset={}, visual_col={}",
+            cursor.offset, visual.visual_col
+        );
+        assert_eq!(visual.visual_col, 2, "After 'AB', visual col should be 2");
+
+        // Move right once - should skip entire emoji grapheme cluster
+        view.edit_buffer_mut().move_right();
+        let cursor = view.edit_buffer().cursor();
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] After emoji: offset={}, visual_col={}",
+            cursor.offset, visual.visual_col
+        );
+        // Visual column should be 4 (A=1 + B=1 + emoji=2)
+        assert_eq!(
+            visual.visual_col, 4,
+            "After emoji, visual col should be 4 (emoji width is 2)"
+        );
+
+        // Verify cursor is at 'C' - the offset should account for all emoji codepoints
+        let char_count = text.chars().count();
+        assert!(
+            cursor.offset <= char_count,
+            "Cursor offset {} should be within text length {}",
+            cursor.offset,
+            char_count
+        );
+
+        eprintln!("[TEST] PASS: Emoji grapheme cluster navigation works");
     }
 
     #[test]

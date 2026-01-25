@@ -182,8 +182,8 @@
         "hex": "#FF0000"
       },
       "expected_output": {
-        "index": 1,
-        "note": "Pure red has low luminance (76/255), so maps to dark red (1) not bright red (9)"
+        "index": 9,
+        "note": "Pure red (255,0,0) exactly matches bright red (9) in ANSI palette"
       }
     },
     {
@@ -881,6 +881,114 @@
       },
       "expected_output": {
         "display_width": 2
+      }
+    },
+    {
+      "name": "unicode_grapheme_combining_mark",
+      "category": "unicode",
+      "input": {
+        "text": "e\u0301"
+      },
+      "expected_output": {
+        "grapheme_count": 1,
+        "display_width": 1,
+        "note": "e + combining acute accent = single grapheme, width 1"
+      }
+    },
+    {
+      "name": "unicode_grapheme_flag_sequence",
+      "category": "unicode",
+      "input": {
+        "text": "🇺🇸"
+      },
+      "expected_output": {
+        "grapheme_count": 1,
+        "display_width": 2,
+        "note": "Regional indicator sequence = single grapheme, width 2"
+      }
+    },
+    {
+      "name": "unicode_width_zwj_family",
+      "category": "unicode",
+      "input": {
+        "text": "👨‍👩‍👧"
+      },
+      "expected_output": {
+        "grapheme_count": 1,
+        "display_width": 2,
+        "note": "ZWJ family emoji = single grapheme, width 2"
+      }
+    },
+    {
+      "name": "unicode_width_zwj_professional",
+      "category": "unicode",
+      "input": {
+        "text": "👩‍💻"
+      },
+      "expected_output": {
+        "grapheme_count": 1,
+        "display_width": 2,
+        "note": "Woman technologist ZWJ = single grapheme, width 2"
+      }
+    },
+    {
+      "name": "ansi_hyperlink_start",
+      "category": "ansi",
+      "input": {
+        "link_id": 1,
+        "url": "https://example.com"
+      },
+      "expected_output": {
+        "sequence": "\u001b]8;id=1;https://example.com\u001b\\",
+        "note": "OSC 8 hyperlink start with id and URL"
+      }
+    },
+    {
+      "name": "ansi_hyperlink_end",
+      "category": "ansi",
+      "input": {
+        "end_link": true
+      },
+      "expected_output": {
+        "sequence": "\u001b]8;;\u001b\\",
+        "note": "OSC 8 hyperlink end sequence"
+      }
+    },
+    {
+      "name": "attributes_link_id_packing",
+      "category": "style",
+      "input": {
+        "base_attributes": ["bold"],
+        "link_id": 12345678
+      },
+      "expected_output": {
+        "link_id": 12345678,
+        "flags_preserved": ["bold"],
+        "note": "Link ID packed into bits 8-31, flags in bits 0-7 preserved"
+      }
+    },
+    {
+      "name": "attributes_link_id_max",
+      "category": "style",
+      "input": {
+        "link_id": 16777215
+      },
+      "expected_output": {
+        "link_id": 16777215,
+        "note": "Maximum 24-bit link ID (0xFFFFFF)"
+      }
+    },
+    {
+      "name": "attributes_link_id_merge",
+      "category": "style",
+      "input": {
+        "base_link_id": 100,
+        "overlay_link_id": 200,
+        "overlay_attributes": ["italic"]
+      },
+      "expected_output": {
+        "merged_link_id": 200,
+        "note": "Overlay link ID takes precedence when non-zero"
       }
     }
   ]

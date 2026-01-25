@@ -1,7 +1,17 @@
 //! Text storage and editing with styled segments.
 //!
 //! This module provides rope-backed text buffers for efficient editing of
-//! large documents. Key types:
+//! large documents.
+//!
+//! # Grapheme Pool Policy
+//!
+//! This module's public API uses `&str` for text content, keeping grapheme pool
+//! details internal. Multi-codepoint grapheme clusters (emoji, ZWJ sequences) are
+//! handled transparently during rendering using [`GraphemeId::placeholder`] for
+//! width-aware layout without pool allocation. Users needing direct grapheme pool
+//! access should use [`GraphemePool`] and [`GraphemeId`] from the crate root.
+//!
+//! Key types:
 //!
 //! - [`TextBuffer`]: Styled text storage with syntax highlighting support
 //! - [`EditBuffer`]: Editable buffer with cursor movement and undo/redo

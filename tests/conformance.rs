@@ -106,6 +106,7 @@ fn run_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
         "input" => run_input_case(case, logger),
         "ansi" => run_ansi_case(case, logger),
         "unicode" => run_unicode_case(case, logger),
+        "style" => run_style_case(case, logger),
         // Legacy category name
         "unit" => run_legacy_case(case, logger),
         _ => {
@@ -749,11 +750,41 @@ fn run_ansi_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
         name if name.contains("256_color") => run_256_color_test(case, logger),
         name if name.contains("16_color") => run_16_color_test(case, logger),
         name if name.contains("attributes") => run_attributes_test(case, logger),
+        name if name.contains("hyperlink") => run_hyperlink_test(case, logger),
         _ => {
             eprintln!("Unknown ansi test: {}", case.name);
             true
         }
     }
+}
+
+fn run_hyperlink_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
+    let expected = case
+        .expected_output
+        .get("sequence")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    let sequence = if case.input.get("end_link").is_some() {
+        // Hyperlink end sequence
+        ansi::HYPERLINK_END.to_string()
+    } else {
+        // Hyperlink start sequence
+        let link_id = case
+            .input
+            .get("link_id")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u32;
+        let url = case.input.get("url").and_then(Value::as_str).unwrap_or("");
+        ansi::hyperlink_start(link_id, url)
+    };
+
+    let passed = sequence == expected;
+    if !passed {
+        let actual = serde_json::json!({ "sequence": sequence });
+        logger.log_case(&case.name, &case.expected_output, &actual);
+    }
+    passed
 }
 
 fn run_cursor_position_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
@@ -915,33 +946,186 @@ fn run_attributes_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
 
 fn run_unicode_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
     let text = case.input.get("text").and_then(Value::as_str).unwrap_or("");
+    let mut all_passed = true;
 
+    // Check grapheme count if expected
     if let Some(expected_count) = case
         .expected_output
         .get("grapheme_count")
         .and_then(Value::as_u64)
     {
         let count = unicode::graphemes(text).count();
-        let passed = count == expected_count as usize;
-        if !passed {
-            let actual = serde_json::json!({ "grapheme_count": count });
+        if count != expected_count as usize {
+            let actual = serde_json::json!({ "grapheme_count": count, "expected": expected_count });
             logger.log_case(&case.name, &case.expected_output, &actual);
+            all_passed = false;
         }
-        return passed;
     }
 
+    // Check display width if expected
     if let Some(expected_width) = case
         .expected_output
         .get("display_width")
         .and_then(Value::as_u64)
     {
         let width = unicode::display_width(text);
-        let passed = width == expected_width as usize;
-        if !passed {
-            let actual = serde_json::json!({ "display_width": width });
+        if width != expected_width as usize {
+            let actual = serde_json::json!({ "display_width": width, "expected": expected_width });
             logger.log_case(&case.name, &case.expected_output, &actual);
+            all_passed = false;
         }
-        return passed;
+    }
+
+    all_passed
+}
+
+// =============================================================================
+// Style Tests (link ID packing, attributes)
+// =============================================================================
+
+fn run_style_case(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
+    match case.name.as_str() {
+        name if name.contains("link_id") => run_link_id_test(case, logger),
+        _ => {
+            eprintln!("Unknown style test: {}", case.name);
+            true
+        }
+    }
+}
+
+fn run_link_id_test(case: &FixtureCase, logger: &ArtifactLogger) -> bool {
+    // Parse base attributes
+    let base_attrs_list: Vec<String> = case
+        .input
+        .get("base_attributes")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut base_attrs = TextAttributes::empty();
+    for attr in &base_attrs_list {
+        match attr.as_str() {
+            "bold" => base_attrs |= TextAttributes::BOLD,
+            "dim" => base_attrs |= TextAttributes::DIM,
+            "italic" => base_attrs |= TextAttributes::ITALIC,
+            "underline" => base_attrs |= TextAttributes::UNDERLINE,
+            "blink" => base_attrs |= TextAttributes::BLINK,
+            "inverse" => base_attrs |= TextAttributes::INVERSE,
+            "hidden" => base_attrs |= TextAttributes::HIDDEN,
+            "strikethrough" => base_attrs |= TextAttributes::STRIKETHROUGH,
+            _ => {}
+        }
+    }
+
+    // Test link ID packing
+    if let Some(link_id) = case.input.get("link_id").and_then(Value::as_u64) {
+        let attrs_with_link = base_attrs.with_link_id(link_id as u32);
+
+        // Verify link ID is correctly packed and retrievable
+        let expected_link_id = case
+            .expected_output
+            .get("link_id")
+            .and_then(Value::as_u64)
+            .unwrap_or(link_id) as u32;
+
+        let actual_link_id = attrs_with_link.link_id().unwrap_or(0);
+
+        // Check that expected link ID is masked to 24 bits
+        let masked_expected = expected_link_id & TextAttributes::MAX_LINK_ID;
+
+        if actual_link_id != masked_expected {
+            let actual = serde_json::json!({
+                "link_id": actual_link_id,
+                "expected": masked_expected
+            });
+            logger.log_case(&case.name, &case.expected_output, &actual);
+            return false;
+        }
+
+        // Verify flags are preserved
+        if let Some(expected_flags) = case
+            .expected_output
+            .get("flags_preserved")
+            .and_then(Value::as_array)
+        {
+            for flag in expected_flags {
+                if let Some(flag_name) = flag.as_str() {
+                    let flag_preserved = match flag_name {
+                        "bold" => attrs_with_link.contains(TextAttributes::BOLD),
+                        "dim" => attrs_with_link.contains(TextAttributes::DIM),
+                        "italic" => attrs_with_link.contains(TextAttributes::ITALIC),
+                        "underline" => attrs_with_link.contains(TextAttributes::UNDERLINE),
+                        _ => true,
+                    };
+                    if !flag_preserved {
+                        let actual = serde_json::json!({
+                            "error": format!("Flag '{}' not preserved", flag_name)
+                        });
+                        logger.log_case(&case.name, &case.expected_output, &actual);
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // Test link ID merge behavior
+    if let Some(base_link_id) = case.input.get("base_link_id").and_then(Value::as_u64) {
+        let base_with_link = TextAttributes::empty().with_link_id(base_link_id as u32);
+
+        let overlay_link_id = case
+            .input
+            .get("overlay_link_id")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let overlay_attrs_list: Vec<String> = case
+            .input
+            .get("overlay_attributes")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut overlay = TextAttributes::empty();
+        for attr in &overlay_attrs_list {
+            match attr.as_str() {
+                "bold" => overlay |= TextAttributes::BOLD,
+                "italic" => overlay |= TextAttributes::ITALIC,
+                _ => {}
+            }
+        }
+        if overlay_link_id > 0 {
+            overlay = overlay.with_link_id(overlay_link_id as u32);
+        }
+
+        let merged = base_with_link.merge(overlay);
+        let expected_merged_link_id = case
+            .expected_output
+            .get("merged_link_id")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+
+        let actual_merged_link_id = merged.link_id().unwrap_or(0);
+
+        if actual_merged_link_id != expected_merged_link_id {
+            let actual = serde_json::json!({
+                "merged_link_id": actual_merged_link_id,
+                "expected": expected_merged_link_id
+            });
+            logger.log_case(&case.name, &case.expected_output, &actual);
+            return false;
+        }
+
+        return true;
     }
 
     true

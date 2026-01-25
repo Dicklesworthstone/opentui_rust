@@ -9,6 +9,7 @@ pub use sequences::*;
 use crate::color::Rgba;
 use crate::style::TextAttributes;
 use crate::terminal::ColorSupport;
+use std::io::{self, Write};
 
 /// Color output mode for ANSI sequences.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -50,50 +51,71 @@ pub fn bg_color(color: Rgba) -> String {
 /// Generate SGR sequence for foreground color with specified color mode.
 #[must_use]
 pub fn fg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
+    let mut buf = Vec::new();
+    write_fg_color_with_mode(&mut buf, color, mode).unwrap();
+    String::from_utf8(buf).unwrap()
+}
+
+/// Write SGR sequence for foreground color to a writer.
+pub fn write_fg_color_with_mode(w: &mut impl Write, color: Rgba, mode: ColorMode) -> io::Result<()> {
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();
-            format!("\x1b[38;2;{r};{g};{b}m")
+            write!(w, "\x1b[38;2;{r};{g};{b}m")
         }
         ColorMode::Color256 => {
             let idx = color.to_256_color();
-            format!("\x1b[38;5;{idx}m")
+            write!(w, "\x1b[38;5;{idx}m")
         }
         ColorMode::Color16 => {
             let idx = color.to_16_color();
             // ANSI 16 colors: 30-37 for normal, 90-97 for bright
             let code = if idx < 8 { 30 + idx } else { 90 + idx - 8 };
-            format!("\x1b[{code}m")
+            write!(w, "\x1b[{code}m")
         }
-        ColorMode::NoColor => String::new(),
+        ColorMode::NoColor => Ok(()),
     }
 }
 
 /// Generate SGR sequence for background color with specified color mode.
 #[must_use]
 pub fn bg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
+    let mut buf = Vec::new();
+    write_bg_color_with_mode(&mut buf, color, mode).unwrap();
+    String::from_utf8(buf).unwrap()
+}
+
+/// Write SGR sequence for background color to a writer.
+pub fn write_bg_color_with_mode(w: &mut impl Write, color: Rgba, mode: ColorMode) -> io::Result<()> {
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();
-            format!("\x1b[48;2;{r};{g};{b}m")
+            write!(w, "\x1b[48;2;{r};{g};{b}m")
         }
         ColorMode::Color256 => {
             let idx = color.to_256_color();
-            format!("\x1b[48;5;{idx}m")
+            write!(w, "\x1b[48;5;{idx}m")
         }
         ColorMode::Color16 => {
             let idx = color.to_16_color();
             // ANSI 16 colors: 40-47 for normal, 100-107 for bright
             let code = if idx < 8 { 40 + idx } else { 100 + idx - 8 };
-            format!("\x1b[{code}m")
+            write!(w, "\x1b[{code}m")
         }
-        ColorMode::NoColor => String::new(),
+        ColorMode::NoColor => Ok(()),
     }
 }
 
 /// Generate SGR sequence for text attributes.
 #[must_use]
 pub fn attributes(attrs: TextAttributes) -> String {
+    let mut buf = Vec::new();
+    write_attributes(&mut buf, attrs).unwrap();
+    String::from_utf8(buf).unwrap()
+}
+
+/// Write SGR sequence for text attributes to a writer.
+pub fn write_attributes(w: &mut impl Write, attrs: TextAttributes) -> io::Result<()> {
     let mut codes = Vec::new();
 
     if attrs.contains(TextAttributes::BOLD) {
@@ -122,42 +144,60 @@ pub fn attributes(attrs: TextAttributes) -> String {
     }
 
     if codes.is_empty() {
-        String::new()
+        Ok(())
     } else {
-        format!("\x1b[{}m", codes.join(";"))
+        write!(w, "\x1b[{}m", codes.join(";"))
     }
 }
 
 /// Generate cursor position sequence (1-indexed).
 #[must_use]
 pub fn cursor_position(row: u32, col: u32) -> String {
-    format!("\x1b[{};{}H", row + 1, col + 1)
+    let mut buf = Vec::new();
+    write_cursor_position(&mut buf, row, col).unwrap();
+    String::from_utf8(buf).unwrap()
+}
+
+/// Write cursor position sequence to a writer.
+pub fn write_cursor_position(w: &mut impl Write, row: u32, col: u32) -> io::Result<()> {
+    write!(w, "\x1b[{};{}H", row + 1, col + 1)
 }
 
 /// Generate relative cursor movement.
 #[must_use]
 pub fn cursor_move(dx: i32, dy: i32) -> String {
-    let mut result = String::new();
+    let mut buf = Vec::new();
+    write_cursor_move(&mut buf, dx, dy).unwrap();
+    String::from_utf8(buf).unwrap()
+}
 
+/// Write relative cursor movement to a writer.
+pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()> {
     if dy < 0 {
-        result.push_str(&format!("\x1b[{}A", -dy));
+        write!(w, "\x1b[{}A", -dy)?;
     } else if dy > 0 {
-        result.push_str(&format!("\x1b[{dy}B"));
+        write!(w, "\x1b[{dy}B")?;
     }
 
     if dx > 0 {
-        result.push_str(&format!("\x1b[{dx}C"));
+        write!(w, "\x1b[{dx}C")?;
     } else if dx < 0 {
-        result.push_str(&format!("\x1b[{}D", -dx));
+        write!(w, "\x1b[{}D", -dx)?;
     }
-
-    result
+    Ok(())
 }
 
 /// Generate OSC 8 hyperlink start sequence.
 #[must_use]
 pub fn hyperlink_start(id: u32, url: &str) -> String {
-    format!("\x1b]8;id={id};{url}\x1b\\")
+    let mut buf = Vec::new();
+    write_hyperlink_start(&mut buf, id, url).unwrap();
+    String::from_utf8(buf).unwrap()
+}
+
+/// Write OSC 8 hyperlink start sequence to a writer.
+pub fn write_hyperlink_start(w: &mut impl Write, id: u32, url: &str) -> io::Result<()> {
+    write!(w, "\x1b]8;id={id};{url}\x1b\\")
 }
 
 /// OSC 8 hyperlink end sequence.

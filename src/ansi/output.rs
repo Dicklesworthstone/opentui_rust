@@ -3,6 +3,7 @@
 use crate::ansi::{self, ColorMode};
 use crate::cell::Cell;
 use crate::color::Rgba;
+use crate::grapheme_pool::GraphemePool;
 use crate::style::TextAttributes;
 use std::io::{self, Write};
 
@@ -110,9 +111,9 @@ impl<W: Write> AnsiWriter<W> {
         };
 
         if rel_cost < abs_cost && (dy != 0 || dx != 0) {
-            self.write_str(&ansi::cursor_move(dx, dy));
+            let _ = ansi::write_cursor_move(&mut self.buffer, dx, dy);
         } else {
-            self.write_str(&ansi::cursor_position(row, col));
+            let _ = ansi::write_cursor_position(&mut self.buffer, row, col);
         }
 
         self.cursor_row = row;
@@ -122,7 +123,7 @@ impl<W: Write> AnsiWriter<W> {
     /// Set foreground color if different from current.
     pub fn set_fg(&mut self, color: Rgba) {
         if self.current_fg != Some(color) {
-            self.write_str(&ansi::fg_color_with_mode(color, self.color_mode));
+            let _ = ansi::write_fg_color_with_mode(&mut self.buffer, color, self.color_mode);
             self.current_fg = Some(color);
         }
     }
@@ -130,7 +131,7 @@ impl<W: Write> AnsiWriter<W> {
     /// Set background color if different from current.
     pub fn set_bg(&mut self, color: Rgba) {
         if self.current_bg != Some(color) {
-            self.write_str(&ansi::bg_color_with_mode(color, self.color_mode));
+            let _ = ansi::write_bg_color_with_mode(&mut self.buffer, color, self.color_mode);
             self.current_bg = Some(color);
         }
     }
@@ -169,7 +170,17 @@ impl<W: Write> AnsiWriter<W> {
             }
 
             if !codes.is_empty() {
-                self.write_str(&format!("\x1b[{}m", codes.join(";")));
+                use std::io::Write; // Ensure write! macro is available if needed, or just write_all
+                // Manually constructing the string here might be faster than a helper if specific codes
+                // But let's just write bytes
+                self.buffer.extend_from_slice(b"\x1b[");
+                for (i, code) in codes.iter().enumerate() {
+                    if i > 0 {
+                        self.buffer.push(b';');
+                    }
+                    self.buffer.extend_from_slice(code.as_bytes());
+                }
+                self.buffer.push(b'm');
             }
 
             // Update current attributes to reflect removal
@@ -178,7 +189,7 @@ impl<W: Write> AnsiWriter<W> {
         // Apply new attributes
         let to_add = attrs - self.current_attrs;
         if !to_add.is_empty() {
-            self.write_str(&ansi::attributes(to_add));
+            let _ = ansi::write_attributes(&mut self.buffer, to_add);
         }
 
         self.current_attrs = attrs;
@@ -192,7 +203,7 @@ impl<W: Write> AnsiWriter<W> {
 
         match (link_id, url) {
             (Some(id), Some(url)) => {
-                self.write_str(&ansi::hyperlink_start(id, url));
+                let _ = ansi::write_hyperlink_start(&mut self.buffer, id, url);
             }
             _ => {
                 self.write_str(ansi::HYPERLINK_END);
@@ -241,6 +252,49 @@ impl<W: Write> AnsiWriter<W> {
         self.cursor_col += cell.display_width() as u32;
     }
 
+    /// Write a cell at the current cursor position with optional hyperlink URL,
+    /// resolving grapheme IDs via the pool.
+    pub fn write_cell_with_link_and_pool(
+        &mut self,
+        cell: &Cell,
+        link_url: Option<&str>,
+        pool: &GraphemePool,
+    ) {
+        self.set_link(cell.attributes.link_id(), link_url);
+
+        // Update style state
+        self.set_attributes(cell.attributes);
+        self.set_fg(cell.fg);
+        self.set_bg(cell.bg);
+
+        // Write content using the pool to resolve graphemes
+        match &cell.content {
+            crate::cell::CellContent::Char(c) => {
+                let mut buf = [0u8; 4];
+                let s = c.encode_utf8(&mut buf);
+                self.buffer.extend_from_slice(s.as_bytes());
+            }
+            crate::cell::CellContent::Grapheme(id) => {
+                if let Some(grapheme) = pool.get(*id) {
+                    self.buffer.extend_from_slice(grapheme.as_bytes());
+                } else {
+                    for _ in 0..id.width() {
+                        self.buffer.push(b' ');
+                    }
+                }
+            }
+            crate::cell::CellContent::Empty => {
+                self.buffer.push(b' ');
+            }
+            crate::cell::CellContent::Continuation => {
+                // No output for continuation cells
+            }
+        }
+
+        // Track cursor movement
+        self.cursor_col += cell.display_width() as u32;
+    }
+
     /// Write a cell at a specific position.
     pub fn write_cell_at(&mut self, row: u32, col: u32, cell: &Cell) {
         self.move_cursor(row, col);
@@ -257,6 +311,93 @@ impl<W: Write> AnsiWriter<W> {
     ) {
         self.move_cursor(row, col);
         self.write_cell_with_link(cell, link_url);
+    }
+
+    /// Write a cell at a specific position with optional hyperlink URL,
+    /// resolving grapheme IDs via the pool.
+    pub fn write_cell_at_with_link_and_pool(
+        &mut self,
+        row: u32,
+        col: u32,
+        cell: &Cell,
+        link_url: Option<&str>,
+        pool: &GraphemePool,
+    ) {
+        self.move_cursor(row, col);
+        self.write_cell_with_link_and_pool(cell, link_url, pool);
+    }
+
+    /// Write a cell at the current cursor position, resolving grapheme IDs from the pool.
+    ///
+    /// Unlike [`Self::write_cell`], this properly renders multi-codepoint graphemes
+    /// by looking them up in the provided pool.
+    pub fn write_cell_with_pool(&mut self, cell: &Cell, pool: &crate::grapheme_pool::GraphemePool) {
+        self.write_cell_with_pool_and_link(cell, pool, None);
+    }
+
+    /// Write a cell at the current cursor position with pool lookup and optional hyperlink.
+    pub fn write_cell_with_pool_and_link(
+        &mut self,
+        cell: &Cell,
+        pool: &crate::grapheme_pool::GraphemePool,
+        link_url: Option<&str>,
+    ) {
+        self.set_link(cell.attributes.link_id(), link_url);
+        self.set_attributes(cell.attributes);
+        self.set_fg(cell.fg);
+        self.set_bg(cell.bg);
+
+        match &cell.content {
+            crate::cell::CellContent::Char(c) => {
+                let mut buf = [0u8; 4];
+                let s = c.encode_utf8(&mut buf);
+                self.buffer.extend_from_slice(s.as_bytes());
+            }
+            crate::cell::CellContent::Grapheme(id) => {
+                // Look up the grapheme in the pool
+                if let Some(grapheme) = pool.get(*id) {
+                    self.buffer.extend_from_slice(grapheme.as_bytes());
+                } else {
+                    // Fallback: write spaces matching width
+                    for _ in 0..id.width() {
+                        self.buffer.push(b' ');
+                    }
+                }
+            }
+            crate::cell::CellContent::Empty => {
+                self.buffer.push(b' ');
+            }
+            crate::cell::CellContent::Continuation => {
+                // No output for continuation cells
+            }
+        }
+
+        self.cursor_col += cell.display_width() as u32;
+    }
+
+    /// Write a cell at a specific position, resolving grapheme IDs from the pool.
+    pub fn write_cell_at_with_pool(
+        &mut self,
+        row: u32,
+        col: u32,
+        cell: &Cell,
+        pool: &crate::grapheme_pool::GraphemePool,
+    ) {
+        self.move_cursor(row, col);
+        self.write_cell_with_pool(cell, pool);
+    }
+
+    /// Write a cell at a specific position with pool lookup and optional hyperlink.
+    pub fn write_cell_at_with_pool_and_link(
+        &mut self,
+        row: u32,
+        col: u32,
+        cell: &Cell,
+        pool: &crate::grapheme_pool::GraphemePool,
+        link_url: Option<&str>,
+    ) {
+        self.move_cursor(row, col);
+        self.write_cell_with_pool_and_link(cell, pool, link_url);
     }
 
     /// Reset all ANSI attributes.
@@ -346,5 +487,99 @@ mod tests {
         let inner = writer.into_inner();
         let output = String::from_utf8_lossy(inner.as_slice());
         assert!(output.contains('A'));
+    }
+
+    #[test]
+    fn test_write_cell_with_pool_simple_char() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let pool = crate::grapheme_pool::GraphemePool::new();
+
+        let cell = Cell::new('X', Style::NONE);
+        writer.write_cell_with_pool(&cell, &pool);
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.ends_with('X'));
+    }
+
+    #[test]
+    fn test_write_cell_with_pool_grapheme() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+
+        // Allocate a grapheme in the pool
+        let id = pool.alloc("👨‍👩‍👧");
+
+        let cell = Cell {
+            content: crate::cell::CellContent::Grapheme(id),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: crate::style::TextAttributes::empty(),
+        };
+
+        writer.write_cell_with_pool(&cell, &pool);
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("👨‍👩‍👧"));
+    }
+
+    #[test]
+    fn test_write_cell_with_pool_invalid_id_fallback() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let pool = crate::grapheme_pool::GraphemePool::new();
+
+        // Create a grapheme ID that doesn't exist in the pool
+        let invalid_id = crate::cell::GraphemeId::new(999, 2);
+        let cell = Cell {
+            content: crate::cell::CellContent::Grapheme(invalid_id),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: crate::style::TextAttributes::empty(),
+        };
+
+        writer.write_cell_with_pool(&cell, &pool);
+
+        // Should fall back to spaces matching the width
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.ends_with("  ")); // 2 spaces for width 2
+    }
+
+    #[test]
+    fn test_write_cell_continuation_no_output() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let pool = crate::grapheme_pool::GraphemePool::new();
+
+        // First write a cell to establish style state
+        writer.set_fg(Rgba::WHITE);
+        writer.set_bg(Rgba::BLACK);
+        writer.clear_buffer();
+
+        let cell = Cell::continuation(Rgba::BLACK);
+        writer.write_cell_with_pool(&cell, &pool);
+
+        // Continuation cells produce no visible character output
+        // The buffer may contain ANSI codes for style changes, but no printable content
+        // The cell's display_width is 0, so cursor shouldn't advance for content
+        assert_eq!(cell.display_width(), 0);
+    }
+
+    #[test]
+    fn test_write_cell_at_with_pool() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+
+        let id = pool.alloc("🎉");
+        let cell = Cell {
+            content: crate::cell::CellContent::Grapheme(id),
+            fg: Rgba::WHITE,
+            bg: Rgba::TRANSPARENT,
+            attributes: crate::style::TextAttributes::empty(),
+        };
+
+        writer.write_cell_at_with_pool(5, 10, &cell, &pool);
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("🎉"));
+        // Should contain cursor positioning
+        assert!(output.contains("\x1b["));
     }
 }

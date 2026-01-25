@@ -49,9 +49,11 @@
 
 mod diff;
 mod hitgrid;
+mod threaded;
 
 pub use diff::BufferDiff;
 pub use hitgrid::HitGrid;
+pub use threaded::{ThreadedRenderStats, ThreadedRenderer};
 
 use crate::ansi::AnsiWriter;
 use crate::buffer::{ClipRect, OptimizedBuffer, ScissorStack};
@@ -128,6 +130,7 @@ pub struct Renderer {
     hit_grid: HitGrid,
     hit_scissor: ScissorStack,
     link_pool: LinkPool,
+    grapheme_pool: crate::grapheme_pool::GraphemePool,
     scratch_buffer: Vec<u8>,
 
     background: Rgba,
@@ -168,6 +171,7 @@ impl Renderer {
             hit_grid: HitGrid::new(width, height),
             hit_scissor: ScissorStack::new(),
             link_pool: LinkPool::new(),
+            grapheme_pool: crate::grapheme_pool::GraphemePool::new(),
             scratch_buffer: Vec::with_capacity(
                 (width as usize)
                     .saturating_mul(height as usize)
@@ -192,6 +196,16 @@ impl Renderer {
         &mut self.back_buffer
     }
 
+    /// Get the back buffer with the grapheme pool for pool-aware drawing.
+    pub fn buffer_with_pool(
+        &mut self,
+    ) -> (
+        &mut OptimizedBuffer,
+        &mut crate::grapheme_pool::GraphemePool,
+    ) {
+        (&mut self.back_buffer, &mut self.grapheme_pool)
+    }
+
     /// Get the front buffer (current display state).
     #[must_use]
     pub fn front_buffer(&self) -> &OptimizedBuffer {
@@ -214,6 +228,20 @@ impl Renderer {
         &mut self.link_pool
     }
 
+    /// Get a mutable reference to the grapheme pool.
+    ///
+    /// The grapheme pool stores multi-codepoint grapheme clusters (emoji, ZWJ sequences)
+    /// and allows them to be referenced by [`GraphemeId`](crate::cell::GraphemeId) in cells.
+    pub fn grapheme_pool(&mut self) -> &mut crate::grapheme_pool::GraphemePool {
+        &mut self.grapheme_pool
+    }
+
+    /// Get an immutable reference to the grapheme pool.
+    #[must_use]
+    pub fn grapheme_pool_ref(&self) -> &crate::grapheme_pool::GraphemePool {
+        &self.grapheme_pool
+    }
+
     /// Set background color.
     pub fn set_background(&mut self, color: Rgba) {
         self.background = color;
@@ -221,7 +249,8 @@ impl Renderer {
 
     /// Clear the back buffer.
     pub fn clear(&mut self) {
-        self.back_buffer.clear(self.background);
+        self.back_buffer
+            .clear_with_pool(&mut self.grapheme_pool, self.background);
         self.hit_grid.clear();
     }
 
@@ -245,7 +274,8 @@ impl Renderer {
 
         // Swap buffers
         std::mem::swap(&mut self.front_buffer, &mut self.back_buffer);
-        self.back_buffer.clear(self.background);
+        self.back_buffer
+            .clear_with_pool(&mut self.grapheme_pool, self.background);
         self.hit_grid.clear();
 
         Ok(())
@@ -269,7 +299,7 @@ impl Renderer {
                             .attributes
                             .link_id()
                             .and_then(|id| self.link_pool.get(id));
-                        writer.write_cell_with_link(cell, url);
+                        writer.write_cell_with_link_and_pool(cell, url, &self.grapheme_pool);
                     }
                 }
             }
@@ -298,15 +328,26 @@ impl Renderer {
         self.scratch_buffer.clear();
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
-        for &(x, y) in &diff.changed_cells {
-            let back_cell = self.back_buffer.get(x, y);
-            if let Some(cell) = back_cell {
-                if !cell.is_continuation() {
-                    let url = cell
-                        .attributes
-                        .link_id()
-                        .and_then(|id| self.link_pool.get(id));
-                    writer.write_cell_at_with_link(y, x, cell, url);
+        for region in &diff.dirty_regions {
+            writer.move_cursor(region.y, region.x);
+            for i in 0..region.width {
+                let x = region.x + i;
+                let y = region.y;
+                let back_cell = self.back_buffer.get(x, y);
+                if let Some(cell) = back_cell {
+                    if !cell.is_continuation() {
+                        let url = cell
+                            .attributes
+                            .link_id()
+                            .and_then(|id| self.link_pool.get(id));
+                        writer.write_cell_with_pool_and_link(cell, &self.grapheme_pool, url);
+                    } else {
+                        // Continuation cell: just advance internal cursor state without output
+                        // or handle appropriately if AnsiWriter needs to know.
+                        // write_cell... advances cursor_col.
+                        // But Cell::continuation usually has width 0.
+                        // If we skip it, AnsiWriter logic holds.
+                    }
                 }
             }
         }
@@ -329,8 +370,10 @@ impl Renderer {
     pub fn resize(&mut self, width: u32, height: u32) -> io::Result<()> {
         self.width = width;
         self.height = height;
-        self.front_buffer.resize(width, height);
-        self.back_buffer.resize(width, height);
+        self.front_buffer
+            .resize_with_pool(&mut self.grapheme_pool, width, height);
+        self.back_buffer
+            .resize_with_pool(&mut self.grapheme_pool, width, height);
         self.hit_grid = HitGrid::new(width, height);
         self.hit_scissor.clear();
         self.force_redraw = true;

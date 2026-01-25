@@ -1,8 +1,9 @@
 //! Text and box drawing operations.
 
 use crate::buffer::OptimizedBuffer;
-use crate::cell::Cell;
+use crate::cell::{Cell, CellContent};
 use crate::color::Rgba;
+use crate::grapheme_pool::GraphemePool;
 use crate::style::Style;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -149,6 +150,9 @@ impl Default for BoxStyle {
 }
 
 /// Draw text at position, handling grapheme clusters and wide characters.
+///
+/// **Note:** Multi-codepoint graphemes are stored with placeholder IDs.
+/// For proper grapheme pool integration, use [`draw_text_with_pool`].
 pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style: Style) {
     let mut col = x;
 
@@ -172,6 +176,107 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
         }
 
         col += width as u32;
+    }
+}
+
+/// Draw text at position, allocating grapheme IDs from the pool.
+///
+/// This version properly allocates multi-codepoint graphemes (emoji, ZWJ sequences)
+/// in the pool, allowing them to be resolved during rendering.
+///
+/// # Arguments
+///
+/// * `buffer` - The buffer to draw to
+/// * `pool` - The grapheme pool for allocating multi-codepoint graphemes
+/// * `x` - Starting X position
+/// * `y` - Y position
+/// * `text` - The text to draw
+/// * `style` - Style to apply to the text
+pub fn draw_text_with_pool(
+    buffer: &mut OptimizedBuffer,
+    pool: &mut GraphemePool,
+    x: u32,
+    y: u32,
+    text: &str,
+    style: Style,
+) {
+    let mut col = x;
+    let fg = style.fg.unwrap_or(Rgba::WHITE);
+    let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
+    let attrs = style.attributes;
+
+    for grapheme in text.graphemes(true) {
+        if grapheme == "\n" || grapheme == "\r" {
+            continue;
+        }
+
+        // Determine cell content and width
+        let (content, width) = if grapheme.chars().count() == 1 {
+            // Single codepoint - store directly as Char
+            let ch = grapheme.chars().next().unwrap();
+            let w = crate::unicode::display_width_char(ch);
+            (CellContent::Char(ch), w)
+        } else {
+            // Multi-codepoint grapheme - allocate from pool
+            let id = pool.intern(grapheme);
+            (CellContent::Grapheme(id), id.width())
+        };
+
+        let cell = Cell {
+            content,
+            fg,
+            bg,
+            attributes: attrs,
+        };
+
+        buffer.set_blended(col, y, cell);
+
+        // Add continuation cells for wide characters
+        for i in 1..width {
+            buffer.set_blended(col + i as u32, y, Cell::continuation(bg));
+        }
+
+        col += width as u32;
+    }
+}
+
+/// Draw a single character at position, allocating from pool if needed.
+///
+/// For single codepoints, stores directly. For multi-codepoint graphemes,
+/// allocates from the pool.
+pub fn draw_char_with_pool(
+    buffer: &mut OptimizedBuffer,
+    pool: &mut GraphemePool,
+    x: u32,
+    y: u32,
+    grapheme: &str,
+    style: Style,
+) {
+    let fg = style.fg.unwrap_or(Rgba::WHITE);
+    let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
+    let attrs = style.attributes;
+
+    let (content, width) = if grapheme.chars().count() == 1 {
+        let ch = grapheme.chars().next().unwrap();
+        let w = crate::unicode::display_width_char(ch);
+        (CellContent::Char(ch), w)
+    } else {
+        let id = pool.intern(grapheme);
+        (CellContent::Grapheme(id), id.width())
+    };
+
+    let cell = Cell {
+        content,
+        fg,
+        bg,
+        attributes: attrs,
+    };
+
+    buffer.set_blended(x, y, cell);
+
+    // Add continuation cells for wide characters
+    for i in 1..width {
+        buffer.set_blended(x + i as u32, y, Cell::continuation(bg));
     }
 }
 
@@ -375,5 +480,133 @@ mod tests {
             buffer.get(1, 0).unwrap().content,
             crate::cell::CellContent::Char('T')
         );
+    }
+
+    #[test]
+    fn test_draw_text_with_pool_ascii() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+
+        draw_text_with_pool(&mut buffer, &mut pool, 0, 0, "Hello", Style::fg(Rgba::RED));
+
+        assert_eq!(buffer.get(0, 0).unwrap().content, CellContent::Char('H'));
+        assert_eq!(buffer.get(4, 0).unwrap().content, CellContent::Char('o'));
+
+        // No graphemes should be allocated for ASCII
+        assert_eq!(pool.active_count(), 0);
+    }
+
+    #[test]
+    fn test_draw_text_with_pool_emoji() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+
+        // Use a ZWJ family emoji which is multi-codepoint
+        draw_text_with_pool(&mut buffer, &mut pool, 0, 0, "Hi 👨‍👩‍👧!", Style::NONE);
+
+        // H, i, space should be Char
+        assert!(matches!(
+            buffer.get(0, 0).unwrap().content,
+            CellContent::Char('H')
+        ));
+        assert!(matches!(
+            buffer.get(1, 0).unwrap().content,
+            CellContent::Char('i')
+        ));
+        assert!(matches!(
+            buffer.get(2, 0).unwrap().content,
+            CellContent::Char(' ')
+        ));
+
+        // 👨‍👩‍👧 should be Grapheme with width 2 (multi-codepoint ZWJ sequence)
+        let emoji_cell = buffer.get(3, 0).unwrap();
+        assert!(matches!(emoji_cell.content, CellContent::Grapheme(_)));
+        assert_eq!(emoji_cell.display_width(), 2);
+
+        // Cell 4 should be continuation
+        assert!(buffer.get(4, 0).unwrap().is_continuation());
+
+        // ! at position 5
+        assert!(matches!(
+            buffer.get(5, 0).unwrap().content,
+            CellContent::Char('!')
+        ));
+
+        // One grapheme should be allocated
+        assert_eq!(pool.active_count(), 1);
+
+        // Can resolve the grapheme from the pool
+        if let CellContent::Grapheme(id) = emoji_cell.content {
+            assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
+        }
+    }
+
+    #[test]
+    fn test_draw_text_with_pool_single_codepoint_emoji() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+
+        // Single codepoint emoji (👍) should be stored as Char, not Grapheme
+        draw_text_with_pool(&mut buffer, &mut pool, 0, 0, "👍", Style::NONE);
+
+        let cell = buffer.get(0, 0).unwrap();
+        // Single codepoint emoji stored as Char (the codepoint fits in char)
+        assert!(matches!(cell.content, CellContent::Char('👍')));
+        assert_eq!(cell.display_width(), 2);
+        assert!(buffer.get(1, 0).unwrap().is_continuation());
+
+        // No graphemes allocated for single codepoint
+        assert_eq!(pool.active_count(), 0);
+    }
+
+    #[test]
+    fn test_draw_text_with_pool_deduplication() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+
+        // Draw the same multi-codepoint grapheme twice (family emoji)
+        draw_text_with_pool(&mut buffer, &mut pool, 0, 0, "👨‍👩‍👧👨‍👩‍👧", Style::NONE);
+
+        // Only one grapheme should be allocated (intern deduplicates)
+        assert_eq!(pool.active_count(), 1);
+
+        // Both cells should reference the same grapheme with refcount 2
+        // First family at 0, continuation at 1; second family at 2, continuation at 3
+        let cell1 = buffer.get(0, 0).unwrap();
+        let cell2 = buffer.get(2, 0).unwrap();
+
+        if let (CellContent::Grapheme(id1), CellContent::Grapheme(id2)) =
+            (cell1.content, cell2.content)
+        {
+            assert_eq!(id1, id2);
+            assert_eq!(pool.refcount(id1), 2);
+        } else {
+            panic!("Expected Grapheme content");
+        }
+    }
+
+    #[test]
+    fn test_draw_char_with_pool() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+
+        // Single codepoint
+        draw_char_with_pool(&mut buffer, &mut pool, 0, 0, "A", Style::NONE);
+        assert!(matches!(
+            buffer.get(0, 0).unwrap().content,
+            CellContent::Char('A')
+        ));
+
+        // Multi-codepoint grapheme
+        draw_char_with_pool(&mut buffer, &mut pool, 5, 0, "👨‍👩‍👧", Style::NONE);
+        let cell = buffer.get(5, 0).unwrap();
+        assert!(cell.content.is_grapheme());
+        assert_eq!(cell.display_width(), 2);
+        assert!(buffer.get(6, 0).unwrap().is_continuation());
+
+        // Can resolve from pool
+        if let CellContent::Grapheme(id) = cell.content {
+            assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
+        }
     }
 }

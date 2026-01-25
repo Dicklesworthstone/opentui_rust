@@ -39,10 +39,10 @@ pub enum HeredocKind {
 /// Core tokenizer abstraction for syntax highlighting.
 pub trait Tokenizer: Send + Sync {
     /// Human-readable name of this tokenizer.
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
 
     /// File extensions this tokenizer handles (e.g., `rs`, `rust`).
-    fn extensions(&self) -> &[&str];
+    fn extensions(&self) -> &'static [&'static str];
 
     /// Tokenize a single line given the state from the previous line.
     /// Returns: (tokens, state_at_end_of_line).
@@ -118,7 +118,9 @@ impl TokenizerRegistry {
     /// Create registry with all built-in tokenizers.
     #[must_use]
     pub fn with_builtins() -> Self {
-        Self::new()
+        let mut registry = Self::new();
+        registry.register(Box::new(crate::highlight::languages::rust::RustTokenizer::new()));
+        registry
     }
 }
 

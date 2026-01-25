@@ -6,11 +6,11 @@
 #![allow(clippy::redundant_closure_for_method_calls)]
 
 use crate::buffer::OptimizedBuffer;
-use crate::cell::Cell;
+use crate::cell::{Cell, CellContent, GraphemeId};
 use crate::color::Rgba;
 use crate::style::Style;
 use crate::text::TextBuffer;
-use crate::unicode::display_width_with_method;
+use crate::unicode::{display_width_char_with_method, display_width_with_method};
 use std::cell::RefCell;
 
 /// Text wrapping mode.
@@ -573,8 +573,20 @@ impl<'a> TextBufferView<'a> {
             if byte_offset < vline.byte_start {
                 continue;
             }
-            if byte_offset >= vline.byte_end && !is_last_line {
-                continue;
+            // Check if cursor is within this line or at its end
+            // When byte_offset == byte_end (cursor at newline position), match this line
+            // if it's the last line OR the next line is on a different source line
+            if byte_offset > vline.byte_end {
+                if !is_last_line {
+                    continue;
+                }
+            } else if byte_offset == vline.byte_end && !is_last_line {
+                let next_vline = &cache.virtual_lines[row + 1];
+                if next_vline.source_line == vline.source_line {
+                    // Next line is a wrap continuation of same source line, skip
+                    continue;
+                }
+                // Next line is a new source line, cursor at end belongs here
             }
 
             let char_start = rope.byte_to_char(vline.byte_start);
@@ -686,7 +698,7 @@ impl<'a> TextBufferView<'a> {
                         break;
                     }
 
-                    let screen_col = (col - self.scroll_x) as i32 + dest_x;
+                    let screen_col = (col as i32 - self.scroll_x as i32) + dest_x;
                     if screen_col >= 0 {
                         if space_idx == 0 {
                             if let Some(indicator) = self.tab_indicator {
@@ -729,8 +741,20 @@ impl<'a> TextBufferView<'a> {
 
             let byte_offset = rope.char_to_byte(global_char_offset);
             let style = self.buffer.style_at(byte_offset);
-            let mut cell = Cell::from_grapheme(grapheme, style);
-            let width = display_width_with_method(grapheme, method).max(cell.display_width());
+            let (content, width) = if grapheme.chars().count() == 1 {
+                let ch = grapheme.chars().next().unwrap();
+                let w = display_width_char_with_method(ch, method);
+                (CellContent::Char(ch), w)
+            } else {
+                let w = display_width_with_method(grapheme, method);
+                (CellContent::Grapheme(GraphemeId::placeholder(w as u8)), w)
+            };
+            let mut main_cell = Cell {
+                content,
+                fg: style.fg.unwrap_or(Rgba::WHITE),
+                bg: style.bg.unwrap_or(Rgba::TRANSPARENT),
+                attributes: style.attributes,
+            };
 
             // Optimization: Skip if completely before scroll position
             if col + (width as u32) <= self.scroll_x {
@@ -739,36 +763,46 @@ impl<'a> TextBufferView<'a> {
                 continue;
             }
 
-            let screen_col = (col - self.scroll_x) as i32 + dest_x;
-
-            // Only draw if within viewport (and valid screen coordinates)
-            if screen_col >= 0 {
-                if let Some(sel) = selection {
-                    if sel.contains(global_char_offset) {
-                        cell.apply_style(sel.style);
-                    }
+            // Apply global selection style once
+            if let Some(sel) = selection {
+                if sel.contains(global_char_offset) {
+                    main_cell.apply_style(sel.style);
                 }
-                if let Some(local) = local_sel {
-                    let (min_x, min_y, max_x, max_y) = local.normalized();
-                    let view_col = (screen_col - dest_x) as u32;
-                    if view_col >= min_x
-                        && view_col <= max_x
-                        && view_row >= min_y
-                        && view_row <= max_y
-                    {
-                        cell.apply_style(local.style);
+            }
+
+            // Draw parts (main + continuations)
+            // Use i32 to allow negative screen coordinates (off-left) without panic
+            let start_screen_col = (col as i32 - self.scroll_x as i32) + dest_x;
+
+            for i in 0..width {
+                let screen_col = start_screen_col + i as i32;
+                
+                // Check visibility for this specific column
+                if screen_col >= 0 {
+                    let mut cell = if i == 0 {
+                        main_cell
+                    } else {
+                        // Continuation cell - ensure it carries background/style
+                        let mut c = Cell::continuation(main_cell.bg);
+                        c.fg = main_cell.fg;
+                        c.attributes = main_cell.attributes;
+                        c
+                    };
+
+                    // Apply local selection per-column
+                    if let Some(local) = local_sel {
+                        let (min_x, min_y, max_x, max_y) = local.normalized();
+                        let view_col = (screen_col - dest_x) as u32;
+                        if view_col >= min_x
+                            && view_col <= max_x
+                            && view_row >= min_y
+                            && view_row <= max_y
+                        {
+                            cell.apply_style(local.style);
+                        }
                     }
-                }
 
-                output.set(screen_col as u32, dest_y, cell);
-
-                for i in 1..width {
-                    let cont_col = screen_col as u32 + i as u32;
-                    output.set(
-                        cont_col,
-                        dest_y,
-                        Cell::continuation(style.bg.unwrap_or(Rgba::TRANSPARENT)),
-                    );
+                    output.set(screen_col as u32, dest_y, cell);
                 }
             }
 
@@ -1631,6 +1665,63 @@ mod tests {
         }
 
         eprintln!("[TEST] PASS: CJK characters not broken mid-character");
+    }
+
+    #[test]
+    fn test_line_cache_emoji_grapheme_clusters() {
+        eprintln!("[TEST] test_line_cache_emoji_grapheme_clusters: Testing multi-codepoint emoji");
+
+        // ZWJ family emoji (👨‍👩‍👧) is multiple codepoints but displays as width 2
+        // Each emoji: 👨 (U+1F468) + ZWJ (U+200D) + 👩 (U+1F469) + ZWJ + 👧 (U+1F467)
+        let buffer = TextBuffer::with_text("Hi👨\u{200D}👩\u{200D}👧Ok");
+        eprintln!("[TEST] Input: 'Hi' + family emoji + 'Ok'");
+        eprintln!("[TEST] Expected widths: H=1, i=1, family=2, O=1, k=1 = 6 total");
+
+        let view = TextBufferView::new(&buffer)
+            .viewport(0, 0, 80, 24)
+            .wrap_mode(WrapMode::None);
+
+        let info = view.line_info();
+        eprintln!("[TEST] Computed width: {}", info.widths[0]);
+
+        // The family emoji should render as width 2
+        assert_eq!(info.widths[0], 6, "Family emoji should be 2 columns");
+
+        eprintln!("[TEST] PASS: Multi-codepoint emoji width correct");
+    }
+
+    #[test]
+    fn test_line_cache_emoji_wrap() {
+        eprintln!(
+            "[TEST] test_line_cache_emoji_wrap: Testing emoji wrapping doesn't break mid-grapheme"
+        );
+
+        // Text: "AB" + family emoji + "CD" = 2 + 2 + 2 = 6 display columns
+        let buffer = TextBuffer::with_text("AB👨\u{200D}👩\u{200D}👧CD");
+        eprintln!("[TEST] Input: 'AB' + family emoji + 'CD'");
+        eprintln!("[TEST] Widths: A=1, B=1, family=2, C=1, D=1 = 6 total");
+
+        let view = TextBufferView::new(&buffer)
+            .viewport(0, 0, 3, 10)
+            .wrap_mode(WrapMode::Char);
+
+        let info = view.line_info();
+        eprintln!("[TEST] Wrap width: 3, LineInfo:");
+        for i in 0..info.virtual_line_count() {
+            eprintln!("[TEST]   Line {}: width={}", i, info.widths[i]);
+        }
+
+        // With width 3:
+        // Line 0: "AB" (2 cols) - emoji doesn't fit, wraps
+        // Line 1: family emoji (2 cols) - fits
+        // Line 2: "CD" (2 cols)
+        // Verify no line exceeds wrap width
+        for (i, &width) in info.widths.iter().enumerate() {
+            eprintln!("[TEST] Verifying line {i} width {width} <= 3");
+            assert!(width <= 3, "Line {i} width {width} exceeds wrap width 3");
+        }
+
+        eprintln!("[TEST] PASS: Emoji grapheme clusters not broken mid-grapheme");
     }
 
     #[test]

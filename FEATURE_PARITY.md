@@ -32,7 +32,7 @@
 |---------|--------|-------|
 | RGBA Color | ✅ | f32 components, alpha blending, HSV conversion |
 | Text Attributes | ✅ | bitflags u32: flags in bits 0-7, link ID in bits 8-31 |
-| Cell | ✅ | CellContent enum: Char, Grapheme (Arc<str>), Empty, Continuation |
+| Cell | ✅ | CellContent enum: Char, Grapheme(GraphemeId), Empty, Continuation. Cell is Copy. |
 | Style | ✅ | fg, bg, attributes (packed link ID) with builder pattern |
 
 ---
@@ -185,10 +185,11 @@ Target behavior (EXISTING_OPENTUI_STRUCTURE.md - sections 3 and 1.3):
 - Pool operations: alloc, incref, decref, get.
 
 API impact (Rust):
-- Replace `CellContent::Grapheme(Arc<str>)` with ID-backed representation (ID + width).
-- `Cell`/`OptimizedBuffer`/text drawing must allocate from a pool and encode width + ID in
+- ✅ Replaced `CellContent::Grapheme(Arc<str>)` with `GraphemeId` (ID + width encoded per spec).
+- ✅ `Cell` and `CellContent` are now `Copy` for zero-allocation hot paths.
+- 🔲 `OptimizedBuffer`/text drawing must allocate from a pool and encode width + ID in
   the stored `u32` char field.
-- Public APIs that expose grapheme content must provide a way to resolve IDs to UTF-8 bytes
+- 🔲 Public APIs that expose grapheme content must provide a way to resolve IDs to UTF-8 bytes
   (likely via a `GraphemePool` handle).
 
 Migration strategy:
@@ -430,6 +431,271 @@ Key constraints:
 - Terminal I/O happens only on the render thread.
 - `Resize` updates both sides: main thread resizes its back buffer; render thread
   resizes its front buffer before next present.
+
+---
+
+## Thread Lifecycle & Cleanup Semantics (bd-2qg.8.2)
+
+### Startup Sequence
+
+1. `ThreadedRenderer::new()` on the main thread:
+   - Creates channels (command and reply)
+   - Allocates initial back buffer
+   - Spawns render thread via `std::thread::spawn`
+   - Render thread owns: Terminal, front buffer, grapheme pool reference
+
+2. Render thread initialization:
+   - Terminal enters alt screen (if configured)
+   - Cursor hidden (if configured)
+   - Mouse tracking enabled (if configured)
+   - Capabilities queried (if configured)
+   - Thread enters message loop, waiting for commands
+
+### Graceful Shutdown (`ThreadedRenderer::shutdown()`)
+
+1. Main thread sends `RenderCommand::Shutdown`
+2. Render thread receives shutdown command
+3. Render thread performs terminal cleanup:
+   - Disables mouse tracking
+   - Shows cursor
+   - Exits alt screen
+   - Flushes any pending output
+4. Render thread sends `RenderReply::ShutdownComplete`
+5. Render thread exits message loop and terminates
+6. Main thread receives acknowledgment
+7. Main thread joins the render thread handle
+
+```rust
+pub fn shutdown(self) -> io::Result<()> {
+    // Send shutdown command
+    self.tx.send(RenderCommand::Shutdown).map_err(|_| {
+        io::Error::new(io::ErrorKind::BrokenPipe, "render thread disconnected")
+    })?;
+
+    // Wait for acknowledgment
+    match self.rx.recv() {
+        Ok(RenderReply::ShutdownComplete) => {}
+        Ok(_) => {} // Ignore other replies
+        Err(_) => {} // Channel closed, thread is gone
+    }
+
+    // Join the thread
+    self.handle.join().map_err(|_| {
+        io::Error::new(io::ErrorKind::Other, "render thread panicked")
+    })?;
+
+    Ok(())
+}
+```
+
+### Drop Behavior
+
+The `Drop` implementation ensures terminal state is restored even if `shutdown()`
+was not called explicitly:
+
+```rust
+impl Drop for ThreadedRenderer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            // Try to send shutdown (may fail if thread is already dead)
+            let _ = self.tx.send(RenderCommand::Shutdown);
+
+            // Give the thread a brief moment to cleanup
+            // then join (blocking) to ensure cleanup completes
+            let _ = handle.join();
+        }
+    }
+}
+```
+
+**Important**: Drop must be blocking to guarantee terminal cleanup. A detached
+render thread that outlives the main thread would leave the terminal in a bad
+state (raw mode, alt screen, cursor hidden).
+
+### Panic Recovery
+
+If the render thread panics:
+
+1. Channel operations from main thread will return errors
+2. `join()` will return `Err(Any)` containing the panic payload
+3. Terminal state may be corrupted
+
+Mitigation: The render thread should use `catch_unwind` around its message loop:
+
+```rust
+fn render_thread_main(rx: Receiver<RenderCommand>, ...) {
+    // Set up panic hook to restore terminal before unwinding
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        // ... message loop ...
+    }));
+
+    // Always cleanup terminal, even on panic
+    let _ = terminal.cleanup();
+
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
+}
+```
+
+### Terminal State Invariants
+
+The render thread maintains these invariants:
+
+| State | On Start | On Shutdown | On Panic |
+|-------|----------|-------------|----------|
+| Alt screen | Entered | Exited | Exited |
+| Cursor | Hidden | Shown | Shown |
+| Mouse tracking | Enabled | Disabled | Disabled |
+| Raw mode | Enabled | Disabled | Disabled |
+
+### Thread Safety Considerations
+
+- `Terminal<Stdout>` is `!Send` because it holds a reference to `Stdout`
+- Solution: Terminal is created on the render thread, not passed from main
+- Buffers are moved via channels, never shared concurrently
+- GraphemePool travels with the frame (moved, not borrowed)
+- LinkPool travels with the frame (moved, not borrowed)
+
+### Timeout Handling
+
+For robustness, the main thread may want to timeout when waiting for the render
+thread during shutdown:
+
+```rust
+match self.rx.recv_timeout(Duration::from_secs(5)) {
+    Ok(RenderReply::ShutdownComplete) => {}
+    Ok(_) | Err(_) => {
+        // Thread unresponsive, force cleanup
+        // This is a last resort - terminal state may be corrupted
+    }
+}
+```
+
+### Testing Strategy
+
+1. **Startup/shutdown cycle**: Verify clean start and stop
+2. **Multiple present calls**: Ensure no resource leaks
+3. **Resize during render**: Verify correct buffer sizes
+4. **Drop without shutdown**: Verify terminal is restored
+5. **Simulated panic**: Verify terminal cleanup on panic (requires test harness)
+
+---
+
+## Performance Model for Threaded Renderer (bd-2qg.8.3)
+
+### Comparison: Single-Threaded vs Threaded Rendering
+
+| Aspect | Single-Threaded | Threaded |
+|--------|-----------------|----------|
+| **Latency per frame** | Lower (no channel overhead) | Slightly higher (channel round-trip) |
+| **Throughput** | Limited by I/O blocking | Higher (main thread continues while I/O completes) |
+| **Allocations per frame** | Zero (reuse buffers) | Zero (move buffers via channel) |
+| **Lock contention** | None (single-threaded) | None (ownership transfer, not sharing) |
+| **Terminal I/O** | Blocks main thread | Offloaded to render thread |
+| **Complexity** | Simple | Channel + lifecycle management |
+
+### Hot Path Analysis
+
+The "hot path" is the frame submission loop:
+
+```
+Main: draw → draw → draw → present() → [wait] → buffer returned → draw → ...
+                              ↓
+Render:              [wait] → receive → diff → write ANSI → reply → [wait]
+```
+
+**Key performance properties:**
+
+1. **Zero allocations on present()**: Buffers are moved, not cloned
+2. **No locks**: Ownership transfer via channels, not shared state
+3. **Minimal synchronization**: Single send + single recv per frame
+4. **Diff on render thread**: Main thread doesn't wait for diff computation
+
+### Where Work Happens
+
+| Operation | Thread | Blocking? |
+|-----------|--------|-----------|
+| Drawing (set cells, draw_text) | Main | No |
+| Buffer ownership transfer | Both | Channel wait |
+| Diff computation | Render | No (runs in parallel) |
+| ANSI sequence generation | Render | No |
+| Terminal write + flush | Render | Yes (I/O) |
+| Terminal capabilities query | Render | Yes (one-time) |
+
+### Diff Strategy Decision
+
+**Question**: Should diff run on main thread or render thread?
+
+**Decision**: Diff runs on the render thread.
+
+**Rationale**:
+- Main thread can start drawing the next frame immediately after `present()` returns
+- Diff is O(w*h) but memory-access bound, not compute bound
+- Moving diff to render thread maximizes main thread utilization
+- The render thread would otherwise be idle while main thread draws
+
+**Alternative rejected**: Pre-computing diff on main thread before sending. This
+would add latency to `present()` and not improve throughput since the render
+thread would be idle during main-thread diff.
+
+### Memory Layout Considerations
+
+Buffer layout for cache-friendly diffing:
+
+```rust
+// Row-major layout for sequential access
+cells: Vec<Cell>  // cells[y * width + x]
+```
+
+Diff algorithm walks buffers sequentially, which is optimal for cache prefetch.
+No changes needed for threaded rendering.
+
+### Channel Choice
+
+Using `std::sync::mpsc` for simplicity:
+
+- `Sender<RenderCommand>`: Main thread sends commands
+- `Receiver<RenderReply>`: Main thread receives buffer back
+
+Alternatives considered:
+- `crossbeam-channel`: Better performance for MPMC, but we're SPSC
+- `flume`: Similar, adds dependency
+- `tokio::sync`: Would require async runtime
+
+For SPSC with one message per frame (~60/sec max), `std::sync::mpsc` is adequate.
+Can swap to crossbeam later if profiling shows channel overhead.
+
+### Synchronous Present Design
+
+`present()` is synchronous (blocks until buffer is returned):
+
+**Pros**:
+- Simple API (no futures, no callbacks)
+- Predictable frame timing
+- Easy to reason about buffer ownership
+
+**Cons**:
+- Main thread blocked during render (but only during I/O, not diff)
+
+**Why this is acceptable**:
+- At 60 FPS, each frame has ~16ms budget
+- Terminal I/O is typically <1ms
+- Main thread has 15+ ms to draw next frame
+- For higher throughput, use double or triple buffering (future enhancement)
+
+### Benchmarking Strategy
+
+To verify no performance regression:
+
+1. **Baseline**: Single-threaded `Renderer::present()` latency
+2. **Threaded**: `ThreadedRenderer::present()` latency
+3. **Throughput**: Frames per second with constant draw load
+
+Expected results:
+- Threaded present() latency may be 10-50μs higher (channel overhead)
+- Threaded throughput should be equal or higher
+- No new allocations visible in memory profiler
 
 ---
 
