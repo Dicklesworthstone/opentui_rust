@@ -242,6 +242,81 @@ Accept/reject criteria for parity:
 
 ---
 
+## Threaded Renderer API Sketch (bd-2qg.8.1)
+
+Goal: keep stdout/terminal I/O on a single render thread while the main thread
+owns the draw API. Buffer ownership is swapped per frame to avoid per-frame
+allocations.
+
+### Public API (proposed)
+
+```rust
+pub struct ThreadedRenderer {
+    tx: Sender<RenderCommand>,
+    rx: Receiver<RenderReply>,
+    back_buffer: OptimizedBuffer,
+    link_pool: LinkPool,
+    width: u32,
+    height: u32,
+}
+
+impl ThreadedRenderer {
+    pub fn new(width: u32, height: u32, options: RendererOptions) -> io::Result<Self>;
+    pub fn buffer(&mut self) -> &mut OptimizedBuffer;
+    pub fn link_pool_mut(&mut self) -> &mut LinkPool;
+    pub fn present(&mut self) -> io::Result<()>;
+    pub fn present_force(&mut self) -> io::Result<()>;
+    pub fn resize(&mut self, width: u32, height: u32) -> io::Result<()>;
+    pub fn set_cursor(&self, x: u32, y: u32, visible: bool) -> io::Result<()>;
+    pub fn set_title(&self, title: &str) -> io::Result<()>;
+    pub fn shutdown(self) -> io::Result<()>;
+}
+```
+
+Notes:
+- `buffer()` exposes the current back buffer for drawing on the main thread.
+- `link_pool_mut()` stays on the main thread; the pool is moved with frames so the
+  render thread can resolve IDs to URLs without shared locking.
+- `present()` is synchronous: it submits the frame and blocks until a buffer is returned.
+
+### Command/Reply Protocol (proposed)
+
+```rust
+enum RenderCommand {
+    Present { buffer: OptimizedBuffer, link_pool: LinkPool, force: bool },
+    Resize { width: u32, height: u32 },
+    SetCursor { x: u32, y: u32, visible: bool },
+    SetTitle { title: String },
+    Shutdown,
+}
+
+enum RenderReply {
+    Presented { buffer: OptimizedBuffer, link_pool: LinkPool },
+    Ack,
+}
+```
+
+### Ownership & Flow
+
+```
+Main thread                         Render thread
+-----------                         -------------
+draw into back_buffer
+send Present(back_buffer, link_pool)  ─────────────▶
+                                     diff + write ANSI
+                                     swap(front, back)
+recv Presented(old_front, link_pool) ◀─────────────
+continue drawing into returned buffer
+```
+
+Key constraints:
+- No per-frame allocation: buffers are moved, not rebuilt.
+- Terminal I/O happens only on the render thread.
+- `Resize` updates both sides: main thread resizes its back buffer; render thread
+  resizes its front buffer before next present.
+
+---
+
 ## Open Parity Gaps (must match Zig spec)
 
 1. Grapheme pool encoding + ID-backed cells (Decision A).
