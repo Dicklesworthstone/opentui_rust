@@ -265,7 +265,10 @@ impl Renderer {
             for x in 0..self.width {
                 if let Some(cell) = self.back_buffer.get(x, y) {
                     if !cell.is_continuation() {
-                        let url = cell.link_id.and_then(|id| self.link_pool.get(id));
+                        let url = cell
+                            .attributes
+                            .link_id()
+                            .and_then(|id| self.link_pool.get(id));
                         writer.write_cell_with_link(cell, url);
                     }
                 }
@@ -299,7 +302,10 @@ impl Renderer {
             let back_cell = self.back_buffer.get(x, y);
             if let Some(cell) = back_cell {
                 if !cell.is_continuation() {
-                    let url = cell.link_id.and_then(|id| self.link_pool.get(id));
+                    let url = cell
+                        .attributes
+                        .link_id()
+                        .and_then(|id| self.link_pool.get(id));
                     writer.write_cell_at_with_link(y, x, cell, url);
                 }
             }

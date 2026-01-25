@@ -30,12 +30,14 @@ use crate::color::Rgba;
 use bitflags::bitflags;
 
 bitflags! {
-    /// Text rendering attributes (bold, italic, etc.).
+    /// Text rendering attributes (bold, italic, underline, etc.).
     ///
     /// Attributes are represented as bitflags and can be combined using
     /// bitwise OR. Not all terminals support all attributes.
+    ///
+    /// Link IDs are packed into the upper 24 bits to match the Zig spec.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
-    pub struct TextAttributes: u8 {
+    pub struct TextAttributes: u32 {
         /// Bold/increased intensity.
         const BOLD          = 0x01;
         /// Dim/decreased intensity.
@@ -55,6 +57,61 @@ bitflags! {
     }
 }
 
+impl TextAttributes {
+    /// Mask for the lower 8 bits containing style flags.
+    pub const FLAGS_MASK: u32 = 0x0000_00FF;
+    /// Mask for the upper 24 bits containing link ID.
+    pub const LINK_ID_MASK: u32 = 0xFFFF_FF00;
+    /// Bit shift for link ID storage.
+    pub const LINK_ID_SHIFT: u32 = 8;
+    /// Maximum link ID that fits in 24 bits.
+    pub const MAX_LINK_ID: u32 = 0x00FF_FFFF;
+
+    /// Extract the link ID (if any).
+    #[must_use]
+    pub const fn link_id(self) -> Option<u32> {
+        let id = (self.bits() & Self::LINK_ID_MASK) >> Self::LINK_ID_SHIFT;
+        if id == 0 { None } else { Some(id) }
+    }
+
+    /// Return attributes with a link ID set (masked to 24 bits).
+    #[must_use]
+    pub const fn with_link_id(self, link_id: u32) -> Self {
+        let id = link_id & Self::MAX_LINK_ID;
+        let bits = (self.bits() & Self::FLAGS_MASK) | (id << Self::LINK_ID_SHIFT);
+        Self::from_bits_retain(bits)
+    }
+
+    /// Clear the link ID, preserving style flags.
+    #[must_use]
+    pub const fn clear_link_id(self) -> Self {
+        Self::from_bits_retain(self.bits() & Self::FLAGS_MASK)
+    }
+
+    /// Return only the style flags (link ID cleared).
+    #[must_use]
+    pub const fn flags_only(self) -> Self {
+        Self::from_bits_retain(self.bits() & Self::FLAGS_MASK)
+    }
+
+    /// Merge attributes: OR flags, prefer `other` link ID when set.
+    #[must_use]
+    pub const fn merge(self, other: Self) -> Self {
+        let flags = (self.bits() | other.bits()) & Self::FLAGS_MASK;
+        let link_bits = if (other.bits() & Self::LINK_ID_MASK) != 0 {
+            other.bits() & Self::LINK_ID_MASK
+        } else {
+            self.bits() & Self::LINK_ID_MASK
+        };
+        Self::from_bits_retain(flags | link_bits)
+    }
+
+    /// Set the link ID in place.
+    pub fn set_link_id(&mut self, link_id: u32) {
+        *self = self.with_link_id(link_id);
+    }
+}
+
 /// Complete text style including colors, attributes, and optional hyperlink.
 ///
 /// Styles are immutable and cheap to copy. Use the builder methods to create
@@ -67,7 +124,8 @@ bitflags! {
 ///
 /// # Hyperlinks
 ///
-/// The `link_id` field references URLs stored in a [`LinkPool`](crate::LinkPool).
+/// Link IDs are packed into [`TextAttributes`] (bits 8-31) and reference
+/// URLs stored in a [`LinkPool`](crate::LinkPool).
 /// Terminals supporting OSC 8 will render these as clickable links.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Style {
@@ -77,8 +135,6 @@ pub struct Style {
     pub bg: Option<Rgba>,
     /// Text rendering attributes.
     pub attributes: TextAttributes,
-    /// Optional hyperlink ID (for OSC 8 links).
-    pub link_id: Option<u32>,
 }
 
 impl Style {
@@ -87,7 +143,6 @@ impl Style {
         fg: None,
         bg: None,
         attributes: TextAttributes::empty(),
-        link_id: None,
     };
 
     /// Create a new style builder.
@@ -103,7 +158,6 @@ impl Style {
             fg: Some(color),
             bg: None,
             attributes: TextAttributes::empty(),
-            link_id: None,
         }
     }
 
@@ -114,7 +168,6 @@ impl Style {
             fg: None,
             bg: Some(color),
             attributes: TextAttributes::empty(),
-            link_id: None,
         }
     }
 
@@ -125,7 +178,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::BOLD,
-            link_id: None,
         }
     }
 
@@ -136,7 +188,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::ITALIC,
-            link_id: None,
         }
     }
 
@@ -147,7 +198,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::UNDERLINE,
-            link_id: None,
         }
     }
 
@@ -158,7 +208,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::DIM,
-            link_id: None,
         }
     }
 
@@ -169,7 +218,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::INVERSE,
-            link_id: None,
         }
     }
 
@@ -180,7 +228,6 @@ impl Style {
             fg: None,
             bg: None,
             attributes: TextAttributes::STRIKETHROUGH,
-            link_id: None,
         }
     }
 
@@ -206,7 +253,7 @@ impl Style {
     #[must_use]
     pub const fn with_attributes(self, attrs: TextAttributes) -> Self {
         Self {
-            attributes: self.attributes.union(attrs),
+            attributes: self.attributes.merge(attrs),
             ..self
         }
     }
@@ -233,7 +280,7 @@ impl Style {
     #[must_use]
     pub const fn with_link(self, link_id: u32) -> Self {
         Self {
-            link_id: Some(link_id),
+            attributes: self.attributes.with_link_id(link_id),
             ..self
         }
     }
@@ -241,10 +288,7 @@ impl Style {
     /// Check if this style has any non-default properties.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.fg.is_none()
-            && self.bg.is_none()
-            && self.attributes.is_empty()
-            && self.link_id.is_none()
+        self.fg.is_none() && self.bg.is_none() && self.attributes.is_empty()
     }
 
     /// Merge two styles, with `other` taking precedence for set values.
@@ -253,8 +297,7 @@ impl Style {
         Self {
             fg: other.fg.or(self.fg),
             bg: other.bg.or(self.bg),
-            attributes: self.attributes | other.attributes,
-            link_id: other.link_id.or(self.link_id),
+            attributes: self.attributes.merge(other.attributes),
         }
     }
 }
@@ -339,7 +382,7 @@ impl StyleBuilder {
     /// Set hyperlink ID.
     #[must_use]
     pub fn link(mut self, link_id: u32) -> Self {
-        self.style.link_id = Some(link_id);
+        self.style.attributes = self.style.attributes.with_link_id(link_id);
         self
     }
 
@@ -391,5 +434,35 @@ mod tests {
                 .attributes
                 .contains(TextAttributes::UNDERLINE)
         );
+    }
+
+    #[test]
+    fn test_text_attributes_link_id_packing() {
+        let attrs = TextAttributes::BOLD.with_link_id(0x12_3456);
+        assert!(attrs.contains(TextAttributes::BOLD));
+        assert_eq!(attrs.link_id(), Some(0x12_3456));
+        assert_eq!(attrs.flags_only(), TextAttributes::BOLD);
+    }
+
+    #[test]
+    fn test_text_attributes_merge_link_id_preference() {
+        let base = TextAttributes::BOLD.with_link_id(1);
+        let overlay_no_link = TextAttributes::ITALIC;
+        let merged = base.merge(overlay_no_link);
+        assert_eq!(merged.link_id(), Some(1));
+        assert!(merged.contains(TextAttributes::BOLD));
+        assert!(merged.contains(TextAttributes::ITALIC));
+
+        let overlay_with_link = TextAttributes::UNDERLINE.with_link_id(2);
+        let merged_with_link = base.merge(overlay_with_link);
+        assert_eq!(merged_with_link.link_id(), Some(2));
+        assert!(merged_with_link.contains(TextAttributes::BOLD));
+        assert!(merged_with_link.contains(TextAttributes::UNDERLINE));
+    }
+
+    #[test]
+    fn test_text_attributes_link_id_masking() {
+        let attrs = TextAttributes::empty().with_link_id(0x1FF_FFFF);
+        assert_eq!(attrs.link_id(), Some(TextAttributes::MAX_LINK_ID));
     }
 }

@@ -270,7 +270,6 @@ impl E2EHarness {
             fg: Some(cell.fg),
             bg: Some(cell.bg),
             attributes: cell.attributes,
-            link_id: cell.link_id,
         };
         eprintln!("[HARNESS] assert_style({x},{y}) style={style:?}");
 

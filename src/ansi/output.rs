@@ -137,6 +137,7 @@ impl<W: Write> AnsiWriter<W> {
 
     /// Set text attributes, only writing changes.
     pub fn set_attributes(&mut self, attrs: TextAttributes) {
+        let attrs = attrs.flags_only();
         if self.current_attrs == attrs {
             return;
         }
@@ -209,7 +210,7 @@ impl<W: Write> AnsiWriter<W> {
 
     /// Write a cell at the current cursor position with optional hyperlink URL.
     pub fn write_cell_with_link(&mut self, cell: &Cell, link_url: Option<&str>) {
-        self.set_link(cell.link_id, link_url);
+        self.set_link(cell.attributes.link_id(), link_url);
 
         // Update style state
         self.set_attributes(cell.attributes);

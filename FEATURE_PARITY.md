@@ -2,7 +2,7 @@
 
 > Tracks implementation status of the Rust port against the Zig specification.
 
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-25
 **Test Status:** 328/328 tests passing (248 unit + 72 conformance + 3 e2e + 5 benchmarks)
 **Clippy Status:** 0 errors (format suggestions only)
 **Estimated Completion:** ~97%
@@ -31,9 +31,9 @@
 | Feature | Status | Notes |
 |---------|--------|-------|
 | RGBA Color | ✅ | f32 components, alpha blending, HSV conversion |
-| Text Attributes | ✅ | bitflags u8: bold, dim, italic, underline, blink, inverse, hidden, strikethrough |
+| Text Attributes | ✅ | bitflags u32: flags in bits 0-7, link ID in bits 8-31 |
 | Cell | ✅ | CellContent enum: Char, Grapheme (Arc<str>), Empty, Continuation |
-| Style | ✅ | fg, bg, attributes with builder pattern |
+| Style | ✅ | fg, bg, attributes (packed link ID) with builder pattern |
 
 ---
 

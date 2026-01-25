@@ -6,6 +6,12 @@
 
 - **Updated:** 1  |  **Already Latest:** 3  |  **Failed:** 0  |  **Needs Attention:** 0
 
+## API Changes (2026-01-25)
+
+- **TextAttributes:** now `u32` with link ID packed into bits 8-31 (flags remain bits 0-7).
+- **Style:** removed `link_id` field; use `Style::with_link()` or `TextAttributes::with_link_id()`.
+- **Cell/Renderer/AnsiWriter:** hyperlink handling now reads link IDs from packed attributes.
+
 ## Current Versions (Already at Latest)
 
 ### bitflags: 2.10.0

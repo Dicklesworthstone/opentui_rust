@@ -98,7 +98,7 @@ impl CellContent {
 /// - Content: A character, grapheme cluster, or empty/continuation marker
 /// - Foreground and background colors (with alpha for blending)
 /// - Text attributes (bold, italic, etc.)
-/// - Optional hyperlink ID for OSC 8 links
+/// - Hyperlink ID packed into attributes for OSC 8 links
 ///
 /// # Alpha Blending
 ///
@@ -113,10 +113,8 @@ pub struct Cell {
     pub fg: Rgba,
     /// Background color.
     pub bg: Rgba,
-    /// Text rendering attributes.
+    /// Text rendering attributes (includes packed link ID).
     pub attributes: TextAttributes,
-    /// Optional hyperlink ID.
-    pub link_id: Option<u32>,
 }
 
 impl Cell {
@@ -128,7 +126,6 @@ impl Cell {
             fg: style.fg.unwrap_or(Rgba::WHITE),
             bg: style.bg.unwrap_or(Rgba::TRANSPARENT),
             attributes: style.attributes,
-            link_id: style.link_id,
         }
     }
 
@@ -146,7 +143,6 @@ impl Cell {
             fg: style.fg.unwrap_or(Rgba::WHITE),
             bg: style.bg.unwrap_or(Rgba::TRANSPARENT),
             attributes: style.attributes,
-            link_id: style.link_id,
         }
     }
 
@@ -158,7 +154,6 @@ impl Cell {
             fg: Rgba::WHITE,
             bg,
             attributes: TextAttributes::empty(),
-            link_id: None,
         }
     }
 
@@ -170,7 +165,6 @@ impl Cell {
             fg: Rgba::WHITE,
             bg,
             attributes: TextAttributes::empty(),
-            link_id: None,
         }
     }
 
@@ -210,10 +204,7 @@ impl Cell {
         if let Some(bg) = style.bg {
             self.bg = bg;
         }
-        self.attributes |= style.attributes;
-        if style.link_id.is_some() {
-            self.link_id = style.link_id;
-        }
+        self.attributes = self.attributes.merge(style.attributes);
     }
 
     /// Blend this cell's colors with a global opacity factor.
@@ -225,14 +216,10 @@ impl Cell {
     /// Blend this cell over a background cell using alpha compositing.
     #[must_use]
     pub fn blend_over(self, background: &Cell) -> Cell {
-        let (content, attributes, link_id) = if self.content.is_empty() {
-            (
-                background.content.clone(),
-                background.attributes,
-                background.link_id,
-            )
+        let (content, attributes) = if self.content.is_empty() {
+            (background.content.clone(), background.attributes)
         } else {
-            (self.content, self.attributes, self.link_id)
+            (self.content, self.attributes)
         };
 
         Cell {
@@ -240,7 +227,6 @@ impl Cell {
             fg: self.fg.blend_over(background.fg),
             bg: self.bg.blend_over(background.bg),
             attributes,
-            link_id,
         }
     }
 }
@@ -284,7 +270,7 @@ mod tests {
 
         assert_eq!(blended.content, CellContent::Char('A'));
         assert_eq!(blended.attributes, bg.attributes);
-        assert_eq!(blended.link_id, bg.link_id);
+        assert_eq!(blended.attributes.link_id(), Some(7));
     }
 
     #[test]
