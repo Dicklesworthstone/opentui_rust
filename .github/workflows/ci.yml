@@ -334,10 +334,57 @@ jobs:
           echo "## Property Tests" >> $GITHUB_STEP_SUMMARY
           echo "Property-based testing with proptest completed." >> $GITHUB_STEP_SUMMARY
 
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run E2E tests with artifact capture
+        run: cargo test --test 'e2e_*' --test 'highlight_e2e' -- --nocapture
+        env:
+          HARNESS_ARTIFACTS: 1
+          HARNESS_LOG_LEVEL: debug
+          RUST_BACKTRACE: 1
+
+      - name: Show E2E test summary
+        if: always()
+        run: |
+          echo "## E2E Tests" >> $GITHUB_STEP_SUMMARY
+          if [ -d "target/test-artifacts" ]; then
+            SUITES=$(find target/test-artifacts -mindepth 1 -maxdepth 1 -type d | wc -l)
+            echo "Test suites: $SUITES" >> $GITHUB_STEP_SUMMARY
+            if [ -f target/test-artifacts/*/summary.json ]; then
+              for summary in target/test-artifacts/*/summary.json; do
+                PASSED=$(jq -r '.passed // "unknown"' "$summary" 2>/dev/null || echo "unknown")
+                SUITE=$(dirname "$summary" | xargs basename)
+                echo "- $SUITE: $PASSED" >> $GITHUB_STEP_SUMMARY
+              done
+            fi
+          else
+            echo "No test artifacts generated." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload E2E test artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-test-artifacts
+          path: |
+            target/test-artifacts/
+          retention-days: 7
+
   # Summary job that other workflows can depend on
   ci-success:
     name: CI Success
-    needs: [lint, test, security, docs, build, conformance, performance-budgets, snapshot-tests, property-tests]
+    needs: [lint, test, security, docs, build, conformance, performance-budgets, snapshot-tests, property-tests, e2e-tests]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -351,7 +398,8 @@ jobs:
              [[ "${{ needs.conformance.result }}" != "success" ]] || \
              [[ "${{ needs.performance-budgets.result }}" != "success" ]] || \
              [[ "${{ needs.snapshot-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.property-tests.result }}" != "success" ]]; then
+             [[ "${{ needs.property-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-tests.result }}" != "success" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi
