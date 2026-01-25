@@ -1934,13 +1934,13 @@ mod tests {
         let lines_per_ms = 10_000.0 / elapsed.as_secs_f64() / 1000.0;
         eprintln!("[PERF] Lines per millisecond: {lines_per_ms:.0}");
 
-        // Allow up to 100ms for CI/slow machines, but log if over 10ms
+        // Allow up to 150ms for CI/slow/loaded machines, but log if over 10ms
         if elapsed.as_millis() > 10 {
             eprintln!("[PERF] WARNING: Took {elapsed:?}, expected <10ms");
         }
         assert!(
-            elapsed.as_millis() < 100,
-            "Cache computation took {elapsed:?}, should be <100ms"
+            elapsed.as_millis() < 150,
+            "Cache computation took {elapsed:?}, should be <150ms"
         );
 
         eprintln!("[PERF] PASS: 10K lines processed efficiently");

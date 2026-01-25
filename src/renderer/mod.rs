@@ -335,19 +335,15 @@ impl Renderer {
                 let y = region.y;
                 let back_cell = self.back_buffer.get(x, y);
                 if let Some(cell) = back_cell {
-                    if !cell.is_continuation() {
-                        let url = cell
-                            .attributes
-                            .link_id()
-                            .and_then(|id| self.link_pool.get(id));
-                        writer.write_cell_with_pool_and_link(cell, &self.grapheme_pool, url);
-                    } else {
-                        // Continuation cell: just advance internal cursor state without output
-                        // or handle appropriately if AnsiWriter needs to know.
-                        // write_cell... advances cursor_col.
-                        // But Cell::continuation usually has width 0.
-                        // If we skip it, AnsiWriter logic holds.
+                    // Skip continuation cells - they don't produce output
+                    if cell.is_continuation() {
+                        continue;
                     }
+                    let url = cell
+                        .attributes
+                        .link_id()
+                        .and_then(|id| self.link_pool.get(id));
+                    writer.write_cell_with_pool_and_link(cell, &self.grapheme_pool, url);
                 }
             }
         }

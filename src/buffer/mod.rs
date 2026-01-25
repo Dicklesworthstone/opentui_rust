@@ -548,6 +548,7 @@ impl OptimizedBuffer {
     }
 
     /// Draw a region of another buffer onto this one.
+    #[allow(clippy::similar_names)] // dest_x_start/dest_y_start are standard coordinate names
     pub fn draw_buffer_region(
         &mut self,
         x: i32,
@@ -615,6 +616,7 @@ impl OptimizedBuffer {
     }
 
     /// Draw a region of another buffer onto this one, updating grapheme pool counts.
+    #[allow(clippy::similar_names)] // dest_x_start/dest_y_start are standard coordinate names
     pub fn draw_buffer_region_with_pool(
         &mut self,
         pool: &mut GraphemePool,

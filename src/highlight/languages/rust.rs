@@ -341,7 +341,7 @@ impl Tokenizer for RustTokenizer {
                     
                     if let Some(kind) = Self::is_keyword(word) {
                         tokens.push(Token::new(kind, start, end));
-                    } else if word.chars().next().map_or(false, char::is_uppercase) {
+                    } else if word.chars().next().is_some_and(char::is_uppercase) {
                         tokens.push(Token::new(TokenKind::Type, start, end));
                     } else if let Some(&(_, '(')) = chars.peek() {
                         tokens.push(Token::new(TokenKind::Function, start, end));

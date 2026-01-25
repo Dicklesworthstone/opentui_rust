@@ -303,7 +303,7 @@ impl EditorView {
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
         // Find current visual line (handles cursor at newline positions)
-        let current_vline_idx = self.find_vline_index(&vlines, byte_offset);
+        let current_vline_idx = Self::find_vline_index(&vlines, byte_offset);
 
         if current_vline_idx == 0 {
             return; // Already at top
@@ -340,7 +340,7 @@ impl EditorView {
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
         // Find current visual line (handles cursor at newline positions)
-        let current_vline_idx = self.find_vline_index(&vlines, byte_offset);
+        let current_vline_idx = Self::find_vline_index(&vlines, byte_offset);
 
         if current_vline_idx + 1 >= vlines.len() {
             return; // Already at bottom
@@ -377,7 +377,7 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        let idx = self.find_vline_index(&vlines, byte_offset);
+        let idx = Self::find_vline_index(&vlines, byte_offset);
         if idx < vlines.len() {
             return self
                 .edit_buffer
@@ -410,7 +410,7 @@ impl EditorView {
         let cursor = self.edit_buffer.cursor();
         let byte_offset = self.edit_buffer.buffer().rope().char_to_byte(cursor.offset);
 
-        let idx = self.find_vline_index(&vlines, byte_offset);
+        let idx = Self::find_vline_index(&vlines, byte_offset);
         if idx < vlines.len() {
             return self
                 .edit_buffer
@@ -605,7 +605,7 @@ impl EditorView {
     }
 
     /// Find the virtual line index for a byte offset, handling cursor at newline positions.
-    fn find_vline_index(&self, vlines: &[VirtualLine], byte_offset: usize) -> usize {
+    fn find_vline_index(vlines: &[VirtualLine], byte_offset: usize) -> usize {
         for (idx, vline) in vlines.iter().enumerate() {
             let is_last = idx == vlines.len() - 1;
             if byte_offset < vline.byte_start {
