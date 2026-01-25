@@ -7,6 +7,7 @@ use opentui::unicode::{
     WidthMethod, display_width, display_width_char, display_width_char_with_method,
     display_width_with_method, grapheme_info, graphemes, is_ascii_only,
 };
+use opentui::{OptimizedBuffer, Style};
 use std::hint::black_box;
 
 fn width_ascii(c: &mut Criterion) {
@@ -121,6 +122,89 @@ fn ascii_detection(c: &mut Criterion) {
     });
 }
 
+fn complex_graphemes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("complex_graphemes");
+
+    // ZWJ family emoji (👨‍👩‍👧‍👦 = 7 codepoints, 1 grapheme)
+    let family = "👨‍👩‍👧‍👦";
+    group.bench_function("width_family_emoji", |b| {
+        b.iter(|| display_width(black_box(family)));
+    });
+
+    // Flag emoji (🏳️‍🌈 = 4 codepoints, 1 grapheme)
+    let flag = "🏳️‍🌈";
+    group.bench_function("width_flag_emoji", |b| {
+        b.iter(|| display_width(black_box(flag)));
+    });
+
+    // Person with skin tone and profession (👩🏽‍💻)
+    let person = "👩🏽‍💻";
+    group.bench_function("width_person_emoji", |b| {
+        b.iter(|| display_width(black_box(person)));
+    });
+
+    // Many ZWJ sequences
+    let many_zwj = "👨‍👩‍👧‍👦👩🏽‍💻🏳️‍🌈👨‍🍳".repeat(25);
+    group.bench_function("width_100_zwj", |b| {
+        b.iter(|| display_width(black_box(&many_zwj)));
+    });
+
+    // Grapheme iteration over complex emoji
+    group.bench_function("graphemes_100_zwj", |b| {
+        b.iter(|| graphemes(black_box(&many_zwj)).count());
+    });
+
+    // Long CJK text (common in Asian terminals)
+    let cjk_long = "日本語テキスト中文文本한국어".repeat(100);
+    group.bench_function("width_cjk_3000_chars", |b| {
+        b.iter(|| display_width(black_box(&cjk_long)));
+    });
+
+    group.bench_function("graphemes_cjk_3000_chars", |b| {
+        b.iter(|| graphemes(black_box(&cjk_long)).count());
+    });
+
+    group.finish();
+}
+
+fn draw_unicode_text(c: &mut Criterion) {
+    let mut group = c.benchmark_group("draw_unicode_text");
+
+    // ASCII text
+    let ascii_80 = "x".repeat(80);
+    group.bench_function("ascii_80_chars", |b| {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        b.iter(|| buffer.draw_text(0, 0, black_box(&ascii_80), Style::default()));
+    });
+
+    // CJK text (40 wide chars = 80 columns)
+    let cjk_40 = "日".repeat(40);
+    group.bench_function("cjk_40_chars", |b| {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        b.iter(|| buffer.draw_text(0, 0, black_box(&cjk_40), Style::default()));
+    });
+
+    // Mixed content
+    let mixed = "Hello 日本語 World 👋 こんにちは! ";
+    group.bench_function("mixed_content", |b| {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        b.iter(|| buffer.draw_text(0, 0, black_box(mixed), Style::default()));
+    });
+
+    // Full screen of unicode (80x24)
+    let line = "Hello 世界 🎉 ".repeat(5);
+    group.bench_function("full_screen_mixed", |b| {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        b.iter(|| {
+            for y in 0..24 {
+                buffer.draw_text(0, y, black_box(&line), Style::default());
+            }
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     width_ascii,
@@ -128,6 +212,8 @@ criterion_group!(
     width_char,
     width_methods,
     grapheme_operations,
-    ascii_detection
+    ascii_detection,
+    complex_graphemes,
+    draw_unicode_text
 );
 criterion_main!(benches);
