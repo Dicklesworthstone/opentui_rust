@@ -21,7 +21,7 @@ pub struct HighlightedBuffer {
     line_states: Vec<LineState>, // State at END of each line
 
     // Dirty tracking for incremental updates
-    dirty_from: Option<usize>, // First dirty line
+    dirty_span: Option<std::ops::Range<usize>>,
     theme_dirty: bool,
 }
 
@@ -39,7 +39,7 @@ impl HighlightedBuffer {
             theme,
             line_tokens: vec![Vec::new(); line_count],
             line_states: vec![LineState::default(); line_count],
-            dirty_from: Some(0),
+            dirty_span: Some(0..line_count),
             theme_dirty: false,
         }
     }
@@ -62,7 +62,8 @@ impl HighlightedBuffer {
     pub fn set_tokenizer(&mut self, tokenizer: Option<Arc<dyn Tokenizer>>) {
         self.tokenizer = tokenizer;
         self.clear_syntax_highlights();
-        self.mark_dirty(0);
+        let len = self.buffer.len_lines();
+        self.mark_dirty(0, len);
         self.theme_dirty = true;
     }
 
@@ -94,21 +95,20 @@ impl HighlightedBuffer {
     /// Get mutable access to the underlying text buffer.
     ///
     /// **Note:** Modifications must be followed by `mark_dirty` if not done via
-    /// `HighlightedBuffer` methods (which don't exist yet, so you must assume
-    /// manual dirty marking is required if you touch the inner buffer).
+    /// `HighlightedBuffer` methods.
     pub fn buffer_mut(&mut self) -> &mut TextBuffer {
-        // Assume any access might dirty the buffer.
-        // Ideally we'd wrap all mutation methods, but for now we expose it.
-        // User must call mark_dirty!
         &mut self.buffer
     }
 
-    /// Mark lines as dirty starting from a specific line.
-    pub fn mark_dirty(&mut self, from_line: usize) {
-        if let Some(current) = self.dirty_from {
-            self.dirty_from = Some(current.min(from_line));
+    /// Mark a range of lines as dirty.
+    pub fn mark_dirty(&mut self, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        if let Some(current) = &self.dirty_span {
+            self.dirty_span = Some(current.start.min(start)..current.end.max(end));
         } else {
-            self.dirty_from = Some(from_line);
+            self.dirty_span = Some(start..end);
         }
     }
 
@@ -120,68 +120,115 @@ impl HighlightedBuffer {
             return;
         };
 
-        let mut retokenize = self.dirty_from.is_some();
+        let buffer = &mut self.buffer;
+        let line_count = buffer.len_lines();
+        
+        let line_tokens = &mut self.line_tokens;
+        let line_states = &mut self.line_states;
+        let count_changed = line_count != line_tokens.len();
+        
+        if count_changed {
+            line_tokens.resize(line_count, Vec::new());
+            line_states.resize(line_count, LineState::default());
+            // Full re-tokenize if line count changed
+            self.dirty_span = Some(0..line_count);
+        }
+
+        let retokenize = self.dirty_span.is_some();
         let mut start_line = if retokenize {
-            self.dirty_from.take().unwrap_or(0)
+            self.dirty_span.as_ref().unwrap().start
         } else if self.theme_dirty {
             0
         } else {
             return;
         };
-
-        let buffer = &mut self.buffer;
-        let theme = &self.theme;
-        let line_tokens = &mut self.line_tokens;
-        let line_states = &mut self.line_states;
-
-        let line_count = buffer.len_lines();
-        let count_changed = line_count != line_tokens.len();
-        line_tokens.resize(line_count, Vec::new());
-        line_states.resize(line_count, LineState::default());
-        if count_changed {
-            retokenize = true;
-            start_line = 0;
-        }
-
-        if retokenize {
-            let mut state = if start_line > 0 {
-                line_states[start_line - 1]
+        
+        // Clamp start line
+        start_line = start_line.min(line_count);
+        
+        // If theme changed, we need to re-apply styles even if tokens are valid
+        // But for simplicity, we treat theme dirty as a full re-process pass logic
+        // reusing tokens if not dirty.
+        // Actually, if theme changed, we might not need to re-tokenize, just re-apply highlights.
+        // But apply_line_highlights is called inside the loop.
+        // So we can just iterate.
+        
+        if retokenize || self.theme_dirty {
+            // Determine end of mandatory processing
+            let mandatory_end = if retokenize {
+                self.dirty_span.as_ref().unwrap().end.min(line_count)
+            } else {
+                0
+            };
+            
+            // If theme dirty, we must process EVERYTHING to update styles?
+            // Yes, apply_line_highlights uses the theme.
+            // So if theme dirty, treat as if dirty_span is full?
+            // Or just iterate all and skip tokenize if not dirty?
+            // To keep logic simple: if theme dirty, we iterate 0..line_count.
+            
+            let (loop_start, loop_end) = if self.theme_dirty {
+                (0, line_count)
+            } else {
+                (start_line, line_count)
+            };
+            
+            let mut state = if loop_start > 0 {
+                line_states[loop_start - 1]
             } else {
                 LineState::Normal
             };
 
-            for i in start_line..line_count {
-                let Some(line_str) = buffer.line(i) else {
+            for i in loop_start..loop_end {
+                // Check if this line is in the dirty span
+                let in_dirty_span = self
+                    .dirty_span
+                    .as_ref()
+                    .is_some_and(|span| i >= span.start && i < span.end);
+
+                let new_state;
+
+                if in_dirty_span || self.theme_dirty {
+                    // Early exit: if past mandatory range, state unchanged, and theme clean
+                    if i >= mandatory_end && state == line_states[i] && !self.theme_dirty {
+                        break;
+                    }
+
+                    // Tokenize if in dirty span or state changed
+                    if i < mandatory_end || state != line_states[i] {
+                        let Some(line_str) = buffer.line(i) else {
+                            break;
+                        };
+                        let line_content = line_str.trim_end_matches(['\n', '\r']);
+                        let (tokens, ns) = tokenizer.tokenize_line(line_content, state);
+                        new_state = ns;
+                        if line_tokens[i] != tokens {
+                            line_tokens[i] = tokens;
+                        }
+                    } else {
+                        // Re-using cached tokens (state matched, not dirty content)
+                        new_state = line_states[i];
+                    }
+
+                    if line_states[i] != new_state {
+                        line_states[i] = new_state;
+                    }
+                } else {
+                    // Not in dirty span, theme not dirty.
+                    // Why are we here?
+                    // Because loop_end is line_count.
+                    // logic above handles breaking.
                     break;
-                };
-                let line_content = line_str.trim_end_matches(['\n', '\r']);
-
-                let (tokens, new_state) = tokenizer.tokenize_line(line_content, state);
-                let tokens_changed = line_tokens[i] != tokens;
-                let state_changed = line_states[i] != new_state;
-
-                if tokens_changed {
-                    line_tokens[i] = tokens;
-                }
-                if state_changed {
-                    line_states[i] = new_state;
                 }
 
-                Self::apply_line_highlights(buffer, theme, i, &line_tokens[i]);
+                // Always apply highlights if we are here (dirty, state change, or theme change)
+                Self::apply_line_highlights(buffer, &self.theme, i, &line_tokens[i]);
                 state = new_state;
-
-                if !self.theme_dirty && !tokens_changed && !state_changed {
-                    break;
-                }
-            }
-        } else {
-            for (i, tokens) in line_tokens.iter().enumerate() {
-                Self::apply_line_highlights(buffer, theme, i, tokens);
             }
         }
 
         self.theme_dirty = false;
-        self.dirty_from = None;
+        self.dirty_span = None;
     }
 
     /// Get tokens for a line.
@@ -260,7 +307,7 @@ impl HighlightedBuffer {
         self.line_tokens.resize(line_count, Vec::new());
         self.line_states.clear();
         self.line_states.resize(line_count, LineState::default());
-        self.dirty_from = Some(0);
+        self.dirty_span = Some(0..line_count);
     }
 
     fn clear_syntax_highlights(&mut self) {
@@ -361,7 +408,7 @@ mod tests {
         let tokens_before = buffer.tokens_for_line(1).to_vec();
 
         buffer.buffer_mut().rope_mut().insert(0, "const ");
-        buffer.mark_dirty(0);
+        buffer.mark_dirty(0, 1);
         buffer.update_highlighting();
 
         let tokens_after = buffer.tokens_for_line(1).to_vec();

@@ -84,6 +84,16 @@ cargo run --example 08_animation
 
 Shows frame pacing and a bouncing dot animation.
 
+### 09_text_buffer.rs
+
+Demonstrates TextBuffer highlights and styled segments rendering.
+
+```bash
+cargo run --example 09_text_buffer
+```
+
+Shows styled text, log formatting, and wide-character width handling.
+
 ### hello.rs
 
 A minimal buffer creation example that doesn't require terminal I/O.

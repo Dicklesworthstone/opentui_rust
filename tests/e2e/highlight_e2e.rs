@@ -86,7 +86,7 @@ fn e2e_rust_file_highlighting() {
 
     if line_count > 0 {
         let edit_line = line_count / 2;
-        highlighted.mark_dirty(edit_line);
+        highlighted.mark_dirty(edit_line, edit_line + 1);
         let start = Instant::now();
         highlighted.update_highlighting();
         let incremental_time = start.elapsed();
@@ -210,7 +210,7 @@ fn e2e_performance_regression() {
         "1000 lines should highlight within {max_initial:?}, took {elapsed:?}"
     );
 
-    highlighted.mark_dirty(500);
+    highlighted.mark_dirty(500, 501);
     let start = Instant::now();
     highlighted.update_highlighting();
     let incremental = start.elapsed();

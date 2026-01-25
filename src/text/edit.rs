@@ -362,7 +362,7 @@ impl EditBuffer {
     pub fn insert(&mut self, text: &str) {
         let offset = self.cursor.offset;
         self.buffer.rope_mut().insert(offset, text);
-        self.buffer.mark_dirty(self.cursor.row);
+        self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 1);
         self.history.push(EditOp::Insert {
             offset,
             text: text.to_string(),
@@ -386,7 +386,7 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(start..self.cursor.offset);
-        self.buffer.mark_dirty(self.cursor.row.saturating_sub(1)); // might affect prev line
+        self.buffer.mark_dirty(self.cursor.row.saturating_sub(1), self.cursor.row + 1); // might affect prev line
         self.history.push(EditOp::Delete {
             offset: start,
             text: deleted,
@@ -410,7 +410,7 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(self.cursor.offset..end);
-        self.buffer.mark_dirty(self.cursor.row);
+        self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 1);
         self.history.push(EditOp::Delete {
             offset: self.cursor.offset,
             text: deleted,
@@ -436,7 +436,7 @@ impl EditBuffer {
         self.buffer.rope_mut().remove(start..end);
 
         let start_row = self.buffer.rope().char_to_line(start);
-        self.buffer.mark_dirty(start_row);
+        self.buffer.mark_dirty(start_row, start_row + 1);
 
         self.history.push(EditOp::Delete {
             offset: start,
@@ -474,7 +474,7 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(insert_pos, &text_to_insert);
-            self.buffer.mark_dirty(self.cursor.row);
+            self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 2);
 
             self.history.push(EditOp::Insert {
                 offset: insert_pos,
@@ -518,7 +518,7 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(prev_line_start, &new_text);
-            self.buffer.mark_dirty(target_row);
+            self.buffer.mark_dirty(target_row, target_row + 2);
 
             self.history.push(EditOp::Insert {
                 offset: prev_line_start,
@@ -566,7 +566,7 @@ impl EditBuffer {
             };
 
             self.buffer.rope_mut().insert(current_line_start, &new_text);
-            self.buffer.mark_dirty(self.cursor.row);
+            self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 2);
 
             self.history.push(EditOp::Insert {
                 offset: current_line_start,
@@ -735,7 +735,7 @@ impl EditBuffer {
                 self.buffer.rope_mut().insert(*offset, text);
 
                 let row = self.buffer.rope().char_to_line(*offset);
-                self.buffer.mark_dirty(row);
+                self.buffer.mark_dirty(row, row + 1);
 
                 self.cursor.offset = offset + text.chars().count();
             }
@@ -744,7 +744,7 @@ impl EditBuffer {
                 self.buffer.rope_mut().remove(*offset..end);
 
                 let row = self.buffer.rope().char_to_line(*offset);
-                self.buffer.mark_dirty(row);
+                self.buffer.mark_dirty(row, row + 1);
 
                 self.cursor.offset = *offset;
             }
