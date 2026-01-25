@@ -104,6 +104,8 @@ impl InputParser {
             b'[' => self.parse_csi(input),
             // SS3 sequence: ESC O (alternate function keys)
             b'O' => self.parse_ss3(input),
+            // DCS sequence: ESC P (Device Control String)
+            b'P' => self.parse_dcs(input),
             // Alt+key: ESC <char>
             0x20..=0x7e => {
                 let c = input[1] as char;
@@ -171,6 +173,39 @@ impl InputParser {
 
             _ => Err(ParseError::UnrecognizedSequence(input[..=end].to_vec())),
         }
+    }
+
+    /// Parse DCS sequence (ESC P ... ST).
+    fn parse_dcs(&self, input: &[u8]) -> ParseResult {
+        // Search for ST (String Terminator)
+        // ST can be ESC \ (0x1b 0x5c) or 0x9c
+        let mut i = 2; // Skip ESC P
+        while i < input.len() {
+            match input[i] {
+                0x1b => {
+                    // Check for ESC \
+                    if i + 1 < input.len() {
+                        if input[i + 1] == b'\\' {
+                            // Found ESC \
+                            return Err(ParseError::UnrecognizedSequence(input[..=i + 1].to_vec()));
+                        }
+                        // Other escape sequence inside DCS? Should not happen in valid DCS but possible in noise.
+                        // Continue searching.
+                    } else {
+                        // ESC at end of buffer, might be start of ST
+                        return Err(ParseError::Incomplete);
+                    }
+                }
+                0x9c => {
+                    // Found 8-bit ST
+                    return Err(ParseError::UnrecognizedSequence(input[..=i].to_vec()));
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        Err(ParseError::Incomplete)
     }
 
     /// Parse a key with modifiers from CSI params.

@@ -654,66 +654,69 @@ impl<'a> TextBufferView<'a> {
         let line = rope.slice(char_start..char_end).to_string();
 
         let mut col = 0u32;
-        let scroll_x = if self.wrap_mode == WrapMode::None {
-            self.scroll_x as i32
-        } else {
-            0
-        };
         let method = self.buffer.width_method();
 
         let selection = self.selection.as_ref().map(Selection::normalized);
         let local_sel = self.local_selection;
 
+        let max_col = self.scroll_x + self.viewport.width;
+
         let mut global_char_offset = char_start;
         for grapheme in line.graphemes(true) {
+            // Optimization: Stop if we've gone past the viewport
+            if col >= max_col {
+                break;
+            }
+
             if grapheme == "\t" {
                 let tab_width = self.buffer.tab_width().max(1) as u32;
                 let spaces_to_next = tab_width - (col % tab_width);
                 // Get the actual style at this position (preserves syntax highlighting)
                 let byte_offset = rope.char_to_byte(global_char_offset);
                 let base_style = self.buffer.style_at(byte_offset);
+
                 for space_idx in 0..spaces_to_next {
-                    let screen_col = col as i32 - scroll_x + dest_x;
-                    if screen_col >= dest_x && col < self.viewport.width + self.scroll_x {
-                        if screen_col >= 0 {
-                            if space_idx == 0 {
-                                if let Some(indicator) = self.tab_indicator {
-                                    // Tab indicator gets special foreground but preserves background
-                                    let style = base_style.with_fg(self.tab_indicator_color);
-                                    output.set(
-                                        screen_col as u32,
-                                        dest_y,
-                                        Cell::new(indicator, style),
-                                    );
-                                } else {
-                                    output.set(
-                                        screen_col as u32,
-                                        dest_y,
-                                        Cell::new(' ', base_style),
-                                    );
-                                }
+                    // Optimization: Skip if before scroll position
+                    if col < self.scroll_x {
+                        col += 1;
+                        continue;
+                    }
+                    // Stop if we hit the edge (tab might straddle the edge)
+                    if col >= max_col {
+                        break;
+                    }
+
+                    let screen_col = (col - self.scroll_x) as i32 + dest_x;
+                    if screen_col >= 0 {
+                        if space_idx == 0 {
+                            if let Some(indicator) = self.tab_indicator {
+                                // Tab indicator gets special foreground but preserves background
+                                let style = base_style.with_fg(self.tab_indicator_color);
+                                output.set(screen_col as u32, dest_y, Cell::new(indicator, style));
                             } else {
                                 output.set(screen_col as u32, dest_y, Cell::new(' ', base_style));
                             }
+                        } else {
+                            output.set(screen_col as u32, dest_y, Cell::new(' ', base_style));
+                        }
 
-                            if let Some(sel) = selection {
-                                if sel.contains(global_char_offset) {
-                                    if let Some(cell) = output.get_mut(screen_col as u32, dest_y) {
-                                        cell.apply_style(sel.style);
-                                    }
+                        if let Some(sel) = selection {
+                            if sel.contains(global_char_offset) {
+                                if let Some(cell) = output.get_mut(screen_col as u32, dest_y) {
+                                    cell.apply_style(sel.style);
                                 }
                             }
-                            if let Some(local) = local_sel {
-                                let (min_x, min_y, max_x, max_y) = local.normalized();
-                                let view_col = (screen_col - dest_x) as u32;
-                                if view_col >= min_x
-                                    && view_col <= max_x
-                                    && view_row >= min_y
-                                    && view_row <= max_y
-                                {
-                                    if let Some(cell) = output.get_mut(screen_col as u32, dest_y) {
-                                        cell.apply_style(local.style);
-                                    }
+                        }
+                        if let Some(local) = local_sel {
+                            let (min_x, min_y, max_x, max_y) = local.normalized();
+                            let view_col = (screen_col - dest_x) as u32;
+                            if view_col >= min_x
+                                && view_col <= max_x
+                                && view_row >= min_y
+                                && view_row <= max_y
+                            {
+                                if let Some(cell) = output.get_mut(screen_col as u32, dest_y) {
+                                    cell.apply_style(local.style);
                                 }
                             }
                         }
@@ -729,36 +732,43 @@ impl<'a> TextBufferView<'a> {
             let mut cell = Cell::from_grapheme(grapheme, style);
             let width = display_width_with_method(grapheme, method).max(cell.display_width());
 
-            let screen_col = col as i32 - scroll_x + dest_x;
-            if screen_col >= dest_x && col < self.viewport.width + self.scroll_x {
-                if screen_col >= 0 {
-                    if let Some(sel) = selection {
-                        if sel.contains(global_char_offset) {
-                            cell.apply_style(sel.style);
-                        }
-                    }
-                    if let Some(local) = local_sel {
-                        let (min_x, min_y, max_x, max_y) = local.normalized();
-                        let view_col = (screen_col - dest_x) as u32;
-                        if view_col >= min_x
-                            && view_col <= max_x
-                            && view_row >= min_y
-                            && view_row <= max_y
-                        {
-                            cell.apply_style(local.style);
-                        }
-                    }
+            // Optimization: Skip if completely before scroll position
+            if col + (width as u32) <= self.scroll_x {
+                col += width as u32;
+                global_char_offset += grapheme.chars().count();
+                continue;
+            }
 
-                    output.set(screen_col as u32, dest_y, cell.clone());
+            let screen_col = (col - self.scroll_x) as i32 + dest_x;
 
-                    for i in 1..width {
-                        let cont_col = screen_col as u32 + i as u32;
-                        output.set(
-                            cont_col,
-                            dest_y,
-                            Cell::continuation(style.bg.unwrap_or(Rgba::TRANSPARENT)),
-                        );
+            // Only draw if within viewport (and valid screen coordinates)
+            if screen_col >= 0 {
+                if let Some(sel) = selection {
+                    if sel.contains(global_char_offset) {
+                        cell.apply_style(sel.style);
                     }
+                }
+                if let Some(local) = local_sel {
+                    let (min_x, min_y, max_x, max_y) = local.normalized();
+                    let view_col = (screen_col - dest_x) as u32;
+                    if view_col >= min_x
+                        && view_col <= max_x
+                        && view_row >= min_y
+                        && view_row <= max_y
+                    {
+                        cell.apply_style(local.style);
+                    }
+                }
+
+                output.set(screen_col as u32, dest_y, cell.clone());
+
+                for i in 1..width {
+                    let cont_col = screen_col as u32 + i as u32;
+                    output.set(
+                        cont_col,
+                        dest_y,
+                        Cell::continuation(style.bg.unwrap_or(Rgba::TRANSPARENT)),
+                    );
                 }
             }
 

@@ -342,26 +342,48 @@ impl Rgba {
     #[must_use]
     pub fn to_16_color(self) -> u8 {
         let (r, g, b) = self.to_rgb_u8();
+        let r = i32::from(r);
+        let g = i32::from(g);
+        let b = i32::from(b);
 
-        // Luminance for determining bright vs normal (using u32 to avoid overflow)
-        let lum = (u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114) / 1000;
-        let is_bright = lum > 127;
+        // Standard ANSI palette (approximate values)
+        #[rustfmt::skip]
+        const PALETTE: [(i32, i32, i32); 16] = [
+            (0, 0, 0),       // 0 Black
+            (128, 0, 0),     // 1 Red
+            (0, 128, 0),     // 2 Green
+            (128, 128, 0),   // 3 Yellow
+            (0, 0, 128),     // 4 Blue
+            (128, 0, 128),   // 5 Magenta
+            (0, 128, 128),   // 6 Cyan
+            (192, 192, 192), // 7 White
+            (128, 128, 128), // 8 Bright Black
+            (255, 0, 0),     // 9 Bright Red
+            (0, 255, 0),     // 10 Bright Green
+            (255, 255, 0),   // 11 Bright Yellow
+            (0, 0, 255),     // 12 Bright Blue
+            (255, 0, 255),   // 13 Bright Magenta
+            (0, 255, 255),   // 14 Bright Cyan
+            (255, 255, 255), // 15 Bright White
+        ];
 
-        // Determine which of the 8 base colors is closest
-        let r_bit = u8::from(r > 127);
-        let g_bit = u8::from(g > 127);
-        let b_bit = u8::from(b > 127);
+        let mut best_idx = 0;
+        let mut min_dist = i32::MAX;
 
-        // ANSI color order: 0=black, 1=red, 2=green, 3=yellow, 4=blue, 5=magenta, 6=cyan, 7=white
-        let base = r_bit | (g_bit << 1) | (b_bit << 2);
+        for (i, &(pr, pg, pb)) in PALETTE.iter().enumerate() {
+            let dr = r - pr;
+            let dg = g - pg;
+            let db = b - pb;
+            // Squared Euclidean distance
+            let dist = dr * dr + dg * dg + db * db;
 
-        // Remap from RGB bits to ANSI order
-        // RGB bits: 0=000 (black), 1=001 (red), 2=010 (green), 3=011 (yellow),
-        //           4=100 (blue), 5=101 (magenta), 6=110 (cyan), 7=111 (white)
-        // This matches ANSI already since ANSI uses: red=1, green=2, blue=4
-        let color = base;
+            if dist < min_dist {
+                min_dist = dist;
+                best_idx = i;
+            }
+        }
 
-        if is_bright { color + 8 } else { color }
+        best_idx as u8
     }
 
     /// Create an Rgba from a 256-color palette index.

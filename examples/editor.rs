@@ -97,10 +97,10 @@ fn main() -> io::Result<()> {
     );
 
     // Calculate viewport (leave room for status bar)
-    let gutter_width = editor.gutter_width();
-    let text_width = width.saturating_sub(gutter_width).saturating_sub(2); // borders
-    let text_height = height.saturating_sub(3); // title + status
-    editor.set_viewport(1 + gutter_width, 2, text_width, text_height);
+    // Viewport includes the gutter area; EditorView handles the layout internally.
+    // Box is at (0, 1) with size (width, height-2).
+    // Content should be inside the border: x=1, y=2, w=width-2, h=height-4.
+    editor.set_viewport(1, 2, width.saturating_sub(2), height.saturating_sub(4));
 
     // Input parser
     let mut parser = InputParser::new();
@@ -161,8 +161,8 @@ fn main() -> io::Result<()> {
                                 &mut editor,
                                 &mut wrap_mode,
                                 &mut show_debug,
-                                text_width,
-                                text_height,
+                                width.saturating_sub(2),
+                                height.saturating_sub(4),
                             ) {
                                 EventResult::Continue => {}
                                 EventResult::Quit => running = false,
@@ -336,59 +336,13 @@ fn handle_event(
 fn render_editor(
     editor: &EditorView,
     buffer: &mut OptimizedBuffer,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
+    _x: u32,
+    _y: u32,
+    _width: u32,
+    _height: u32,
 ) {
-    let eb = editor.edit_buffer();
-    let text = eb.text();
-    let cursor = eb.cursor();
-    let gutter_w = editor.gutter_width();
-
-    // Draw line numbers and text
-    let lines: Vec<&str> = text.lines().collect();
-    let num_lines = lines.len();
-
-    for row in 0..height {
-        let line_idx = row as usize;
-        if line_idx >= num_lines {
-            break;
-        }
-
-        // Line number
-        if gutter_w > 0 {
-            let num_str = format!("{:>width$} ", line_idx + 1, width = (gutter_w - 1) as usize);
-            buffer.draw_text(
-                x,
-                y + row,
-                &num_str,
-                Style::fg(Rgba::from_rgb_u8(80, 80, 100)),
-            );
-        }
-
-        // Line text
-        let line = lines.get(line_idx).unwrap_or(&"");
-        let text_x = x + gutter_w;
-        let available_width = width.saturating_sub(gutter_w) as usize;
-        let display_line: String = line.chars().take(available_width).collect();
-        buffer.draw_text(text_x, y + row, &display_line, Style::fg(Rgba::WHITE));
-
-        // Draw cursor if on this line
-        if line_idx == cursor.row {
-            let cursor_x = text_x + cursor.col as u32;
-            if cursor_x < x + width {
-                // Draw cursor character with inverse style
-                let cursor_char = line.chars().nth(cursor.col).unwrap_or(' ');
-                buffer.draw_text(
-                    cursor_x,
-                    y + row,
-                    &cursor_char.to_string(),
-                    Style::builder().inverse().build(),
-                );
-            }
-        }
-    }
+    // EditorView handles rendering using the configured viewport
+    editor.render_to(buffer, 0, 0, 0, 0);
 }
 
 /// Draw the status bar.

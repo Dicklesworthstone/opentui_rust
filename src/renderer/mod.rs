@@ -128,6 +128,7 @@ pub struct Renderer {
     hit_grid: HitGrid,
     hit_scissor: ScissorStack,
     link_pool: LinkPool,
+    scratch_buffer: Vec<u8>,
 
     background: Rgba,
     force_redraw: bool,
@@ -167,6 +168,11 @@ impl Renderer {
             hit_grid: HitGrid::new(width, height),
             hit_scissor: ScissorStack::new(),
             link_pool: LinkPool::new(),
+            scratch_buffer: Vec::with_capacity(
+                (width as usize)
+                    .saturating_mul(height as usize)
+                    .saturating_mul(20),
+            ),
             background: Rgba::BLACK,
             force_redraw: true,
             stats: RenderStats::default(),
@@ -251,9 +257,8 @@ impl Renderer {
             self.terminal.begin_sync()?;
         }
 
-        let mut writer = AnsiWriter::new(Vec::with_capacity(
-            self.width as usize * self.height as usize * 20,
-        ));
+        self.scratch_buffer.clear();
+        let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
         for y in 0..self.height {
             writer.move_cursor(y, 0);
@@ -270,9 +275,9 @@ impl Renderer {
         writer.reset();
         writer.flush()?;
 
-        let output = writer.into_inner();
         self.terminal.flush()?;
-        io::stdout().write_all(&output)?;
+        // Write the accumulated content from scratch buffer to terminal
+        io::stdout().write_all(&self.scratch_buffer)?;
         io::stdout().flush()?;
 
         if self.terminal.capabilities().sync_output {
@@ -287,7 +292,8 @@ impl Renderer {
             self.terminal.begin_sync()?;
         }
 
-        let mut writer = AnsiWriter::new(Vec::with_capacity(4096));
+        self.scratch_buffer.clear();
+        let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
         for &(x, y) in &diff.changed_cells {
             let back_cell = self.back_buffer.get(x, y);
@@ -302,9 +308,8 @@ impl Renderer {
         writer.reset();
         writer.flush()?;
 
-        let output = writer.into_inner();
-        if !output.is_empty() {
-            io::stdout().write_all(&output)?;
+        if !self.scratch_buffer.is_empty() {
+            io::stdout().write_all(&self.scratch_buffer)?;
             io::stdout().flush()?;
         }
 

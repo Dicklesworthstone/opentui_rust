@@ -58,7 +58,7 @@ impl SyntaxStyleRegistry {
         let name = name.into();
         self.by_name.insert(name.clone(), id);
         self.styles.insert(id, SyntaxStyle::new(id, name, style));
-        self.next_id = self.next_id.max(id + 1);
+        self.next_id = self.next_id.max(id.saturating_add(1));
     }
 
     /// Get a style by ID.
