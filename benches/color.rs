@@ -7,6 +7,10 @@ use opentui::Rgba;
 use std::hint::black_box;
 
 fn color_creation(c: &mut Criterion) {
+    c.bench_function("color_new_f32", |b| {
+        b.iter(|| Rgba::new(black_box(0.5), black_box(0.7), black_box(0.3), black_box(1.0)));
+    });
+
     c.bench_function("color_from_rgb_u8", |b| {
         b.iter(|| Rgba::from_rgb_u8(black_box(100), black_box(149), black_box(237)));
     });
@@ -28,6 +32,18 @@ fn color_creation(c: &mut Criterion) {
 
     c.bench_function("color_from_hex_rgba", |b| {
         b.iter(|| Rgba::from_hex(black_box("#6495ED80")));
+    });
+
+    c.bench_function("color_from_hsv", |b| {
+        b.iter(|| Rgba::from_hsv(black_box(90.0), black_box(0.57), black_box(0.70)));
+    });
+
+    c.bench_function("color_from_256_color", |b| {
+        b.iter(|| Rgba::from_256_color(black_box(123)));
+    });
+
+    c.bench_function("color_from_16_color", |b| {
+        b.iter(|| Rgba::from_16_color(black_box(9)));
     });
 }
 
