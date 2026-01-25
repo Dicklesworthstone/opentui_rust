@@ -49,6 +49,10 @@ harness = false
 name = "highlight"
 harness = false
 
+[[bench]]
+name = "workloads"
+harness = false
+
 [profile.release]
 opt-level = "z"
 lto = true
