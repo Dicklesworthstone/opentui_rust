@@ -201,6 +201,122 @@ Accept/reject criteria for parity:
 - Pool reuse/refcount behavior matches Zig; repeated graphemes reuse IDs and decref frees.
 - Conformance fixtures for grapheme width/rendering match legacy outputs.
 
+---
+
+## Grapheme Pool Spec + API Design (bd-2qg.2)
+
+Goal: define a self-contained, Rust-ready spec for the grapheme pool and its
+cell encoding so implementation/testing is mechanical.
+
+### Encoding + Bit Layout
+
+`Cell.char` is stored as a `u32` with the following layout:
+
+```
+31           30..24            23..0
+[ G ] [  width (7 bits) ] [ grapheme_id (24 bits) ]
+
+G = 1 => grapheme pool reference
+G = 0 => direct Unicode scalar value
+```
+
+Constants + helpers:
+
+```rust
+const GRAPHEME_FLAG: u32 = 0x8000_0000;
+const WIDTH_SHIFT: u32 = 24;
+const WIDTH_MASK: u32 = 0x7F00_0000;
+const ID_MASK: u32 = 0x00FF_FFFF;
+
+fn is_grapheme_char(c: u32) -> bool { c & GRAPHEME_FLAG != 0 }
+fn grapheme_id(c: u32) -> u32 { c & ID_MASK }
+fn grapheme_width(c: u32) -> u8 { ((c >> WIDTH_SHIFT) & 0x7F) as u8 }
+fn pack_grapheme(id: u32, width: u8) -> u32 {
+    GRAPHEME_FLAG | ((u32::from(width) & 0x7F) << WIDTH_SHIFT) | (id & ID_MASK)
+}
+```
+
+Width semantics:
+- Width is the display width of the grapheme cluster (typically 1 or 2).
+- Width **must be >= 1** for grapheme start cells; width 0 is invalid.
+- Width is computed from the grapheme string using `unicode_width`.
+
+### ID Range + Validity
+
+- Grapheme IDs are **24-bit**: `1..=0x00FF_FFFF`.
+- `0` is reserved to mean “invalid/unset”.
+- `alloc()` must return a non-zero ID or an error.
+- `get(0)`, `incref(0)`, `decref(0)` return `InvalidId`.
+
+### Pool Semantics
+
+Slot layout (conceptual):
+- `bytes: Box<[u8]>` (UTF‑8 grapheme bytes)
+- `ref_count: u32`
+- Optional `hash` for interning/lookup
+
+Rules:
+- `alloc(bytes)` inserts a new slot (or reuses a free slot) and sets `ref_count = 1`.
+- `incref(id)` increments refcount; `decref(id)` decrements.
+- When `ref_count` reaches **0**, the slot is released to a free list.
+- Underflow (`decref` when `ref_count == 0`) is an error.
+
+### Rust API Surface (proposed)
+
+```rust
+pub struct GraphemePool { /* slots + free list + optional interner */ }
+pub struct GraphemeId(NonZeroU32); // 24-bit payload
+
+impl GraphemePool {
+    pub fn new() -> Self;
+    pub fn alloc(&mut self, bytes: &[u8]) -> Result<GraphemeId, GraphemeError>;
+    pub fn intern(&mut self, bytes: &[u8]) -> Result<GraphemeId, GraphemeError>;
+    pub fn incref(&mut self, id: GraphemeId) -> Result<(), GraphemeError>;
+    pub fn decref(&mut self, id: GraphemeId) -> Result<(), GraphemeError>;
+    pub fn get(&self, id: GraphemeId) -> Result<&[u8], GraphemeError>;
+}
+
+pub fn pack_grapheme_id(id: GraphemeId, width: u8) -> u32;
+pub fn unpack_grapheme_id(c: u32) -> Option<(GraphemeId, u8)>;
+```
+
+Threading model:
+- Pool is **single-threaded** (no locks). It is owned by `Renderer` and used
+  on the same thread that performs drawing and output.
+
+### Integration Notes (for bd-2qg.4.x)
+
+- `draw_text`:
+  - For grapheme clusters (`len > 1`), call `intern()` to get an ID and pack
+    `char` with width.
+  - For single codepoints, store the Unicode scalar directly in `char`.
+- When a cell is overwritten:
+  - If old cell contains a grapheme ID, call `decref`.
+  - If new cell contains a grapheme ID, `incref` is already handled by `alloc`/`intern`.
+- `AnsiWriter` resolves grapheme IDs via `pool.get(id)` when emitting text.
+
+### Module Placement + Ownership (bd-2qg.2.3)
+
+Candidates:
+- `src/grapheme_pool.rs` (crate root)
+  - ✅ Shared by buffer/renderer/text without circular deps.
+  - ✅ Easy to re-export from `lib.rs`.
+- `src/unicode/grapheme_pool.rs`
+  - ❌ Pool is not purely Unicode logic; it’s a storage/ownership system.
+- `src/buffer/grapheme_pool.rs`
+  - ❌ Renderer and AnsiWriter would need to depend on buffer internals.
+
+Decision:
+- Place `GraphemePool` at `src/grapheme_pool.rs` and re-export from `lib.rs`.
+- Ownership: `Renderer` owns the pool and passes `&mut GraphemePool` to draw paths
+  and to render output (no locks, single-threaded).
+
+### Performance Targets
+
+- No allocations on hot paths for repeated graphemes (interned IDs reused).
+- Free list reuse to avoid pool growth churn.
+- Equality/diff uses encoded `u32` directly (no string compares).
+
 ### Decision B - Link ID packing into TextAttributes (match Zig)
 
 Target behavior (EXISTING_OPENTUI_STRUCTURE.md - section 1.2):
