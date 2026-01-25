@@ -229,11 +229,11 @@ pub fn draw_text_with_pool(
             attributes: attrs,
         };
 
-        buffer.set_blended(col, y, cell);
+        buffer.set_blended_with_pool(pool, col, y, cell);
 
         // Add continuation cells for wide characters
         for i in 1..width {
-            buffer.set_blended(col + i as u32, y, Cell::continuation(bg));
+            buffer.set_blended_with_pool(pool, col + i as u32, y, Cell::continuation(bg));
         }
 
         col += width as u32;
@@ -272,11 +272,11 @@ pub fn draw_char_with_pool(
         attributes: attrs,
     };
 
-    buffer.set_blended(x, y, cell);
+    buffer.set_blended_with_pool(pool, x, y, cell);
 
     // Add continuation cells for wide characters
     for i in 1..width {
-        buffer.set_blended(x + i as u32, y, Cell::continuation(bg));
+        buffer.set_blended_with_pool(pool, x + i as u32, y, Cell::continuation(bg));
     }
 }
 
@@ -594,13 +594,17 @@ mod tests {
         let cell1 = buffer.get(0, 0).unwrap();
         let cell2 = buffer.get(2, 0).unwrap();
 
-        if let (CellContent::Grapheme(id1), CellContent::Grapheme(id2)) =
-            (cell1.content, cell2.content)
-        {
-            assert_eq!(id1, id2);
-            assert_eq!(pool.refcount(id1), 2);
-        } else {
-            panic!("Expected Grapheme content");
+        match (cell1.content, cell2.content) {
+            (CellContent::Grapheme(id1), CellContent::Grapheme(id2)) => {
+                assert_eq!(id1, id2);
+                assert_eq!(pool.refcount(id1), 2);
+            }
+            _ => {
+                assert!(
+                    false,
+                    "Expected grapheme content for pooled multi-codepoint cells"
+                );
+            }
         }
     }
 

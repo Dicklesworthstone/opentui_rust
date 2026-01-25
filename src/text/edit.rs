@@ -765,8 +765,7 @@ impl EditBuffer {
                     (start_row, end_row)
                 };
                 self.buffer.rope_mut().remove(*offset..end);
-                self.buffer
-                    .mark_dirty(start_row, end_row.saturating_add(1));
+                self.buffer.mark_dirty(start_row, end_row.saturating_add(1));
 
                 self.cursor.offset = *offset;
             }
