@@ -106,7 +106,7 @@ fn bench_incremental_update(c: &mut Criterion) {
             let rope = highlighted.rope_mut();
             rope.insert(edit_char, " ");
             rope.remove(edit_char..=edit_char);
-            highlighted.mark_dirty(dirty_line);
+            highlighted.mark_dirty(dirty_line, dirty_line + 1);
             highlighted.update_highlighting();
         });
     });
@@ -114,7 +114,7 @@ fn bench_incremental_update(c: &mut Criterion) {
     c.bench_function("highlight_incremental_multi", |b| {
         b.iter(|| {
             for line in dirty_lines {
-                highlighted.mark_dirty(line);
+                highlighted.mark_dirty(line, line + 1);
             }
             highlighted.update_highlighting();
         });

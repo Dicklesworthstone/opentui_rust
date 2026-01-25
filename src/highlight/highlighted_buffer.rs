@@ -122,11 +122,11 @@ impl HighlightedBuffer {
 
         let buffer = &mut self.buffer;
         let line_count = buffer.len_lines();
-        
+
         let line_tokens = &mut self.line_tokens;
         let line_states = &mut self.line_states;
         let count_changed = line_count != line_tokens.len();
-        
+
         if count_changed {
             line_tokens.resize(line_count, Vec::new());
             line_states.resize(line_count, LineState::default());
@@ -142,17 +142,17 @@ impl HighlightedBuffer {
         } else {
             return;
         };
-        
+
         // Clamp start line
         start_line = start_line.min(line_count);
-        
+
         // If theme changed, we need to re-apply styles even if tokens are valid
         // But for simplicity, we treat theme dirty as a full re-process pass logic
         // reusing tokens if not dirty.
         // Actually, if theme changed, we might not need to re-tokenize, just re-apply highlights.
         // But apply_line_highlights is called inside the loop.
         // So we can just iterate.
-        
+
         if retokenize || self.theme_dirty {
             // Determine end of mandatory processing
             let mandatory_end = if retokenize {
@@ -160,19 +160,19 @@ impl HighlightedBuffer {
             } else {
                 0
             };
-            
+
             // If theme dirty, we must process EVERYTHING to update styles?
             // Yes, apply_line_highlights uses the theme.
             // So if theme dirty, treat as if dirty_span is full?
             // Or just iterate all and skip tokenize if not dirty?
             // To keep logic simple: if theme dirty, we iterate 0..line_count.
-            
+
             let (loop_start, loop_end) = if self.theme_dirty {
                 (0, line_count)
             } else {
                 (start_line, line_count)
             };
-            
+
             let mut state = if loop_start > 0 {
                 line_states[loop_start - 1]
             } else {

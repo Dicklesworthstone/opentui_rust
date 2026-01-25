@@ -362,7 +362,10 @@ impl EditBuffer {
     pub fn insert(&mut self, text: &str) {
         let offset = self.cursor.offset;
         self.buffer.rope_mut().insert(offset, text);
-        self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 1);
+        let line_delta = text.chars().filter(|&ch| ch == '\n').count();
+        let start_row = self.cursor.row;
+        let end_row = start_row.saturating_add(line_delta + 1);
+        self.buffer.mark_dirty(start_row, end_row);
         self.history.push(EditOp::Insert {
             offset,
             text: text.to_string(),
@@ -386,7 +389,8 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(start..self.cursor.offset);
-        self.buffer.mark_dirty(self.cursor.row.saturating_sub(1), self.cursor.row + 1); // might affect prev line
+        self.buffer
+            .mark_dirty(self.cursor.row.saturating_sub(1), self.cursor.row + 1); // might affect prev line
         self.history.push(EditOp::Delete {
             offset: start,
             text: deleted,
@@ -410,7 +414,13 @@ impl EditBuffer {
             .to_string();
 
         self.buffer.rope_mut().remove(self.cursor.offset..end);
-        self.buffer.mark_dirty(self.cursor.row, self.cursor.row + 1);
+        let start_row = self.cursor.row;
+        let end_row = if deleted.contains('\n') {
+            start_row.saturating_add(2)
+        } else {
+            start_row.saturating_add(1)
+        };
+        self.buffer.mark_dirty(start_row, end_row);
         self.history.push(EditOp::Delete {
             offset: self.cursor.offset,
             text: deleted,
@@ -432,11 +442,16 @@ impl EditBuffer {
             return;
         }
         let end = end.min(self.buffer.len_chars());
-        let deleted = self.buffer.rope().slice(start..end).to_string();
+        let (start_row, end_row, deleted) = {
+            let rope = self.buffer.rope();
+            let start_row = rope.char_to_line(start);
+            let end_row = rope.char_to_line(end.saturating_sub(1));
+            let deleted = rope.slice(start..end).to_string();
+            (start_row, end_row, deleted)
+        };
         self.buffer.rope_mut().remove(start..end);
 
-        let start_row = self.buffer.rope().char_to_line(start);
-        self.buffer.mark_dirty(start_row, start_row + 1);
+        self.buffer.mark_dirty(start_row, end_row.saturating_add(1));
 
         self.history.push(EditOp::Delete {
             offset: start,
@@ -735,16 +750,23 @@ impl EditBuffer {
                 self.buffer.rope_mut().insert(*offset, text);
 
                 let row = self.buffer.rope().char_to_line(*offset);
-                self.buffer.mark_dirty(row, row + 1);
+                let line_delta = text.chars().filter(|&ch| ch == '\n').count();
+                self.buffer
+                    .mark_dirty(row, row.saturating_add(line_delta + 1));
 
                 self.cursor.offset = offset + text.chars().count();
             }
             EditOp::Delete { offset, text } => {
                 let end = offset + text.chars().count();
+                let (start_row, end_row) = {
+                    let rope = self.buffer.rope();
+                    let start_row = rope.char_to_line(*offset);
+                    let end_row = rope.char_to_line(end.saturating_sub(1));
+                    (start_row, end_row)
+                };
                 self.buffer.rope_mut().remove(*offset..end);
-
-                let row = self.buffer.rope().char_to_line(*offset);
-                self.buffer.mark_dirty(row, row + 1);
+                self.buffer
+                    .mark_dirty(start_row, end_row.saturating_add(1));
 
                 self.cursor.offset = *offset;
             }

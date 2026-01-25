@@ -148,6 +148,20 @@ cargo run --example 11_highlighting
 - 1-4: Switch themes (Dark, Light, Solarized, High Contrast)
 - q / Ctrl+C: Quit
 
+### 15_dashboard.rs
+
+Demonstrates a multi-panel dashboard layout with focus switching.
+
+```bash
+cargo run --example 15_dashboard
+```
+
+**Features demonstrated:**
+- Split-pane layout with sidebar, main panel, and log panel
+- Focus indicator (Tab / Shift+Tab)
+- Scissoring per panel
+- Simulated metrics updates
+
 ### threaded.rs
 
 Demonstrates `ThreadedRenderer` to move terminal I/O off the main thread.

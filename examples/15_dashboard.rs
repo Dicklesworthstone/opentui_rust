@@ -12,6 +12,7 @@ use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{OptimizedBuffer, Renderer, Rgba, Style};
 use std::io::{self, Read};
+use std::sync::mpsc;
 
 const BG_COLOR: &str = "#0f111a";
 const BORDER_NORMAL: &str = "#555555";
@@ -23,6 +24,53 @@ const WARN_COLOR: &str = "#fdcb6e";
 const ERROR_COLOR: &str = "#e74c3c";
 const BAR_FILLED: &str = "#00b894";
 const BAR_EMPTY: &str = "#2d3436";
+
+fn text_len_u32(text: &str) -> u32 {
+    u32::try_from(text.len()).unwrap_or(u32::MAX)
+}
+
+fn u32_from_usize(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+fn u32_from_u64(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+fn center_x(width: u32, text: &str) -> u32 {
+    width.saturating_sub(text_len_u32(text)) / 2
+}
+
+#[derive(Clone, Copy)]
+struct Palette {
+    bg: Rgba,
+    border_normal: Rgba,
+    border_focused: Rgba,
+    title: Rgba,
+    label: Rgba,
+    info: Rgba,
+    warn: Rgba,
+    error: Rgba,
+    bar_filled: Rgba,
+    bar_empty: Rgba,
+}
+
+impl Palette {
+    fn new() -> Self {
+        Self {
+            bg: Rgba::from_hex(BG_COLOR).expect("valid"),
+            border_normal: Rgba::from_hex(BORDER_NORMAL).expect("valid"),
+            border_focused: Rgba::from_hex(BORDER_FOCUSED).expect("valid"),
+            title: Rgba::from_hex(TITLE_COLOR).expect("valid"),
+            label: Rgba::from_hex(LABEL_COLOR).expect("valid"),
+            info: Rgba::from_hex(INFO_COLOR).expect("valid"),
+            warn: Rgba::from_hex(WARN_COLOR).expect("valid"),
+            error: Rgba::from_hex(ERROR_COLOR).expect("valid"),
+            bar_filled: Rgba::from_hex(BAR_FILLED).expect("valid"),
+            bar_empty: Rgba::from_hex(BAR_EMPTY).expect("valid"),
+        }
+    }
+}
 
 /// Panel definition with position and title
 #[derive(Clone)]
@@ -75,12 +123,13 @@ struct Dashboard {
     focused: usize,
     sidebar_selection: usize,
     sidebar_items: Vec<&'static str>,
-    cpu_usage: f32,
-    memory_usage: f32,
+    cpu_usage: u32,
+    memory_usage: u32,
     disk_read: u32,
     disk_write: u32,
     event_log: Vec<LogEntry>,
     frame_count: u64,
+    palette: Palette,
 }
 
 impl Dashboard {
@@ -91,8 +140,8 @@ impl Dashboard {
             focused: 0,
             sidebar_selection: 0,
             sidebar_items: vec!["System", "Network", "Storage", "Logs"],
-            cpu_usage: 0.68,
-            memory_usage: 0.31,
+            cpu_usage: 68,
+            memory_usage: 31,
             disk_read: 125,
             disk_write: 42,
             event_log: vec![
@@ -113,6 +162,7 @@ impl Dashboard {
                 },
             ],
             frame_count: 0,
+            palette: Palette::new(),
         }
     }
 
@@ -206,22 +256,27 @@ impl Dashboard {
 
         // Simulate changing data
         if self.frame_count % 30 == 0 {
-            self.cpu_usage = 0.3 + (self.frame_count as f32 / 100.0).sin().abs() * 0.6;
-            self.memory_usage = 0.25 + (self.frame_count as f32 / 150.0).cos().abs() * 0.4;
-            self.disk_read = 80 + ((self.frame_count / 10) % 100) as u32;
-            self.disk_write = 30 + ((self.frame_count / 15) % 50) as u32;
+            self.cpu_usage = 30 + u32_from_u64((self.frame_count * 7) % 70);
+            self.memory_usage = 25 + u32_from_u64((self.frame_count * 5) % 60);
+            self.disk_read = 80 + u32_from_u64((self.frame_count / 10) % 100);
+            self.disk_write = 30 + u32_from_u64((self.frame_count / 15) % 50);
         }
 
         // Add log entry occasionally
         if self.frame_count % 120 == 0 {
-            let levels = [LogLevel::Info, LogLevel::Warn, LogLevel::Info, LogLevel::Error];
+            let levels = [
+                LogLevel::Info,
+                LogLevel::Warn,
+                LogLevel::Info,
+                LogLevel::Error,
+            ];
             let messages = [
                 "Heartbeat received",
                 "Memory threshold exceeded",
                 "Connection established",
                 "Timeout waiting for response",
             ];
-            let idx = (self.frame_count / 120) as usize % levels.len();
+            let idx = usize::try_from(self.frame_count / 120).unwrap_or(0) % levels.len();
             let time = format!(
                 "12:{}:{}",
                 35 + (self.frame_count / 600) % 60,
@@ -241,20 +296,15 @@ impl Dashboard {
 
     fn render(&self, buffer: &mut OptimizedBuffer, width: u32, height: u32) {
         // Clear background
-        buffer.clear(Rgba::from_hex(BG_COLOR).expect("valid"));
+        buffer.clear(self.palette.bg);
 
         // Draw header
         let title = "Dashboard Demo";
-        let title_x = (width.saturating_sub(title.len() as u32)) / 2;
-        buffer.draw_text(
-            title_x,
-            0,
-            title,
-            Style::fg(Rgba::from_hex(TITLE_COLOR).expect("valid")).with_bold(),
-        );
+        let title_x = center_x(width, title);
+        buffer.draw_text(title_x, 0, title, Style::fg(self.palette.title).with_bold());
 
         let help = "[Tab] Switch Focus  [q] Quit";
-        let help_x = width.saturating_sub(help.len() as u32 + 1);
+        let help_x = width.saturating_sub(text_len_u32(help).saturating_add(1));
         buffer.draw_text(help_x, 0, help, Style::dim());
 
         // Draw each panel
@@ -271,19 +321,17 @@ impl Dashboard {
         // Draw footer
         let footer_y = height.saturating_sub(1);
         let footer = format!(
-            "Frame: {} | CPU: {:.0}% | Mem: {:.0}%",
-            self.frame_count,
-            self.cpu_usage * 100.0,
-            self.memory_usage * 100.0
+            "Frame: {} | CPU: {}% | Mem: {}%",
+            self.frame_count, self.cpu_usage, self.memory_usage
         );
         buffer.draw_text(1, footer_y, &footer, Style::dim());
     }
 
     fn render_panel(&self, buffer: &mut OptimizedBuffer, panel: &Panel, focused: bool) {
         let border_color = if focused {
-            Rgba::from_hex(BORDER_FOCUSED).expect("valid")
+            self.palette.border_focused
         } else {
-            Rgba::from_hex(BORDER_NORMAL).expect("valid")
+            self.palette.border_normal
         };
 
         let box_style = BoxStyle::single(Style::fg(border_color));
@@ -307,16 +355,16 @@ impl Dashboard {
 
         // Push scissor for content
         buffer.push_scissor(ClipRect::new(
-            ix as i32,
-            iy as i32,
+            i32::try_from(ix).unwrap_or(0),
+            i32::try_from(iy).unwrap_or(0),
             panel.width.saturating_sub(2),
             panel.height.saturating_sub(2),
         ));
 
         for (i, item) in self.sidebar_items.iter().enumerate() {
-            let y = iy + i as u32;
+            let y = iy + u32_from_usize(i);
             let style = if i == self.sidebar_selection {
-                Style::fg(Rgba::from_hex(INFO_COLOR).expect("valid")).with_bold()
+                Style::fg(self.palette.info).with_bold()
             } else {
                 Style::fg(Rgba::WHITE)
             };
@@ -336,8 +384,8 @@ impl Dashboard {
         let (ix, iy, iw, _ih) = panel.inner_rect();
 
         buffer.push_scissor(ClipRect::new(
-            ix as i32,
-            iy as i32,
+            i32::try_from(ix).unwrap_or(0),
+            i32::try_from(iy).unwrap_or(0),
             panel.width.saturating_sub(2),
             panel.height.saturating_sub(2),
         ));
@@ -347,7 +395,7 @@ impl Dashboard {
             ix,
             iy,
             "CPU Usage",
-            Style::fg(Rgba::from_hex(LABEL_COLOR).expect("valid")).with_bold(),
+            Style::fg(self.palette.label).with_bold(),
         );
         self.render_progress_bar(buffer, ix, iy + 1, iw.saturating_sub(2), self.cpu_usage);
 
@@ -356,7 +404,7 @@ impl Dashboard {
             ix,
             iy + 3,
             "Memory Usage",
-            Style::fg(Rgba::from_hex(LABEL_COLOR).expect("valid")).with_bold(),
+            Style::fg(self.palette.label).with_bold(),
         );
         self.render_progress_bar(buffer, ix, iy + 4, iw.saturating_sub(2), self.memory_usage);
 
@@ -365,41 +413,46 @@ impl Dashboard {
             ix,
             iy + 6,
             "Disk I/O",
-            Style::fg(Rgba::from_hex(LABEL_COLOR).expect("valid")).with_bold(),
+            Style::fg(self.palette.label).with_bold(),
         );
         buffer.draw_text(
             ix,
             iy + 7,
-            &format!("Read:  {} MB/s  Write: {} MB/s", self.disk_read, self.disk_write),
+            &format!(
+                "Read:  {} MB/s  Write: {} MB/s",
+                self.disk_read, self.disk_write
+            ),
             Style::fg(Rgba::WHITE),
         );
 
         buffer.pop_scissor();
     }
 
-    fn render_progress_bar(&self, buffer: &mut OptimizedBuffer, x: u32, y: u32, width: u32, value: f32) {
-        let filled = ((width as f32 * value) as u32).min(width);
+    fn render_progress_bar(
+        &self,
+        buffer: &mut OptimizedBuffer,
+        x: u32,
+        y: u32,
+        width: u32,
+        value_pct: u32,
+    ) {
+        if width == 0 {
+            return;
+        }
+
+        let value_pct = value_pct.min(100);
+        let filled = width.saturating_mul(value_pct) / 100;
         let empty = width.saturating_sub(filled);
 
         let filled_str: String = "\u{2588}".repeat(filled as usize);
         let empty_str: String = "\u{2591}".repeat(empty as usize);
 
-        buffer.draw_text(
-            x,
-            y,
-            &filled_str,
-            Style::fg(Rgba::from_hex(BAR_FILLED).expect("valid")),
-        );
-        buffer.draw_text(
-            x + filled,
-            y,
-            &empty_str,
-            Style::fg(Rgba::from_hex(BAR_EMPTY).expect("valid")),
-        );
+        buffer.draw_text(x, y, &filled_str, Style::fg(self.palette.bar_filled));
+        buffer.draw_text(x + filled, y, &empty_str, Style::fg(self.palette.bar_empty));
 
-        let pct = format!(" {:.0}%", value * 100.0);
+        let pct = format!(" {value_pct}%");
         buffer.draw_text(
-            x + width + 1,
+            x.saturating_add(width).saturating_add(1),
             y,
             &pct,
             Style::fg(Rgba::WHITE),
@@ -410,8 +463,8 @@ impl Dashboard {
         let (ix, iy, _iw, ih) = panel.inner_rect();
 
         buffer.push_scissor(ClipRect::new(
-            ix as i32,
-            iy as i32,
+            i32::try_from(ix).unwrap_or(0),
+            i32::try_from(iy).unwrap_or(0),
             panel.width.saturating_sub(2),
             panel.height.saturating_sub(2),
         ));
@@ -421,24 +474,15 @@ impl Dashboard {
         let start = self.event_log.len().saturating_sub(max_entries);
 
         for (i, entry) in self.event_log.iter().skip(start).enumerate() {
-            let y = iy + i as u32;
+            let y = iy + u32_from_usize(i);
             if i >= max_entries {
                 break;
             }
 
             let (level_str, level_style) = match entry.level {
-                LogLevel::Info => (
-                    "[INFO] ",
-                    Style::fg(Rgba::from_hex(INFO_COLOR).expect("valid")).with_bold(),
-                ),
-                LogLevel::Warn => (
-                    "[WARN] ",
-                    Style::fg(Rgba::from_hex(WARN_COLOR).expect("valid")).with_bold(),
-                ),
-                LogLevel::Error => (
-                    "[ERROR]",
-                    Style::fg(Rgba::from_hex(ERROR_COLOR).expect("valid")).with_bold(),
-                ),
+                LogLevel::Info => ("[INFO] ", Style::fg(self.palette.info).with_bold()),
+                LogLevel::Warn => ("[WARN] ", Style::fg(self.palette.warn).with_bold()),
+                LogLevel::Error => ("[ERROR]", Style::fg(self.palette.error).with_bold()),
             };
 
             buffer.draw_text(ix, y, &entry.time, Style::dim());
@@ -458,17 +502,24 @@ fn main() -> io::Result<()> {
     let (width, height) = renderer.size();
     let mut dashboard = Dashboard::new(width, height);
     let mut parser = InputParser::new();
-    let mut stdin = io::stdin();
-    let mut buf = [0u8; 64];
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
 
-    // Set non-blocking mode for animation
-    use std::os::unix::io::AsRawFd;
-    let fd = stdin.as_raw_fd();
-    // SAFETY: Setting O_NONBLOCK on stdin fd
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-    }
+    std::thread::spawn(move || {
+        let mut stdin = io::stdin();
+        let mut buf = [0u8; 64];
+        loop {
+            match stdin.read(&mut buf) {
+                Ok(0) => {}
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(_) => break,
+            }
+        }
+    });
 
     loop {
         // Update simulation
@@ -479,28 +530,23 @@ fn main() -> io::Result<()> {
         dashboard.render(renderer.buffer(), width, height);
         renderer.present()?;
 
-        // Process input (non-blocking)
-        match stdin.read(&mut buf) {
-            Ok(0) => {}
-            Ok(n) => {
-                let mut offset = 0;
-                while offset < n {
-                    let Ok((event, used)) = parser.parse(&buf[offset..n]) else {
-                        break;
-                    };
-                    offset += used;
+        // Process input (non-blocking via channel)
+        for chunk in rx.try_iter() {
+            let mut offset = 0;
+            while offset < chunk.len() {
+                let Ok((event, used)) = parser.parse(&chunk[offset..]) else {
+                    break;
+                };
+                offset += used;
 
-                    if let Event::Resize(r) = &event {
-                        renderer.resize(u32::from(r.width), u32::from(r.height))?;
-                    }
+                if let Event::Resize(r) = &event {
+                    renderer.resize(u32::from(r.width), u32::from(r.height))?;
+                }
 
-                    if !dashboard.handle_input(&event) {
-                        return Ok(());
-                    }
+                if !dashboard.handle_input(&event) {
+                    return Ok(());
                 }
             }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e),
         }
 
         // Small delay for animation (roughly 30 FPS)
