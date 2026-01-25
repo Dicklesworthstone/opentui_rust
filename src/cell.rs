@@ -29,19 +29,100 @@
 use crate::color::Rgba;
 use crate::style::{Style, TextAttributes};
 use std::borrow::Cow;
-use std::sync::Arc;
+
+/// Encoded grapheme reference with cached display width.
+///
+/// Graphemes (multi-codepoint characters like emoji and ZWJ sequences) are stored
+/// in a pool and referenced by ID. The ID encodes both the pool slot and the
+/// display width to avoid lookups on the hot path.
+///
+/// # Encoding (per Zig spec)
+///
+/// ```text
+/// [31: reserved][30-24: width (7 bits)][23-0: pool ID (24 bits)]
+/// ```
+///
+/// - **Bits 0-23**: Pool slot ID (~16M possible slots)
+/// - **Bits 24-30**: Cached display width (0-127, typically 1-2)
+/// - **Bit 31**: Reserved (always 0)
+///
+/// # Performance
+///
+/// `GraphemeId` is `Copy`, enabling zero-allocation cell operations.
+/// Display width is cached in the ID, avoiding pool lookups during rendering.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct GraphemeId(u32);
+
+impl GraphemeId {
+    const WIDTH_SHIFT: u32 = 24;
+    const WIDTH_MASK: u32 = 0x7F << Self::WIDTH_SHIFT;
+    const ID_MASK: u32 = 0x00FF_FFFF;
+
+    /// Create a new grapheme ID with cached width.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_id` - The pool slot index (must be <= 0x00FF_FFFF)
+    /// * `width` - Display width to cache (must be <= 127)
+    #[must_use]
+    pub const fn new(pool_id: u32, width: u8) -> Self {
+        // Note: debug_assert! not available in const fn, validation happens at pool level
+        Self((pool_id & Self::ID_MASK) | ((width as u32) << Self::WIDTH_SHIFT))
+    }
+
+    /// Create an invalid/placeholder grapheme ID.
+    ///
+    /// Used for testing or when the pool is not yet available.
+    #[must_use]
+    pub const fn placeholder(width: u8) -> Self {
+        Self::new(0, width)
+    }
+
+    /// Get the pool slot ID.
+    #[must_use]
+    pub const fn pool_id(self) -> u32 {
+        self.0 & Self::ID_MASK
+    }
+
+    /// Get the cached display width.
+    #[must_use]
+    pub const fn width(self) -> usize {
+        ((self.0 & Self::WIDTH_MASK) >> Self::WIDTH_SHIFT) as usize
+    }
+
+    /// Get the raw encoded value.
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Create from raw encoded value.
+    #[must_use]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+}
 
 /// Content of a terminal cell.
 ///
 /// Represents what is displayed in a single cell position. Most cells contain
 /// either a simple character or are empty. Wide characters and emoji use
 /// grapheme clusters and leave continuation markers in following cells.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// # Grapheme Pool Integration
+///
+/// Multi-codepoint graphemes (emoji, ZWJ sequences) are stored in a [`GraphemePool`]
+/// and referenced by [`GraphemeId`]. The actual string data is resolved via the pool
+/// during rendering. This enables `Copy` semantics for cells.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CellContent {
     /// Simple ASCII or single-codepoint character (display width 1-2).
     Char(char),
-    /// Grapheme cluster (emoji, combining chars, ZWJ sequences).
-    Grapheme(Arc<str>),
+    /// Reference to a grapheme cluster in the pool.
+    ///
+    /// The `GraphemeId` contains both the pool slot ID and cached display width.
+    /// To get the actual string, resolve via `GraphemePool::get(id)`.
+    Grapheme(GraphemeId),
     /// Empty/cleared cell.
     #[default]
     Empty,
@@ -51,11 +132,14 @@ pub enum CellContent {
 
 impl CellContent {
     /// Get the display width of this content.
+    ///
+    /// For graphemes, returns the cached width from the [`GraphemeId`].
+    /// This avoids pool lookups on the hot rendering path.
     #[must_use]
     pub fn display_width(&self) -> usize {
         match self {
             Self::Char(c) => crate::unicode::display_width_char(*c),
-            Self::Grapheme(s) => crate::unicode::display_width(s.as_ref()),
+            Self::Grapheme(id) => id.width(),
             Self::Empty => 1,
             Self::Continuation => 0,
         }
@@ -73,20 +157,51 @@ impl CellContent {
         matches!(self, Self::Empty)
     }
 
-    /// Get the string representation of this content.
-    ///
-    /// Returns a `Cow<str>` to handle both borrowed (grapheme, empty, continuation)
-    /// and owned (single char) cases efficiently.
+    /// Check if this is a grapheme reference.
     #[must_use]
-    pub fn as_str(&self) -> Cow<'_, str> {
+    pub fn is_grapheme(&self) -> bool {
+        matches!(self, Self::Grapheme(_))
+    }
+
+    /// Get the grapheme ID if this is a grapheme reference.
+    #[must_use]
+    pub fn grapheme_id(&self) -> Option<GraphemeId> {
+        match self {
+            Self::Grapheme(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Get the character if this is a single char.
+    #[must_use]
+    pub fn as_char(&self) -> Option<char> {
+        match self {
+            Self::Char(c) => Some(*c),
+            _ => None,
+        }
+    }
+
+    /// Get the string representation for non-grapheme content.
+    ///
+    /// Returns `None` for [`CellContent::Grapheme`] - use the pool to resolve
+    /// grapheme strings via [`GraphemeId::pool_id`].
+    ///
+    /// # Returns
+    ///
+    /// - `Char`: The character as a string
+    /// - `Empty`: A space character
+    /// - `Continuation`: Empty string
+    /// - `Grapheme`: `None` (requires pool lookup)
+    #[must_use]
+    pub fn as_str_without_pool(&self) -> Option<Cow<'static, str>> {
         match self {
             Self::Char(c) => {
                 let mut buf = [0u8; 4];
-                Cow::Owned(c.encode_utf8(&mut buf).to_owned())
+                Some(Cow::Owned(c.encode_utf8(&mut buf).to_owned()))
             }
-            Self::Grapheme(s) => Cow::Borrowed(s.as_ref()),
-            Self::Empty => Cow::Borrowed(" "),
-            Self::Continuation => Cow::Borrowed(""),
+            Self::Grapheme(_) => None, // Requires pool lookup
+            Self::Empty => Some(Cow::Borrowed(" ")),
+            Self::Continuation => Some(Cow::Borrowed("")),
         }
     }
 }
@@ -105,7 +220,7 @@ impl CellContent {
 /// Cells support alpha blending via [`Cell::blend_over`], which composites
 /// one cell on top of another using Porter-Duff "over" compositing. This
 /// enables transparent overlays and layered UI elements.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Cell {
     /// The character or grapheme content.
     pub content: CellContent,
@@ -130,12 +245,22 @@ impl Cell {
     }
 
     /// Create a cell from a grapheme cluster string.
+    ///
+    /// For single-codepoint strings, creates a `Char` cell directly.
+    /// For multi-codepoint graphemes, creates a placeholder `Grapheme` cell.
+    ///
+    /// **Note:** This creates a placeholder `GraphemeId` with the correct display
+    /// width but pool_id 0. Use [`GraphemePool::intern`] to get a real ID that
+    /// can be resolved back to the string during rendering.
     #[must_use]
     pub fn from_grapheme(s: &str, style: Style) -> Self {
         let content = if s.chars().count() == 1 {
             CellContent::Char(s.chars().next().unwrap())
         } else {
-            CellContent::Grapheme(Arc::from(s))
+            // Compute display width for the grapheme cluster
+            let width = crate::unicode::display_width(s);
+            // Create placeholder ID with correct width (pool integration in bd-2qg.4.3)
+            CellContent::Grapheme(GraphemeId::placeholder(width as u8))
         };
 
         Self {
@@ -186,11 +311,48 @@ impl Cell {
         self.content.is_empty()
     }
 
-    /// Write the cell content to a writer.
+    /// Write the cell content to a writer (without pool lookup).
+    ///
+    /// **Note:** For [`CellContent::Grapheme`], this writes a placeholder character
+    /// since the actual string requires a [`GraphemePool`] lookup. Use
+    /// [`Cell::write_content_with_pool`] or the ANSI writer for proper grapheme rendering.
     pub fn write_content<W: std::io::Write>(&self, w: &mut W) -> std::io::Result<()> {
         match &self.content {
             CellContent::Char(c) => write!(w, "{c}"),
-            CellContent::Grapheme(s) => write!(w, "{s}"),
+            CellContent::Grapheme(id) => {
+                // Write placeholder spaces matching the display width
+                // Proper rendering requires pool lookup (see write_content_with_pool)
+                for _ in 0..id.width() {
+                    write!(w, " ")?;
+                }
+                Ok(())
+            }
+            CellContent::Empty => write!(w, " "),
+            CellContent::Continuation => Ok(()),
+        }
+    }
+
+    /// Write the cell content to a writer with grapheme pool lookup.
+    ///
+    /// The `pool_lookup` function resolves a [`GraphemeId`] to its string representation.
+    pub fn write_content_with_pool<W, F>(&self, w: &mut W, pool_lookup: F) -> std::io::Result<()>
+    where
+        W: std::io::Write,
+        F: Fn(GraphemeId) -> Option<String>,
+    {
+        match &self.content {
+            CellContent::Char(c) => write!(w, "{c}"),
+            CellContent::Grapheme(id) => {
+                if let Some(s) = pool_lookup(*id) {
+                    write!(w, "{s}")
+                } else {
+                    // Fallback: write spaces matching display width
+                    for _ in 0..id.width() {
+                        write!(w, " ")?;
+                    }
+                    Ok(())
+                }
+            }
             CellContent::Empty => write!(w, " "),
             CellContent::Continuation => Ok(()),
         }
@@ -217,7 +379,7 @@ impl Cell {
     #[must_use]
     pub fn blend_over(self, background: &Cell) -> Cell {
         let (content, attributes) = if self.content.is_empty() {
-            (background.content.clone(), background.attributes)
+            (background.content, background.attributes)
         } else {
             (self.content, self.attributes)
         };
@@ -235,6 +397,91 @@ impl Cell {
 mod tests {
     use super::*;
 
+    // GraphemeId tests
+    #[test]
+    fn test_grapheme_id_encoding() {
+        let id = GraphemeId::new(0x0012_3456, 2);
+        assert_eq!(id.pool_id(), 0x0012_3456);
+        assert_eq!(id.width(), 2);
+    }
+
+    #[test]
+    fn test_grapheme_id_max_values() {
+        // Max pool ID is 24 bits
+        let id = GraphemeId::new(0x00FF_FFFF, 127);
+        assert_eq!(id.pool_id(), 0x00FF_FFFF);
+        assert_eq!(id.width(), 127);
+    }
+
+    #[test]
+    fn test_grapheme_id_overflow_masked() {
+        // Values beyond 24 bits should be masked
+        let id = GraphemeId::new(0x01FF_FFFF, 2);
+        assert_eq!(id.pool_id(), 0x00FF_FFFF); // Upper bits masked
+    }
+
+    #[test]
+    fn test_grapheme_id_placeholder() {
+        let id = GraphemeId::placeholder(2);
+        assert_eq!(id.pool_id(), 0);
+        assert_eq!(id.width(), 2);
+    }
+
+    #[test]
+    fn test_grapheme_id_roundtrip() {
+        let id = GraphemeId::new(12345, 2);
+        let raw = id.raw();
+        let restored = GraphemeId::from_raw(raw);
+        assert_eq!(id, restored);
+    }
+
+    #[test]
+    fn test_grapheme_id_is_copy() {
+        let id = GraphemeId::new(1, 2);
+        let id2 = id; // Copy
+        assert_eq!(id, id2);
+    }
+
+    // CellContent tests
+    #[test]
+    fn test_cell_content_is_copy() {
+        let content = CellContent::Char('A');
+        let content2 = content; // Copy
+        assert_eq!(content, content2);
+    }
+
+    #[test]
+    fn test_cell_content_grapheme_width() {
+        let id = GraphemeId::new(42, 2);
+        let content = CellContent::Grapheme(id);
+        assert_eq!(content.display_width(), 2);
+        assert!(content.is_grapheme());
+        assert_eq!(content.grapheme_id(), Some(id));
+    }
+
+    #[test]
+    fn test_cell_content_as_str_without_pool() {
+        assert_eq!(
+            CellContent::Char('A').as_str_without_pool(),
+            Some(std::borrow::Cow::Owned("A".to_string()))
+        );
+        assert_eq!(
+            CellContent::Empty.as_str_without_pool(),
+            Some(std::borrow::Cow::Borrowed(" "))
+        );
+        assert_eq!(
+            CellContent::Continuation.as_str_without_pool(),
+            Some(std::borrow::Cow::Borrowed(""))
+        );
+        // Grapheme requires pool lookup
+        assert!(
+            CellContent::Grapheme(GraphemeId::placeholder(2))
+                .as_str_without_pool()
+                .is_none()
+        );
+    }
+
+    // Cell tests
     #[test]
     fn test_cell_new() {
         let cell = Cell::new('A', Style::fg(Rgba::RED));
@@ -244,11 +491,25 @@ mod tests {
     }
 
     #[test]
+    fn test_cell_is_copy() {
+        let cell = Cell::new('A', Style::NONE);
+        let cell2 = cell; // Copy
+        assert_eq!(cell, cell2);
+    }
+
+    #[test]
     fn test_cell_grapheme() {
         let cell = Cell::from_grapheme("👨‍👩‍👧", Style::NONE);
         assert!(matches!(cell.content, CellContent::Grapheme(_)));
         // ZWJ family emoji has width 2
         assert_eq!(cell.display_width(), 2);
+    }
+
+    #[test]
+    fn test_cell_grapheme_single_char_optimization() {
+        // Single char graphemes should use Char variant
+        let cell = Cell::from_grapheme("A", Style::NONE);
+        assert!(matches!(cell.content, CellContent::Char('A')));
     }
 
     #[test]
@@ -291,5 +552,33 @@ mod tests {
     fn test_wide_char() {
         let cell = Cell::new('漢', Style::NONE);
         assert_eq!(cell.display_width(), 2);
+    }
+
+    #[test]
+    fn test_write_content_with_pool() {
+        let cell = Cell::new('A', Style::NONE);
+        let mut buf = Vec::new();
+        cell.write_content_with_pool(&mut buf, |_| None).unwrap();
+        assert_eq!(&buf, b"A");
+
+        // Test grapheme with pool lookup
+        let id = GraphemeId::new(42, 2);
+        let grapheme_cell = Cell {
+            content: CellContent::Grapheme(id),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: TextAttributes::empty(),
+        };
+        buf.clear();
+        grapheme_cell
+            .write_content_with_pool(&mut buf, |gid| {
+                if gid.pool_id() == 42 {
+                    Some("👍".to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&buf), "👍");
     }
 }

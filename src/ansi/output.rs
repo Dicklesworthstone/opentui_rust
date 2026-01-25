@@ -175,7 +175,6 @@ impl<W: Write> AnsiWriter<W> {
             // Update current attributes to reflect removal
             self.current_attrs -= removed;
         }
-
         // Apply new attributes
         let to_add = attrs - self.current_attrs;
         if !to_add.is_empty() {
@@ -225,8 +224,10 @@ impl<W: Write> AnsiWriter<W> {
                 let s = c.encode_utf8(&mut buf);
                 self.buffer.extend_from_slice(s.as_bytes());
             }
-            crate::cell::CellContent::Grapheme(s) => {
-                self.buffer.extend_from_slice(s.as_bytes());
+            crate::cell::CellContent::Grapheme(id) => {
+                for _ in 0..id.width() {
+                    self.buffer.push(b' ');
+                }
             }
             crate::cell::CellContent::Empty => {
                 self.buffer.push(b' ');

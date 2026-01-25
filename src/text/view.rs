@@ -760,7 +760,7 @@ impl<'a> TextBufferView<'a> {
                     }
                 }
 
-                output.set(screen_col as u32, dest_y, cell.clone());
+                output.set(screen_col as u32, dest_y, cell);
 
                 for i in 1..width {
                     let cont_col = screen_col as u32 + i as u32;

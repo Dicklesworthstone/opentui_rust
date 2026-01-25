@@ -227,7 +227,7 @@ impl E2EHarness {
                 if let Some(cell) = self.output_buffer.get(x, y) {
                     match &cell.content {
                         opentui::CellContent::Char(c) => output.push(*c),
-                        opentui::CellContent::Grapheme(g) => output.push_str(g),
+                        opentui::CellContent::Grapheme(_) => output.push(' '),
                         opentui::CellContent::Empty | opentui::CellContent::Continuation => {
                             output.push(' ');
                         }
@@ -250,8 +250,9 @@ impl E2EHarness {
         let cell = self.output_buffer.get(x, y).expect("Cell should exist");
         let actual = match &cell.content {
             opentui::CellContent::Char(c) => c.to_string(),
-            opentui::CellContent::Grapheme(g) => g.to_string(),
-            opentui::CellContent::Empty | opentui::CellContent::Continuation => " ".to_string(),
+            opentui::CellContent::Grapheme(_)
+            | opentui::CellContent::Empty
+            | opentui::CellContent::Continuation => " ".to_string(),
         };
         let expected = expected_char.to_string();
 

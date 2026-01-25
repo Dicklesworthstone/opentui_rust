@@ -80,7 +80,7 @@ fn benchmark_quick_comparison() {
     );
 
     // Cell set benchmark (10,000 iterations)
-    let set_time = time(|| buffer.set(10, 10, cell.clone()), 10_000);
+    let set_time = time(|| buffer.set(10, 10, cell), 10_000);
     println!(
         "set_cell_10k: {:?} (budget: {:?})",
         set_time,
@@ -143,7 +143,7 @@ fn benchmark_blended_operations() {
     buffer.clear(Rgba::WHITE);
 
     // Blended cell set benchmark (1,000 iterations)
-    let blend_time = time(|| buffer.set_blended(50, 25, cell.clone()), 1_000);
+    let blend_time = time(|| buffer.set_blended(50, 25, cell), 1_000);
     println!("blended_set_1k: {blend_time:?}");
 
     // No strict budget for blended ops yet, but verify it completes
@@ -161,7 +161,7 @@ fn benchmark_scissor_operations() {
     buffer.push_scissor(ClipRect::new(10, 10, 100, 30));
 
     // Cell operations with scissor (1,000 iterations)
-    let scissor_time = time(|| buffer.set(50, 25, cell.clone()), 1_000);
+    let scissor_time = time(|| buffer.set(50, 25, cell), 1_000);
     println!("scissor_set_1k: {scissor_time:?}");
 
     // Scissor overhead should be minimal

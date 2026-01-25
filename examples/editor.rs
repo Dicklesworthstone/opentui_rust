@@ -104,7 +104,8 @@ fn main() -> io::Result<()> {
 
     // Input parser
     let mut parser = InputParser::new();
-    let mut input_buf = [0u8; 64];
+    let mut input_accumulator = Vec::with_capacity(1024);
+    let mut read_buf = [0u8; 1024];
 
     // State
     let mut show_debug = false;
@@ -147,11 +148,13 @@ fn main() -> io::Result<()> {
 
         // 2. Read input (with timeout for responsive updates)
         // Note: In a real app you'd use non-blocking I/O or async
-        if let Ok(n) = read_with_timeout(&stdin, &mut input_buf, Duration::from_millis(16)) {
+        if let Ok(n) = read_with_timeout(&stdin, &mut read_buf, Duration::from_millis(16)) {
             if n > 0 {
+                input_accumulator.extend_from_slice(&read_buf[..n]);
                 let mut offset = 0;
-                while offset < n {
-                    match parser.parse(&input_buf[offset..n]) {
+
+                while offset < input_accumulator.len() {
+                    match parser.parse(&input_accumulator[offset..]) {
                         Ok((event, consumed)) => {
                             offset += consumed;
 
@@ -174,6 +177,10 @@ fn main() -> io::Result<()> {
                             offset += 1; // Skip unrecognized byte
                         }
                     }
+                }
+
+                if offset > 0 {
+                    input_accumulator.drain(..offset);
                 }
             }
         }

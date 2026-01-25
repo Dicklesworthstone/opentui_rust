@@ -48,7 +48,7 @@ fn buffer_cell_ops(c: &mut Criterion) {
 
     c.bench_function("buffer_set_cell", |b| {
         b.iter(|| {
-            buffer.set(black_box(50), black_box(25), cell.clone());
+            buffer.set(black_box(50), black_box(25), cell);
         })
     });
 

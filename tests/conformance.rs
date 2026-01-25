@@ -975,7 +975,11 @@ fn buffer_to_lines(buffer: &OptimizedBuffer) -> Vec<String> {
         let mut line = String::new();
         for x in 0..w {
             let cell = buffer.get(x, y).unwrap();
-            line.push_str(&cell.content.as_str());
+            if let Some(text) = cell.content.as_str_without_pool() {
+                line.push_str(&text);
+            } else {
+                line.push(' ');
+            }
         }
         lines.push(line);
     }

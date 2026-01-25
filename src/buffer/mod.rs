@@ -250,7 +250,7 @@ impl OptimizedBuffer {
                 let row_start = row as usize * row_width;
                 let start = row_start + x0 as usize;
                 let end = row_start + x1 as usize;
-                self.cells[start..end].fill(cell.clone());
+                self.cells[start..end].fill(cell);
             }
             return;
         }
@@ -262,7 +262,7 @@ impl OptimizedBuffer {
             for col in x0..x1 {
                 let dest_idx = row_start + col as usize;
                 let dest_cell = &mut self.cells[dest_idx];
-                *dest_cell = cell.clone().blend_over(dest_cell);
+                *dest_cell = cell.blend_over(dest_cell);
             }
         }
     }
@@ -364,17 +364,17 @@ impl OptimizedBuffer {
                 let dest_cell = &mut self.cells[dest_idx];
 
                 if use_blend {
-                    let mut blended = src_cell.clone();
+                    let mut blended = *src_cell;
                     if opacity < 1.0 {
                         blended.blend_with_opacity(opacity);
                     }
                     *dest_cell = blended.blend_over(dest_cell);
                 } else if opacity < 1.0 {
-                    let mut blended = src_cell.clone();
+                    let mut blended = *src_cell;
                     blended.blend_with_opacity(opacity);
                     *dest_cell = blended;
                 } else {
-                    dest_cell.clone_from(src_cell);
+                    *dest_cell = *src_cell;
                 }
             }
         }
