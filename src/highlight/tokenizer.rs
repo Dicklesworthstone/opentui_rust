@@ -132,12 +132,11 @@ mod tests {
     struct StubTokenizer;
 
     impl Tokenizer for StubTokenizer {
-        #[allow(clippy::unnecessary_literal_bound)] // test stub returns a literal name
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "Stub"
         }
 
-        fn extensions(&self) -> &[&str] {
+        fn extensions(&self) -> &'static [&'static str] {
             &["rs", "RUST"]
         }
 

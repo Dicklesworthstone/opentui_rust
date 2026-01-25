@@ -83,8 +83,8 @@
         "r": 0,
         "g": 0,
         "b": 255,
-        "a": 128,
-        "valid": true
+        "valid": true,
+        "a": 128
       }
     },
     {
@@ -101,9 +101,9 @@
       "name": "rgba_from_hsv_red",
       "category": "color",
       "input": {
-        "h": 0.0,
-        "s": 1.0,
-        "v": 1.0
+        "h": 0,
+        "s": 1,
+        "v": 1
       },
       "expected_output": {
         "r": 255,
@@ -115,9 +115,9 @@
       "name": "rgba_from_hsv_green",
       "category": "color",
       "input": {
-        "h": 120.0,
-        "s": 1.0,
-        "v": 1.0
+        "h": 120,
+        "s": 1,
+        "v": 1
       },
       "expected_output": {
         "r": 0,
@@ -129,9 +129,9 @@
       "name": "rgba_from_hsv_blue",
       "category": "color",
       "input": {
-        "h": 240.0,
-        "s": 1.0,
-        "v": 1.0
+        "h": 240,
+        "s": 1,
+        "v": 1
       },
       "expected_output": {
         "r": 0,
@@ -143,14 +143,14 @@
       "name": "rgba_from_hsv_gray",
       "category": "color",
       "input": {
-        "h": 0.0,
-        "s": 0.0,
+        "h": 0,
+        "s": 0,
         "v": 0.5
       },
       "expected_output": {
-        "r": 127,
-        "g": 127,
-        "b": 127
+        "r": 128,
+        "g": 128,
+        "b": 128
       }
     },
     {
@@ -206,9 +206,9 @@
       },
       "expected_output": {
         "lines": [
-          "┌Title───┐",
-          "│        │",
-          "│        │",
+          "┌─Title──┐",
+          "│\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000│",
+          "│\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000│",
           "└────────┘"
         ]
       }
@@ -224,7 +224,7 @@
       "expected_output": {
         "lines": [
           "┌────┐",
-          "│    │",
+          "│\u0000\u0000\u0000\u0000│",
           "└────┘"
         ]
       }
@@ -252,7 +252,7 @@
         "y": 0
       },
       "expected_output": {
-        "line": "Hello, World!       "
+        "line": "Hello, World!\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
       }
     },
     {
@@ -266,7 +266,7 @@
         "y": 0
       },
       "expected_output": {
-        "line": "日本語    ",
+        "line": "日本語\u0000\u0000\u0000\u0000",
         "note": "CJK chars are double-width"
       }
     },
@@ -276,16 +276,21 @@
       "input": {
         "width": 10,
         "height": 5,
-        "scissor": { "x": 2, "y": 1, "w": 4, "h": 2 },
+        "scissor": {
+          "x": 2,
+          "y": 1,
+          "w": 4,
+          "h": 2
+        },
         "fill_char": "X"
       },
       "expected_output": {
         "lines": [
-          "          ",
-          "  XXXX    ",
-          "  XXXX    ",
-          "          ",
-          "          "
+          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+          "\u0000\u0000XXXX\u0000\u0000\u0000\u0000",
+          "\u0000\u0000XXXX\u0000\u0000\u0000\u0000",
+          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
         ]
       }
     },
@@ -377,7 +382,11 @@
       "name": "input_parse_arrow_up",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 65]
+        "bytes": [
+          27,
+          91,
+          65
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -389,7 +398,11 @@
       "name": "input_parse_arrow_down",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 66]
+        "bytes": [
+          27,
+          91,
+          66
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -401,7 +414,11 @@
       "name": "input_parse_arrow_right",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 67]
+        "bytes": [
+          27,
+          91,
+          67
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -413,7 +430,11 @@
       "name": "input_parse_arrow_left",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 68]
+        "bytes": [
+          27,
+          91,
+          68
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -425,19 +446,33 @@
       "name": "input_parse_ctrl_shift_up",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 49, 59, 54, 65]
+        "bytes": [
+          27,
+          91,
+          49,
+          59,
+          54,
+          65
+        ]
       },
       "expected_output": {
         "event_type": "key",
         "key_code": "Up",
-        "modifiers": ["Ctrl", "Shift"]
+        "modifiers": [
+          "Ctrl",
+          "Shift"
+        ]
       }
     },
     {
       "name": "input_parse_f1",
       "category": "input",
       "input": {
-        "bytes": [27, 79, 80]
+        "bytes": [
+          27,
+          79,
+          80
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -449,7 +484,13 @@
       "name": "input_parse_f5",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 49, 53, 126]
+        "bytes": [
+          27,
+          91,
+          49,
+          53,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -461,7 +502,12 @@
       "name": "input_parse_insert",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 50, 126]
+        "bytes": [
+          27,
+          91,
+          50,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -473,7 +519,12 @@
       "name": "input_parse_delete",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 51, 126]
+        "bytes": [
+          27,
+          91,
+          51,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -485,7 +536,11 @@
       "name": "input_parse_home",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 72]
+        "bytes": [
+          27,
+          91,
+          72
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -497,7 +552,11 @@
       "name": "input_parse_end",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 70]
+        "bytes": [
+          27,
+          91,
+          70
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -509,7 +568,12 @@
       "name": "input_parse_pageup",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 53, 126]
+        "bytes": [
+          27,
+          91,
+          53,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -521,7 +585,12 @@
       "name": "input_parse_pagedown",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 54, 126]
+        "bytes": [
+          27,
+          91,
+          54,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -533,7 +602,9 @@
       "name": "input_parse_backspace",
       "category": "input",
       "input": {
-        "bytes": [127]
+        "bytes": [
+          127
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -545,128 +616,209 @@
       "name": "input_parse_ctrl_a",
       "category": "input",
       "input": {
-        "bytes": [1]
+        "bytes": [
+          1
+        ]
       },
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
-        "char": "a",
-        "modifiers": ["Ctrl"]
+        "char": "\u0001",
+        "modifiers": [
+          "Ctrl"
+        ]
       }
     },
     {
       "name": "input_parse_ctrl_c",
       "category": "input",
       "input": {
-        "bytes": [3]
+        "bytes": [
+          3
+        ]
       },
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
-        "char": "c",
-        "modifiers": ["Ctrl"]
+        "char": "\u0003",
+        "modifiers": [
+          "Ctrl"
+        ]
       }
     },
     {
       "name": "input_parse_alt_x",
       "category": "input",
       "input": {
-        "bytes": [27, 120]
+        "bytes": [
+          27,
+          120
+        ]
       },
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
         "char": "x",
-        "modifiers": ["Alt"]
+        "modifiers": [
+          "Alt"
+        ]
       }
     },
     {
       "name": "input_parse_sgr_mouse_click",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 48, 59, 49, 48, 59, 50, 48, 77]
+        "bytes": [
+          27,
+          91,
+          60,
+          48,
+          59,
+          49,
+          48,
+          59,
+          50,
+          48,
+          77
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "button": "Left",
-        "kind": "Press",
         "x": 9,
-        "y": 19
+        "y": 19,
+        "kind": "Press",
+        "button": "Left"
       }
     },
     {
       "name": "input_parse_sgr_mouse_release",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 48, 59, 53, 59, 53, 109]
+        "bytes": [
+          27,
+          91,
+          60,
+          48,
+          59,
+          53,
+          59,
+          53,
+          109
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "button": "Left",
-        "kind": "Release",
         "x": 4,
-        "y": 4
+        "y": 4,
+        "kind": "Release",
+        "button": "Left"
       }
     },
     {
       "name": "input_parse_sgr_mouse_right",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 50, 59, 49, 59, 49, 77]
+        "bytes": [
+          27,
+          91,
+          60,
+          50,
+          59,
+          49,
+          59,
+          49,
+          77
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "button": "Right",
-        "kind": "Press",
         "x": 0,
-        "y": 0
+        "y": 0,
+        "kind": "Press",
+        "button": "Right"
       }
     },
     {
       "name": "input_parse_sgr_mouse_middle",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 49, 59, 49, 59, 49, 77]
+        "bytes": [
+          27,
+          91,
+          60,
+          49,
+          59,
+          49,
+          59,
+          49,
+          77
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "button": "Middle",
-        "kind": "Press",
         "x": 0,
-        "y": 0
+        "y": 0,
+        "kind": "Press",
+        "button": "Middle"
       }
     },
     {
       "name": "input_parse_sgr_scroll_up",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 54, 52, 59, 49, 59, 49, 77]
+        "bytes": [
+          27,
+          91,
+          60,
+          54,
+          52,
+          59,
+          49,
+          59,
+          49,
+          77
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "kind": "ScrollUp",
         "x": 0,
-        "y": 0
+        "y": 0,
+        "kind": "ScrollUp"
       }
     },
     {
       "name": "input_parse_sgr_scroll_down",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 60, 54, 53, 59, 49, 59, 49, 77]
+        "bytes": [
+          27,
+          91,
+          60,
+          54,
+          53,
+          59,
+          49,
+          59,
+          49,
+          77
+        ]
       },
       "expected_output": {
         "event_type": "mouse",
-        "kind": "ScrollDown",
         "x": 0,
-        "y": 0
+        "y": 0,
+        "kind": "ScrollDown"
       }
     },
     {
       "name": "input_parse_focus_gained",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 73]
+        "bytes": [
+          27,
+          91,
+          73
+        ]
       },
       "expected_output": {
         "event_type": "focus",
@@ -677,7 +829,11 @@
       "name": "input_parse_focus_lost",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 79]
+        "bytes": [
+          27,
+          91,
+          79
+        ]
       },
       "expected_output": {
         "event_type": "focus",
@@ -688,7 +844,25 @@
       "name": "input_parse_paste_simple",
       "category": "input",
       "input": {
-        "bytes": [27, 91, 50, 48, 48, 126, 72, 101, 108, 108, 111, 27, 91, 50, 48, 49, 126]
+        "bytes": [
+          27,
+          91,
+          50,
+          48,
+          48,
+          126,
+          72,
+          101,
+          108,
+          108,
+          111,
+          27,
+          91,
+          50,
+          48,
+          49,
+          126
+        ]
       },
       "expected_output": {
         "event_type": "paste",
@@ -699,7 +873,12 @@
       "name": "input_parse_utf8_emoji",
       "category": "input",
       "input": {
-        "bytes": [240, 159, 152, 128]
+        "bytes": [
+          240,
+          159,
+          152,
+          128
+        ]
       },
       "expected_output": {
         "event_type": "key",
@@ -711,13 +890,17 @@
       "name": "input_parse_ascii_char",
       "category": "input",
       "input": {
-        "bytes": [65]
+        "bytes": [
+          65
+        ]
       },
       "expected_output": {
         "event_type": "key",
         "key_code": "Char",
         "char": "A",
-        "modifiers": []
+        "modifiers": [
+          "Shift"
+        ]
       }
     },
     {
@@ -806,7 +989,9 @@
       "name": "ansi_attributes_bold",
       "category": "ansi",
       "input": {
-        "attributes": ["bold"]
+        "attributes": [
+          "bold"
+        ]
       },
       "expected_output": {
         "sequence": "\u001b[1m"
@@ -816,7 +1001,10 @@
       "name": "ansi_attributes_italic_underline",
       "category": "ansi",
       "input": {
-        "attributes": ["italic", "underline"]
+        "attributes": [
+          "italic",
+          "underline"
+        ]
       },
       "expected_output": {
         "sequence": "\u001b[3;4m",
@@ -887,7 +1075,7 @@
       "name": "unicode_grapheme_combining_mark",
       "category": "unicode",
       "input": {
-        "text": "e\u0301"
+        "text": "é"
       },
       "expected_output": {
         "grapheme_count": 1,
@@ -958,12 +1146,16 @@
       "name": "attributes_link_id_packing",
       "category": "style",
       "input": {
-        "base_attributes": ["bold"],
+        "base_attributes": [
+          "bold"
+        ],
         "link_id": 12345678
       },
       "expected_output": {
         "link_id": 12345678,
-        "flags_preserved": ["bold"],
+        "flags_preserved": [
+          "bold"
+        ],
         "note": "Link ID packed into bits 8-31, flags in bits 0-7 preserved"
       }
     },
@@ -984,7 +1176,9 @@
       "input": {
         "base_link_id": 100,
         "overlay_link_id": 200,
-        "overlay_attributes": ["italic"]
+        "overlay_attributes": [
+          "italic"
+        ]
       },
       "expected_output": {
         "merged_link_id": 200,

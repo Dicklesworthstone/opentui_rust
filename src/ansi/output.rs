@@ -170,9 +170,7 @@ impl<W: Write> AnsiWriter<W> {
             }
 
             if !codes.is_empty() {
-                use std::io::Write; // Ensure write! macro is available if needed, or just write_all
-                // Manually constructing the string here might be faster than a helper if specific codes
-                // But let's just write bytes
+                // Manually construct the SGR escape sequence
                 self.buffer.extend_from_slice(b"\x1b[");
                 for (i, code) in codes.iter().enumerate() {
                     if i > 0 {
