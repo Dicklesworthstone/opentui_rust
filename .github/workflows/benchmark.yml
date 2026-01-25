@@ -1,0 +1,87 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Baseline to compare against'
+        required: false
+        default: 'main'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache criterion results
+        uses: actions/cache@v4
+        with:
+          path: target/criterion
+          key: criterion-${{ runner.os }}-${{ github.ref }}
+          restore-keys: |
+            criterion-${{ runner.os }}-refs/heads/main
+            criterion-${{ runner.os }}-
+
+      - name: Build benchmarks
+        run: cargo build --benches
+
+      - name: Run benchmark tests
+        run: cargo bench -- --test
+
+      - name: Run full benchmarks
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo bench -- --save-baseline main 2>&1 | tee benchmark_output.log
+
+      - name: Compare with baseline (PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          cargo bench -- --baseline main 2>&1 | tee benchmark_output.log
+          if grep -q "regressed" benchmark_output.log; then
+            echo "::warning::Performance regression detected"
+            echo "## Performance Regressions" >> $GITHUB_STEP_SUMMARY
+            grep "regressed" benchmark_output.log >> $GITHUB_STEP_SUMMARY
+          fi
+          if grep -q "improved" benchmark_output.log; then
+            echo "## Performance Improvements" >> $GITHUB_STEP_SUMMARY
+            grep "improved" benchmark_output.log >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion/
+            benchmark_output.log
+          retention-days: 30
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Run benchmark validation tests
+        run: cargo test --test benchmarks_validate
