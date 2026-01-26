@@ -1,5 +1,44 @@
 # Dependency Upgrade Log
 
+**Date:** 2026-01-26  |  **Project:** opentui  |  **Language:** Rust
+
+## Summary (2026-01-26)
+
+- **Updated:** 2  |  **Already Latest:** 10  |  **Failed:** 0  |  **Needs Attention:** 0
+
+## Updates (2026-01-26)
+
+### tracing: 0.1.40 → 0.1.44
+- **Breaking:** None noted (release notes mention a panic fix in `record_all`).
+- **Tests:** `cargo test --quiet` ✓ (full suite; `benchmarks_validate::list_benchmarks` ~48s).
+
+### tracing-subscriber: 0.3.19 → 0.3.22
+- **Breaking:** None noted; release notes indicate 0.3.21 was yanked due to `EnvFilter` parsing, 0.3.22 is the fix.
+- **Tests:** `cargo test --quiet` ✓ (same run as above).
+
+## Already Latest (2026-01-26)
+
+- bitflags: 2.10.0
+- libc: 0.2.180
+- ropey: 1.6.1
+- unicode-segmentation: 1.12.0
+- unicode-width: 0.2.2
+- criterion: 0.8.1
+- proptest: 1.9.0
+- insta: 1.46.1
+- serde: 1.0.228
+- serde_json: 1.0.149
+
+## Verification (2026-01-26)
+
+```bash
+CARGO_TARGET_DIR=target-upgrade cargo test --quiet
+CARGO_TARGET_DIR=target-upgrade cargo check --all-targets
+CARGO_TARGET_DIR=target-upgrade cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+cargo audit
+```
+
 **Date:** 2026-01-25  |  **Project:** opentui  |  **Language:** Rust
 
 ## Summary

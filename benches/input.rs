@@ -122,7 +122,9 @@ fn bench_mixed_input_stream(c: &mut Criterion) {
 /// Benchmark batch input parsing performance.
 fn bench_batch_parsing(c: &mut Criterion) {
     // Large batch of keyboard input (1000 characters)
-    let keyboard_batch: Vec<u8> = (0..1000).map(|i| b'a' + (i % 26) as u8).collect();
+    let keyboard_batch: Vec<u8> = (0..1000usize)
+        .map(|i| b'a' + u8::try_from(i % 26).unwrap_or(0))
+        .collect();
 
     c.bench_function("parse_1000_chars", |b| {
         let mut parser = InputParser::new();

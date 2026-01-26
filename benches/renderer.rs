@@ -153,7 +153,7 @@ fn ansi_generation(c: &mut Criterion) {
             output.clear();
             let mut writer = AnsiWriter::new(&mut output);
             for i in 0..10u8 {
-                writer.move_cursor(i as u32, 0);
+                writer.move_cursor(u32::from(i), 0);
                 writer.set_fg(Rgba::from_rgb_u8(i * 25, 100, 200));
                 writer.set_bg(Rgba::from_rgb_u8(50, i * 25, 100));
                 if i % 2 == 0 {

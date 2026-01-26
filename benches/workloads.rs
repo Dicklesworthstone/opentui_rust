@@ -5,6 +5,12 @@
 //! expected performance for common use cases.
 
 #![allow(clippy::semicolon_if_nothing_returned)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::similar_names
+)] // Benchmarks use small, bounded values for clarity.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use opentui::buffer::{BoxStyle, ClipRect};
@@ -165,17 +171,17 @@ fn bench_dashboard_refresh(c: &mut Criterion) {
             // Panel 1: CPU (left top)
             buffer.draw_box(0, 3, 60, 18, BoxStyle::single(Style::fg(border_color)));
             buffer.draw_text(2, 4, "CPU Usage", dim_style);
-            let cpu = ((tick * 7) % 100) as u32;
+            let cpu = (tick * 7) % 100;
             for i in 0..50 {
                 let ch = if i < cpu / 2 { '█' } else { '░' };
                 buffer.set(5 + i, 6, Cell::new(ch, Style::fg(bar_color)));
             }
-            buffer.draw_text(5, 8, &format!("{}%", cpu), Style::default());
+            buffer.draw_text(5, 8, &format!("{cpu}%"), Style::default());
 
             // Panel 2: Memory (right top)
             buffer.draw_box(60, 3, 60, 18, BoxStyle::single(Style::fg(border_color)));
             buffer.draw_text(62, 4, "Memory", dim_style);
-            let mem = ((tick * 3) % 100) as u32;
+            let mem = (tick * 3) % 100;
             for i in 0..50 {
                 let ch = if i < mem / 2 { '█' } else { '░' };
                 buffer.set(
@@ -219,7 +225,7 @@ fn bench_dashboard_refresh(c: &mut Criterion) {
 
             // Footer
             buffer.draw_box(0, 37, 120, 3, BoxStyle::double(Style::fg(border_color)));
-            buffer.draw_text(3, 38, &format!("Last update: tick {}", tick), dim_style);
+            buffer.draw_text(3, 38, &format!("Last update: tick {tick}"), dim_style);
 
             tick = tick.wrapping_add(1);
             black_box(&buffer);
@@ -235,12 +241,7 @@ fn bench_dashboard_refresh(c: &mut Criterion) {
 /// continuous scrolling, useful for measuring viewport rendering performance.
 fn bench_large_document_scroll(c: &mut Criterion) {
     let document: String = (0..10000)
-        .map(|i| {
-            format!(
-                "Line {:5}: This is content for testing scroll performance",
-                i
-            )
-        })
+        .map(|i| format!("Line {i:5}: This is content for testing scroll performance"))
         .collect::<Vec<_>>()
         .join("\n");
     let lines: Vec<&str> = document.lines().collect();
@@ -296,17 +297,15 @@ fn bench_popup_dialog(c: &mut Criterion) {
             }
 
             // Popup with scissor
-            let popup_x = 20;
-            let popup_y = 5;
-            let popup_w = 40;
-            let popup_h = 14;
+            let popup_x: u32 = 20;
+            let popup_y: u32 = 5;
+            let popup_w: u32 = 40;
+            let popup_h: u32 = 14;
 
-            buffer.push_scissor(ClipRect::new(
-                popup_x as i32,
-                popup_y as i32,
-                popup_w,
-                popup_h,
-            ));
+            let popup_x_i32 = i32::try_from(popup_x).unwrap_or(i32::MAX);
+            let popup_y_i32 = i32::try_from(popup_y).unwrap_or(i32::MAX);
+
+            buffer.push_scissor(ClipRect::new(popup_x_i32, popup_y_i32, popup_w, popup_h));
 
             buffer.fill_rect(popup_x, popup_y, popup_w, popup_h, popup_bg);
             buffer.draw_box(popup_x, popup_y, popup_w, popup_h, border_style.clone());

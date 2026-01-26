@@ -45,9 +45,10 @@ fn examples_compile() {
         }
     }
 
-    if !failures.is_empty() {
-        panic!("Examples failed to compile: {failures:?}");
-    }
+    assert!(
+        failures.is_empty(),
+        "Examples failed to compile: {failures:?}"
+    );
 }
 
 #[test]

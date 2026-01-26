@@ -93,7 +93,7 @@ impl Panel {
         }
     }
 
-    fn inner_rect(&self) -> (u32, u32, u32, u32) {
+    const fn inner_rect(&self) -> (u32, u32, u32, u32) {
         (
             self.x + 1,
             self.y + 1,
@@ -172,7 +172,7 @@ impl Dashboard {
         let content_h = height.saturating_sub(4);
 
         // Sidebar: 20% width, minimum 15 chars
-        let sidebar_w = (width / 5).max(15).min(25);
+        let sidebar_w = (width / 5).clamp(15, 25);
         let main_w = width.saturating_sub(sidebar_w);
 
         // Main panel split: 65% content, 35% logs (vertical split)
@@ -217,6 +217,7 @@ impl Dashboard {
                 }
 
                 // Handle input for focused panel
+                #[allow(clippy::match_same_arms)] // Demo keeps explicit arms for readability.
                 match self.focused {
                     0 => {
                         // Sidebar
@@ -504,7 +505,7 @@ fn main() -> io::Result<()> {
     let mut parser = InputParser::new();
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
 
-    std::thread::spawn(move || {
+    let input_thread = std::thread::spawn(move || {
         let mut stdin = io::stdin();
         let mut buf = [0u8; 64];
         loop {
@@ -521,6 +522,7 @@ fn main() -> io::Result<()> {
         }
     });
 
+    let mut should_exit = false;
     loop {
         // Update simulation
         dashboard.update();
@@ -544,12 +546,25 @@ fn main() -> io::Result<()> {
                 }
 
                 if !dashboard.handle_input(&event) {
-                    return Ok(());
+                    should_exit = true;
+                    break;
                 }
+            }
+
+            if should_exit {
+                break;
             }
         }
 
         // Small delay for animation (roughly 30 FPS)
         std::thread::sleep(std::time::Duration::from_millis(33));
+
+        if should_exit {
+            break;
+        }
     }
+
+    drop(rx);
+    let _ = input_thread.join();
+    Ok(())
 }

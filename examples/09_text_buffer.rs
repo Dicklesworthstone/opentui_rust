@@ -1,9 +1,9 @@
-//! Example 09: TextBuffer and Styled Segments
+//! Example 09: `TextBuffer` and Styled Segments
 //!
 //! Demonstrates:
-//! - Building styled text with TextBuffer highlights
+//! - Building styled text with `TextBuffer` highlights
 //! - Practical styling patterns (logs, code snippet)
-//! - Rendering via TextBufferView
+//! - Rendering via `TextBufferView`
 //! - Wide character width handling
 
 use opentui::terminal::{enable_raw_mode, terminal_size};
@@ -33,6 +33,7 @@ fn add_highlight_substring(
     buffer.add_highlight_line(line_idx, char_start, char_end, style, 1, None);
 }
 
+#[allow(clippy::too_many_lines)] // Example intentionally shows a long, annotated text buffer.
 fn build_text_buffer() -> TextBuffer {
     let lines = [
         "TextBuffer Demo",

@@ -22,8 +22,8 @@ proptest = "1.9"
 insta = { version = "1.46", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.19"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
 
 [[bench]]
 name = "buffer"

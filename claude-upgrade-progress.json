@@ -1,8 +1,8 @@
 {
-  "status": "in_progress",
-  "current": "bitflags",
-  "completed": [],
+  "status": "completed",
+  "current": null,
+  "completed": ["tracing", "tracing-subscriber"],
   "failed": [],
-  "pending": ["bitflags", "libc", "ropey", "unicode-segmentation", "unicode-width", "criterion", "proptest", "insta", "serde", "serde_json", "github-actions"],
-  "skipped": []
+  "pending": [],
+  "skipped": ["bitflags", "libc", "ropey", "unicode-segmentation", "unicode-width", "criterion", "proptest", "insta", "serde", "serde_json"]
 }
