@@ -176,6 +176,7 @@ fn ansi_generation(c: &mut Criterion) {
             for y in 0..24u32 {
                 for x in 0..80u32 {
                     writer.move_cursor(y, x);
+                    #[allow(clippy::cast_possible_truncation)]
                     writer.set_fg(Rgba::from_rgb_u8((x * 3) as u8, (y * 10) as u8, 128));
                     writer.write_str("X");
                 }
@@ -231,7 +232,7 @@ fn render_cycle(c: &mut Criterion) {
             back.clear(bg);
             back.draw_text(10, 5, "Hello, World!", text_style);
             for y in 0..10u32 {
-                back.draw_text(5, 8 + y, &format!("Line {}", y), text_style);
+                back.draw_text(5, 8 + y, &format!("Line {y}"), text_style);
             }
 
             // Diff phase

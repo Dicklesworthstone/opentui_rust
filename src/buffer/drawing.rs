@@ -600,10 +600,7 @@ mod tests {
                 assert_eq!(pool.refcount(id1), 2);
             }
             _ => {
-                assert!(
-                    false,
-                    "Expected grapheme content for pooled multi-codepoint cells"
-                );
+                panic!("Expected grapheme content for pooled multi-codepoint cells");
             }
         }
     }
