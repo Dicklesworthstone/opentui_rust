@@ -49,9 +49,15 @@ fn benchmark_quick_run() {
 
     // Check for "Success" in output (criterion --test mode)
     let success_count = stdout.matches("Success").count();
-    println!("Benchmark quick run completed: {} tests passed", success_count);
+    println!(
+        "Benchmark quick run completed: {} tests passed",
+        success_count
+    );
 
-    assert!(success_count > 0, "Expected at least one successful benchmark test");
+    assert!(
+        success_count > 0,
+        "Expected at least one successful benchmark test"
+    );
 }
 
 /// List all available benchmarks.
@@ -66,7 +72,16 @@ fn list_benchmarks() {
     println!("Available benchmarks:\n{}", stdout);
 
     // Should have at least the main benchmark groups
-    let expected_groups = ["buffer", "color", "renderer", "text", "unicode", "highlight", "workloads", "input"];
+    let expected_groups = [
+        "buffer",
+        "color",
+        "renderer",
+        "text",
+        "unicode",
+        "highlight",
+        "workloads",
+        "input",
+    ];
     for group in expected_groups {
         // The benchmark might not be in the list output, just check build succeeded
         println!("  - {} benchmark group expected", group);

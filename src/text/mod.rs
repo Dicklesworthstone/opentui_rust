@@ -7,9 +7,9 @@
 //!
 //! This module's public API uses `&str` for text content, keeping grapheme pool
 //! details internal. Multi-codepoint grapheme clusters (emoji, ZWJ sequences) are
-//! handled transparently during rendering using [`GraphemeId::placeholder`] for
+//! handled transparently during rendering using [`crate::GraphemeId::placeholder`] for
 //! width-aware layout without pool allocation. Users needing direct grapheme pool
-//! access should use [`GraphemePool`] and [`GraphemeId`] from the crate root.
+//! access should use [`crate::GraphemePool`] and [`crate::GraphemeId`] from the crate root.
 //!
 //! Key types:
 //!

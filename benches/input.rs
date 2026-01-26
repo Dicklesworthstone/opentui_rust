@@ -95,7 +95,8 @@ fn bench_mixed_input_stream(c: &mut Criterion) {
     });
 
     // Simulate rapid mouse movement
-    let mouse_stream: &[u8] = b"\x1b[<32;10;10M\x1b[<32;11;10M\x1b[<32;12;10M\x1b[<32;13;10M\x1b[<32;14;10M";
+    let mouse_stream: &[u8] =
+        b"\x1b[<32;10;10M\x1b[<32;11;10M\x1b[<32;12;10M\x1b[<32;13;10M\x1b[<32;14;10M";
 
     group.bench_function("rapid_mouse_moves", |b| {
         let mut parser = InputParser::new();

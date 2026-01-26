@@ -178,20 +178,44 @@ fn bench_dashboard_refresh(c: &mut Criterion) {
             let mem = ((tick * 3) % 100) as u32;
             for i in 0..50 {
                 let ch = if i < mem / 2 { '█' } else { '░' };
-                buffer.set(65 + i, 6, Cell::new(ch, Style::fg(Rgba::from_rgb_u8(200, 150, 80))));
+                buffer.set(
+                    65 + i,
+                    6,
+                    Cell::new(ch, Style::fg(Rgba::from_rgb_u8(200, 150, 80))),
+                );
             }
 
             // Panel 3: Network (left bottom)
             buffer.draw_box(0, 21, 60, 16, BoxStyle::single(Style::fg(border_color)));
             buffer.draw_text(2, 22, "Network I/O", dim_style);
-            buffer.draw_text(5, 24, &format!("↓ {} KB/s", (tick * 13) % 1000), Style::default());
-            buffer.draw_text(5, 25, &format!("↑ {} KB/s", (tick * 7) % 500), Style::default());
+            buffer.draw_text(
+                5,
+                24,
+                &format!("↓ {} KB/s", (tick * 13) % 1000),
+                Style::default(),
+            );
+            buffer.draw_text(
+                5,
+                25,
+                &format!("↑ {} KB/s", (tick * 7) % 500),
+                Style::default(),
+            );
 
             // Panel 4: Disk (right bottom)
             buffer.draw_box(60, 21, 60, 16, BoxStyle::single(Style::fg(border_color)));
             buffer.draw_text(62, 22, "Disk I/O", dim_style);
-            buffer.draw_text(65, 24, &format!("Read: {} MB/s", (tick * 11) % 200), Style::default());
-            buffer.draw_text(65, 25, &format!("Write: {} MB/s", (tick * 5) % 100), Style::default());
+            buffer.draw_text(
+                65,
+                24,
+                &format!("Read: {} MB/s", (tick * 11) % 200),
+                Style::default(),
+            );
+            buffer.draw_text(
+                65,
+                25,
+                &format!("Write: {} MB/s", (tick * 5) % 100),
+                Style::default(),
+            );
 
             // Footer
             buffer.draw_box(0, 37, 120, 3, BoxStyle::double(Style::fg(border_color)));
@@ -211,7 +235,12 @@ fn bench_dashboard_refresh(c: &mut Criterion) {
 /// continuous scrolling, useful for measuring viewport rendering performance.
 fn bench_large_document_scroll(c: &mut Criterion) {
     let document: String = (0..10000)
-        .map(|i| format!("Line {:5}: This is content for testing scroll performance", i))
+        .map(|i| {
+            format!(
+                "Line {:5}: This is content for testing scroll performance",
+                i
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let lines: Vec<&str> = document.lines().collect();
@@ -258,7 +287,12 @@ fn bench_popup_dialog(c: &mut Criterion) {
             // Background content
             buffer.clear(bg);
             for y in 0..24 {
-                buffer.draw_text(0, y, "Background text that should be clipped by popup...", Style::dim());
+                buffer.draw_text(
+                    0,
+                    y,
+                    "Background text that should be clipped by popup...",
+                    Style::dim(),
+                );
             }
 
             // Popup with scissor
@@ -276,13 +310,33 @@ fn bench_popup_dialog(c: &mut Criterion) {
 
             buffer.fill_rect(popup_x, popup_y, popup_w, popup_h, popup_bg);
             buffer.draw_box(popup_x, popup_y, popup_w, popup_h, border_style.clone());
-            buffer.draw_text(popup_x + 2, popup_y + 1, "Confirm Action", Style::fg(Rgba::WHITE).with_bold());
-            buffer.draw_text(popup_x + 2, popup_y + 3, "Are you sure you want to", Style::default());
-            buffer.draw_text(popup_x + 2, popup_y + 4, "proceed with this action?", Style::default());
+            buffer.draw_text(
+                popup_x + 2,
+                popup_y + 1,
+                "Confirm Action",
+                Style::fg(Rgba::WHITE).with_bold(),
+            );
+            buffer.draw_text(
+                popup_x + 2,
+                popup_y + 3,
+                "Are you sure you want to",
+                Style::default(),
+            );
+            buffer.draw_text(
+                popup_x + 2,
+                popup_y + 4,
+                "proceed with this action?",
+                Style::default(),
+            );
 
             // Buttons
             buffer.draw_text(popup_x + 8, popup_y + 8, "[ OK ]", Style::fg(Rgba::GREEN));
-            buffer.draw_text(popup_x + 22, popup_y + 8, "[ Cancel ]", Style::fg(Rgba::RED));
+            buffer.draw_text(
+                popup_x + 22,
+                popup_y + 8,
+                "[ Cancel ]",
+                Style::fg(Rgba::RED),
+            );
 
             buffer.pop_scissor();
 

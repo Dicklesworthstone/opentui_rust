@@ -111,7 +111,7 @@ impl GraphemeId {
 ///
 /// # Grapheme Pool Integration
 ///
-/// Multi-codepoint graphemes (emoji, ZWJ sequences) are stored in a [`GraphemePool`]
+/// Multi-codepoint graphemes (emoji, ZWJ sequences) are stored in a [`crate::GraphemePool`]
 /// and referenced by [`GraphemeId`]. The actual string data is resolved via the pool
 /// during rendering. This enables `Copy` semantics for cells.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -250,7 +250,7 @@ impl Cell {
     /// For multi-codepoint graphemes, creates a placeholder `Grapheme` cell.
     ///
     /// **Note:** This creates a placeholder `GraphemeId` with the correct display
-    /// width but pool_id 0. Use [`GraphemePool::intern`] to get a real ID that
+    /// width but pool_id 0. Use [`crate::GraphemePool::intern`] to get a real ID that
     /// can be resolved back to the string during rendering.
     #[must_use]
     pub fn from_grapheme(s: &str, style: Style) -> Self {
@@ -314,7 +314,7 @@ impl Cell {
     /// Write the cell content to a writer (without pool lookup).
     ///
     /// **Note:** For [`CellContent::Grapheme`], this writes a placeholder character
-    /// since the actual string requires a [`GraphemePool`] lookup. Use
+    /// since the actual string requires a [`crate::GraphemePool`] lookup. Use
     /// [`Cell::write_content_with_pool`] or the ANSI writer for proper grapheme rendering.
     pub fn write_content<W: std::io::Write>(&self, w: &mut W) -> std::io::Result<()> {
         match &self.content {

@@ -8,7 +8,14 @@ use std::hint::black_box;
 
 fn color_creation(c: &mut Criterion) {
     c.bench_function("color_new_f32", |b| {
-        b.iter(|| Rgba::new(black_box(0.5), black_box(0.7), black_box(0.3), black_box(1.0)));
+        b.iter(|| {
+            Rgba::new(
+                black_box(0.5),
+                black_box(0.7),
+                black_box(0.3),
+                black_box(1.0),
+            )
+        });
     });
 
     c.bench_function("color_from_rgb_u8", |b| {

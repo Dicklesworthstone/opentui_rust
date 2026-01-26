@@ -109,12 +109,23 @@ for test in "${CONFORMANCE_TESTS[@]}"; do
     NOCAPTURE_FLAG="--nocapture"
   fi
 
-  if timeout "$TIMEOUT" cargo test --test "$test" -- $NOCAPTURE_FLAG 2>&1; then
-    RESULT="pass"
-    PASSED=$((PASSED + 1))
+  if [[ "$JSON_OUTPUT" -eq 1 ]]; then
+    # Suppress cargo output in JSON mode to prevent corrupting JSON output
+    if timeout "$TIMEOUT" cargo test --test "$test" -- $NOCAPTURE_FLAG >/dev/null 2>&1; then
+      RESULT="pass"
+      PASSED=$((PASSED + 1))
+    else
+      RESULT="fail"
+      FAILED=$((FAILED + 1))
+    fi
   else
-    RESULT="fail"
-    FAILED=$((FAILED + 1))
+    if timeout "$TIMEOUT" cargo test --test "$test" -- $NOCAPTURE_FLAG 2>&1; then
+      RESULT="pass"
+      PASSED=$((PASSED + 1))
+    else
+      RESULT="fail"
+      FAILED=$((FAILED + 1))
+    fi
   fi
 
   TEST_END=$(date +%s.%N)
