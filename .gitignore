@@ -19,3 +19,6 @@ Thumbs.db
 .env
 .env.*
 ._*
+
+# Alternate target directories (upgrade experiments)
+target-upgrade/
