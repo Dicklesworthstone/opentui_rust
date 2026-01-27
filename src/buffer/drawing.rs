@@ -155,7 +155,30 @@ impl Default for BoxStyle {
 /// For proper grapheme pool integration, use [`draw_text_with_pool`].
 pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style: Style) {
     let mut col = x;
+    let fg = style.fg.unwrap_or(Rgba::WHITE);
+    let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
+    let attrs = style.attributes;
 
+    // Fast path: pure ASCII text (very common case)
+    if text.is_ascii() {
+        for &byte in text.as_bytes() {
+            if byte == b'\n' || byte == b'\r' {
+                continue;
+            }
+            let ch = byte as char;
+            let cell = Cell {
+                content: CellContent::Char(ch),
+                fg,
+                bg,
+                attributes: attrs,
+            };
+            buffer.set_blended(col, y, cell);
+            col += 1;
+        }
+        return;
+    }
+
+    // Slow path: Unicode text with grapheme segmentation
     for grapheme in text.graphemes(true) {
         if grapheme == "\n" || grapheme == "\r" {
             continue;
@@ -168,11 +191,7 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
 
         // Add continuation cells for wide characters
         for i in 1..width {
-            buffer.set_blended(
-                col + i as u32,
-                y,
-                Cell::continuation(style.bg.unwrap_or(Rgba::TRANSPARENT)),
-            );
+            buffer.set_blended(col + i as u32, y, Cell::continuation(bg));
         }
 
         col += width as u32;
