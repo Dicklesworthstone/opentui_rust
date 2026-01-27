@@ -571,7 +571,7 @@ impl<'a> TextBufferView<'a> {
         for (row, vline) in cache.virtual_lines.iter().enumerate() {
             let is_last_line = row == cache.virtual_lines.len() - 1;
             if byte_offset < vline.byte_start {
-                continue;
+                return (row as u32, 0);
             }
             // Check if cursor is within this line or at its end
             // When byte_offset == byte_end (cursor at newline position), match this line

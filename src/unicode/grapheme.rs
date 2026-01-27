@@ -46,6 +46,12 @@ pub fn is_ascii_only(s: &str) -> bool {
 }
 
 /// Compute grapheme info for a string.
+///
+/// Note: `byte_len` and `width` are stored as `u8` for memory efficiency.
+/// Values are clamped to `u8::MAX` (255) to prevent silent truncation.
+/// This is safe because:
+/// - Grapheme clusters rarely exceed 255 bytes (even complex ZWJ emoji are ~30 bytes)
+/// - Display widths are almost always 0, 1, or 2 (tab stops are bounded)
 #[must_use]
 pub fn grapheme_info(s: &str, tab_width: u32, method: WidthMethod) -> Vec<GraphemeInfo> {
     let mut infos = Vec::new();
@@ -55,19 +61,23 @@ pub fn grapheme_info(s: &str, tab_width: u32, method: WidthMethod) -> Vec<Graphe
     for (byte_offset, grapheme) in s.grapheme_indices(true) {
         let width = if grapheme == "\t" {
             let spaces = tab_width - (col % tab_width);
-            spaces as u8
+            // Saturate to u8::MAX to prevent silent truncation
+            spaces.min(u32::from(u8::MAX)) as u8
         } else {
-            display_width_with_method(grapheme, method) as u8
+            let w = display_width_with_method(grapheme, method);
+            // Saturate to u8::MAX (display widths are typically 0-2)
+            w.min(usize::from(u8::MAX)) as u8
         };
 
         let info = GraphemeInfo {
             byte_offset: byte_offset as u32,
-            byte_len: grapheme.len() as u8,
+            // Saturate byte_len to u8::MAX - graphemes are rarely >255 bytes
+            byte_len: grapheme.len().min(usize::from(u8::MAX)) as u8,
             col_offset: col,
             width,
         };
         infos.push(info);
-        col += width as u32;
+        col += u32::from(width);
     }
 
     infos

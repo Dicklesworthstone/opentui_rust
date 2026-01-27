@@ -81,6 +81,10 @@ pub fn is_tty<F: AsRawFd>(fd: &F) -> bool {
 }
 
 /// Get the terminal size.
+///
+/// Returns an error if the terminal size cannot be determined or if the
+/// returned dimensions are zero (which would cause division by zero errors
+/// in buffer allocation code).
 pub fn terminal_size() -> io::Result<(u16, u16)> {
     let mut size: libc::winsize = unsafe { std::mem::zeroed() };
 
@@ -89,6 +93,12 @@ pub fn terminal_size() -> io::Result<(u16, u16)> {
 
     if result == -1 {
         Err(io::Error::last_os_error())
+    } else if size.ws_col == 0 || size.ws_row == 0 {
+        // Zero dimensions would cause buffer allocation/arithmetic issues
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "terminal reported zero dimensions",
+        ))
     } else {
         Ok((size.ws_col, size.ws_row))
     }

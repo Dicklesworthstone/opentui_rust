@@ -208,6 +208,10 @@ impl Rgba {
     /// `self` is the foreground (on top), `other` is the background.
     #[must_use]
     pub fn blend_over(self, other: Self) -> Self {
+        // Epsilon for numerical stability - values below this threshold are
+        // considered effectively zero to prevent division instability
+        const ALPHA_EPSILON: f32 = 1e-6;
+
         if self.a >= 1.0 {
             return self;
         }
@@ -218,7 +222,9 @@ impl Rgba {
         let inv_alpha = 1.0 - self.a;
         let out_a = other.a.mul_add(inv_alpha, self.a);
 
-        if out_a <= 0.0 {
+        // Use epsilon threshold to prevent numerical instability from division
+        // by very small numbers which could amplify floating-point errors
+        if out_a <= ALPHA_EPSILON {
             return Self::TRANSPARENT;
         }
 
