@@ -13,16 +13,17 @@
 
 | Category | Implemented | Total | Status |
 |----------|-------------|-------|--------|
-| Core Types | 4 | 4 | ✅ Complete |
+| Core Types | 5 | 5 | ✅ Complete |
 | ANSI Sequences | 10 | 10 | ✅ Complete |
-| Buffer | 8 | 8 | ✅ Complete |
+| Buffer | 12 | 12 | ✅ Complete |
 | Text/Rope | 6 | 6 | ✅ Complete |
 | Text Views | 8 | 8 | ✅ Complete |
 | Editor | 8 | 8 | ✅ Complete |
 | Renderer | 9 | 9 | ✅ Complete |
 | Terminal | 6 | 6 | ✅ Complete |
 | Event/Input | 4 | 4 | ✅ Complete |
-| **Total** | **63** | **63** | **100%** |
+| Unicode/UTF-8 | 10 | 10 | ✅ Complete |
+| **Total** | **78** | **78** | **100%** |
 
 ---
 
@@ -31,6 +32,7 @@
 | Feature | Status | Notes |
 |---------|--------|-------|
 | RGBA Color | ✅ | f32 components, alpha blending, HSV conversion |
+| Luminance | ✅ | ITU-R BT.601 luminance calculation (0.299R + 0.587G + 0.114B) |
 | Text Attributes | ✅ | bitflags u32: flags in bits 0-7, link ID in bits 8-31 |
 | Cell | ✅ | CellContent enum: Char, Grapheme(GraphemeId), Empty, Continuation. Cell is Copy. |
 | Style | ✅ | fg, bg, attributes (packed link ID) with builder pattern |
