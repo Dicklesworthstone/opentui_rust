@@ -39,9 +39,11 @@
 
 mod drawing;
 mod opacity;
+mod pixel;
 mod scissor;
 
 pub use drawing::{BoxOptions, BoxSides, BoxStyle, TitleAlign};
+pub use pixel::{GrayscaleBuffer, PixelBuffer};
 pub use opacity::OpacityStack;
 pub use scissor::{ClipRect, ScissorStack};
 
@@ -49,6 +51,7 @@ use crate::cell::{Cell, CellContent};
 use crate::color::Rgba;
 use crate::grapheme_pool::GraphemePool;
 use crate::style::Style;
+use crate::text::{EditorView, TextBufferView};
 
 /// Optimized cell buffer for terminal rendering.
 ///
@@ -496,6 +499,50 @@ impl OptimizedBuffer {
     /// Draw a box border with extended options.
     pub fn draw_box_with_options(&mut self, x: u32, y: u32, w: u32, h: u32, options: BoxOptions) {
         drawing::draw_box_with_options(self, x, y, w, h, options);
+    }
+
+    /// Draw a text buffer view to this buffer.
+    ///
+    /// This is a convenience method that calls [`TextBufferView::render_to`].
+    /// For rendering with grapheme pool support, use [`Self::draw_text_buffer_view_with_pool`].
+    ///
+    /// # Arguments
+    /// * `view` - The text buffer view to render
+    /// * `x`, `y` - Destination position in the buffer
+    pub fn draw_text_buffer_view(&mut self, view: &TextBufferView<'_>, x: i32, y: i32) {
+        view.render_to(self, x, y);
+    }
+
+    /// Draw a text buffer view to this buffer with grapheme pool support.
+    ///
+    /// This is a convenience method that calls [`TextBufferView::render_to_with_pool`].
+    pub fn draw_text_buffer_view_with_pool(
+        &mut self,
+        view: &TextBufferView<'_>,
+        pool: &mut GraphemePool,
+        x: i32,
+        y: i32,
+    ) {
+        view.render_to_with_pool(self, pool, x, y);
+    }
+
+    /// Draw an editor view to this buffer.
+    ///
+    /// This is a convenience method that calls [`EditorView::render_to`].
+    ///
+    /// # Arguments
+    /// * `view` - The editor view to render
+    /// * `x`, `y` - Destination position in the buffer
+    /// * `width`, `height` - Dimensions of the rendering area
+    pub fn draw_editor_view(
+        &mut self,
+        view: &mut EditorView,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) {
+        view.render_to(self, x, y, width, height);
     }
 
     // Scissor stack operations

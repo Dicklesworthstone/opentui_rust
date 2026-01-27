@@ -280,6 +280,15 @@ impl Rgba {
         self.a >= 1.0
     }
 
+    /// Calculate luminance (perceived brightness).
+    ///
+    /// Uses the standard luminance formula: 0.299*R + 0.587*G + 0.114*B
+    /// This matches the ITU-R BT.601 standard for luminance.
+    #[must_use]
+    pub fn luminance(self) -> f32 {
+        0.299 * self.r + 0.587 * self.g + 0.114 * self.b
+    }
+
     /// Linearly interpolate between two colors.
     #[must_use]
     pub fn lerp(self, other: Self, t: f32) -> Self {
