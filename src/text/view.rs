@@ -1,4 +1,13 @@
 //! Text buffer view with viewport and wrapping.
+//!
+//! # Grapheme Handling
+//!
+//! When rendering text that may contain multi-codepoint graphemes (emoji, ZWJ sequences,
+//! combining characters), use [`TextBufferView::render_to_with_pool`] to preserve the
+//! grapheme content. The simpler [`TextBufferView::render_to`] method creates placeholder
+//! cells that preserve display width but lose the actual grapheme string.
+//!
+//! See the method documentation for details on when to use each variant.
 
 // Complex rendering logic naturally has long functions
 #![allow(clippy::too_many_lines)]
@@ -636,11 +645,50 @@ impl<'a> TextBufferView<'a> {
     }
 
     /// Render the view to an output buffer.
+    ///
+    /// # Grapheme Handling
+    ///
+    /// Multi-codepoint graphemes (emoji, ZWJ sequences, characters with combining marks)
+    /// are rendered as **placeholders** with only their display width preserved. The actual
+    /// grapheme content is lost because no [`GraphemePool`] is provided for interning.
+    ///
+    /// Use [`render_to_with_pool`] instead when:
+    /// - Rendering emoji or complex Unicode characters
+    /// - The output buffer will be converted to ANSI sequences for terminal display
+    /// - You need to recover the original grapheme strings later
+    ///
+    /// [`GraphemePool`]: crate::grapheme_pool::GraphemePool
+    /// [`render_to_with_pool`]: Self::render_to_with_pool
     pub fn render_to(&self, output: &mut OptimizedBuffer, dest_x: i32, dest_y: i32) {
         self.render_impl(output, dest_x, dest_y, None);
     }
 
     /// Render the view to an output buffer, interning complex graphemes in the pool.
+    ///
+    /// # When to Use This Method
+    ///
+    /// Use this method instead of [`render_to`] when your text contains:
+    /// - Emoji (e.g., 👨‍👩‍👧, 🎉)
+    /// - Characters with combining marks (e.g., é composed as e + ́)
+    /// - ZWJ (Zero-Width Joiner) sequences
+    /// - Any multi-codepoint grapheme clusters
+    ///
+    /// The provided [`GraphemePool`] interns these complex graphemes, allowing them
+    /// to be recovered later when generating ANSI output for terminal display.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// let mut output = OptimizedBuffer::new(80, 24);
+    /// view.render_to_with_pool(&mut output, &mut pool, 0, 0);
+    /// // Graphemes in output cells can now be resolved via pool.get(id)
+    /// ```
+    ///
+    /// [`render_to`]: Self::render_to
+    /// [`GraphemePool`]: crate::grapheme_pool::GraphemePool
     pub fn render_to_with_pool(
         &self,
         output: &mut OptimizedBuffer,
