@@ -68,6 +68,10 @@
 | Box Drawing | ✅ | ASCII, light, heavy, double, rounded styles |
 | Scissor Stack | ✅ | Clipping rectangles with intersection |
 | Opacity Stack | ✅ | Alpha multiplier stack |
+| Pixel Rendering | ✅ | PixelBuffer, GrayscaleBuffer types |
+| Supersample Buffer | ✅ | 2x2 pixel blocks to quadrant Unicode chars |
+| Grayscale Buffer | ✅ | ASCII and Unicode shade characters |
+| Draw TextBufferView | ✅ | Convenience wrapper for view rendering |
 
 ---
 
