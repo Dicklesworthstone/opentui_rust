@@ -201,22 +201,40 @@ pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()>
 /// escape sequence injection attacks. This is critical because an unescaped
 /// ESC (0x1B) or BEL (0x07) could terminate the OSC sequence early and
 /// allow arbitrary terminal command injection.
+///
+/// Non-ASCII bytes (UTF-8 sequences) are preserved unchanged.
 #[must_use]
 pub fn escape_url_for_osc8(url: &str) -> String {
-    let mut escaped = String::with_capacity(url.len());
-    for byte in url.bytes() {
+    let bytes = url.as_bytes();
+    let mut escaped = Vec::with_capacity(bytes.len());
+
+    for &byte in bytes {
         match byte {
             // Control characters (C0 and DEL) must be percent-encoded
             0x00..=0x1F | 0x7F => {
-                escaped.push('%');
-                escaped.push(char::from_digit((byte >> 4) as u32, 16).unwrap_or('0'));
-                escaped.push(char::from_digit((byte & 0x0F) as u32, 16).unwrap_or('0'));
+                escaped.push(b'%');
+                // Use uppercase hex for RFC 3986 compatibility
+                let high = (byte >> 4) & 0x0F;
+                let low = byte & 0x0F;
+                escaped.push(if high < 10 {
+                    b'0' + high
+                } else {
+                    b'A' + high - 10
+                });
+                escaped.push(if low < 10 {
+                    b'0' + low
+                } else {
+                    b'A' + low - 10
+                });
             }
-            // Safe ASCII characters pass through
-            _ => escaped.push(byte as char),
+            // All other bytes pass through unchanged (preserves UTF-8)
+            _ => escaped.push(byte),
         }
     }
-    escaped
+
+    // SAFETY: Input is valid UTF-8, we only modified single-byte control characters
+    // (0x00-0x1F, 0x7F) which are complete UTF-8 sequences, so output is valid UTF-8
+    String::from_utf8(escaped).expect("escape_url_for_osc8 produced invalid UTF-8")
 }
 
 /// Generate OSC 8 hyperlink start sequence.
@@ -487,7 +505,7 @@ mod tests {
         );
 
         // ESC (0x1B) must be escaped - this is the critical injection vector
-        assert_eq!(escape_url_for_osc8("http://x\x1b"), "http://x%1b");
+        assert_eq!(escape_url_for_osc8("http://x\x1b"), "http://x%1B");
 
         // BEL (0x07) must be escaped - another OSC terminator
         assert_eq!(escape_url_for_osc8("http://x\x07"), "http://x%07");
@@ -496,7 +514,7 @@ mod tests {
         assert_eq!(escape_url_for_osc8("http://x\x00"), "http://x%00");
 
         // DEL (0x7F) must be escaped
-        assert_eq!(escape_url_for_osc8("http://x\x7f"), "http://x%7f");
+        assert_eq!(escape_url_for_osc8("http://x\x7f"), "http://x%7F");
 
         // All control characters should be escaped
         for byte in 0x00u8..=0x1F {
@@ -511,6 +529,33 @@ mod tests {
                 "Control char 0x{byte:02x} should be percent-encoded"
             );
         }
+    }
+
+    #[test]
+    fn test_osc8_url_preserves_unicode() {
+        // URLs with Unicode characters should be preserved exactly
+        let unicode_url = "https://example.com/日本語/path";
+        assert_eq!(
+            escape_url_for_osc8(unicode_url),
+            unicode_url,
+            "Unicode URLs should pass through unchanged"
+        );
+
+        // Emoji in URLs
+        let emoji_url = "https://example.com/🎉/celebration";
+        assert_eq!(
+            escape_url_for_osc8(emoji_url),
+            emoji_url,
+            "Emoji URLs should pass through unchanged"
+        );
+
+        // Mixed ASCII and Unicode
+        let mixed_url = "https://日本.example.com/path?q=テスト";
+        assert_eq!(
+            escape_url_for_osc8(mixed_url),
+            mixed_url,
+            "Mixed URLs should pass through unchanged"
+        );
     }
 
     #[test]
