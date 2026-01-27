@@ -68,6 +68,38 @@ fn write_u8_decimal(w: &mut impl Write, n: u8) -> io::Result<()> {
     }
 }
 
+/// Write a u32 as decimal digits to a writer without formatting overhead.
+///
+/// Stack buffer is sized for max u32 digits (10) to avoid heap allocation.
+#[inline]
+fn write_u32_decimal(w: &mut impl Write, n: u32) -> io::Result<()> {
+    // Fast paths for common small values (most cursor positions)
+    if n < 10 {
+        return w.write_all(&[b'0' + n as u8]);
+    }
+    if n < 100 {
+        return w.write_all(&[b'0' + (n / 10) as u8, b'0' + (n % 10) as u8]);
+    }
+    if n < 1000 {
+        return w.write_all(&[
+            b'0' + (n / 100) as u8,
+            b'0' + ((n / 10) % 10) as u8,
+            b'0' + (n % 10) as u8,
+        ]);
+    }
+
+    // General case: build digits in reverse on stack
+    let mut buf = [0u8; 10]; // max u32 is 4294967295 (10 digits)
+    let mut i = buf.len();
+    let mut val = n;
+    while val > 0 {
+        i -= 1;
+        buf[i] = b'0' + (val % 10) as u8;
+        val /= 10;
+    }
+    w.write_all(&buf[i..])
+}
+
 /// Write SGR sequence for foreground color to a writer.
 ///
 /// Uses direct byte writes to avoid `write!` formatting overhead on hot paths.
@@ -223,8 +255,14 @@ pub fn cursor_position(row: u32, col: u32) -> String {
 }
 
 /// Write cursor position sequence to a writer.
+///
+/// Uses direct byte writes to avoid `write!` formatting overhead on hot paths.
 pub fn write_cursor_position(w: &mut impl Write, row: u32, col: u32) -> io::Result<()> {
-    write!(w, "\x1b[{};{}H", row + 1, col + 1)
+    w.write_all(b"\x1b[")?;
+    write_u32_decimal(w, row + 1)?;
+    w.write_all(b";")?;
+    write_u32_decimal(w, col + 1)?;
+    w.write_all(b"H")
 }
 
 /// Generate relative cursor movement.
@@ -236,17 +274,27 @@ pub fn cursor_move(dx: i32, dy: i32) -> String {
 }
 
 /// Write relative cursor movement to a writer.
+///
+/// Uses direct byte writes to avoid `write!` formatting overhead on hot paths.
 pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()> {
     if dy < 0 {
-        write!(w, "\x1b[{}A", -dy)?;
+        w.write_all(b"\x1b[")?;
+        write_u32_decimal(w, (-dy) as u32)?;
+        w.write_all(b"A")?;
     } else if dy > 0 {
-        write!(w, "\x1b[{dy}B")?;
+        w.write_all(b"\x1b[")?;
+        write_u32_decimal(w, dy as u32)?;
+        w.write_all(b"B")?;
     }
 
     if dx > 0 {
-        write!(w, "\x1b[{dx}C")?;
+        w.write_all(b"\x1b[")?;
+        write_u32_decimal(w, dx as u32)?;
+        w.write_all(b"C")?;
     } else if dx < 0 {
-        write!(w, "\x1b[{}D", -dx)?;
+        w.write_all(b"\x1b[")?;
+        write_u32_decimal(w, (-dx) as u32)?;
+        w.write_all(b"D")?;
     }
     Ok(())
 }
