@@ -80,9 +80,11 @@ pub struct OptimizedBuffer {
 
 impl OptimizedBuffer {
     /// Create a new buffer with the given dimensions.
+    ///
+    /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
     #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
-        let size = (width * height) as usize;
+        let size = (width as usize).saturating_mul(height as usize);
         Self {
             width,
             height,
@@ -709,10 +711,13 @@ impl OptimizedBuffer {
     }
 
     /// Resize buffer, clearing contents.
+    ///
+    /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.cells = vec![Cell::clear(Rgba::TRANSPARENT); (width * height) as usize];
+        let size = (width as usize).saturating_mul(height as usize);
+        self.cells = vec![Cell::clear(Rgba::TRANSPARENT); size];
         self.scissor_stack.clear();
         self.opacity_stack.clear();
         self.respect_alpha = true;

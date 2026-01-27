@@ -10,12 +10,15 @@ pub struct HitGrid {
 
 impl HitGrid {
     /// Create a new hit grid with the given dimensions.
+    ///
+    /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
     #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
+        let size = (width as usize).saturating_mul(height as usize);
         Self {
             width,
             height,
-            cells: vec![None; (width * height) as usize],
+            cells: vec![None; size],
         }
     }
 
@@ -47,10 +50,13 @@ impl HitGrid {
     }
 
     /// Resize the grid, clearing all hit areas.
+    ///
+    /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.cells = vec![None; (width * height) as usize];
+        let size = (width as usize).saturating_mul(height as usize);
+        self.cells = vec![None; size];
     }
 
     /// Get dimensions.

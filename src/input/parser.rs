@@ -37,6 +37,9 @@ pub enum ParseError {
 /// Result of parsing input.
 pub type ParseResult = Result<(Event, usize), ParseError>;
 
+/// Maximum size for paste buffer to prevent unbounded memory growth (10 MB).
+const MAX_PASTE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+
 /// Parser state for multi-byte sequences.
 #[derive(Clone, Debug, Default)]
 pub struct InputParser {
@@ -403,6 +406,9 @@ impl InputParser {
     }
 
     /// Parse bracketed paste content.
+    ///
+    /// Note: Paste buffer is limited to [`MAX_PASTE_BUFFER_SIZE`] to prevent
+    /// unbounded memory growth from malformed or malicious input.
     fn parse_paste(&mut self, input: &[u8]) -> ParseResult {
         // Start and end sequences for bracketed paste
         const START_SEQ: &[u8] = b"\x1b[200~";
@@ -418,7 +424,11 @@ impl InputParser {
         let effective_input = &input[content_start..];
 
         if let Some(pos) = find_subsequence(effective_input, END_SEQ) {
-            self.paste_buffer.extend_from_slice(&effective_input[..pos]);
+            // Only extend if within size limit
+            let available = MAX_PASTE_BUFFER_SIZE.saturating_sub(self.paste_buffer.len());
+            let to_copy = pos.min(available);
+            self.paste_buffer
+                .extend_from_slice(&effective_input[..to_copy]);
             self.in_paste = false;
 
             let content = String::from_utf8_lossy(&self.paste_buffer).into_owned();
@@ -429,7 +439,11 @@ impl InputParser {
                 content_start + pos + END_SEQ.len(),
             ))
         } else {
-            self.paste_buffer.extend_from_slice(effective_input);
+            // Only extend if within size limit to prevent unbounded growth
+            let available = MAX_PASTE_BUFFER_SIZE.saturating_sub(self.paste_buffer.len());
+            let to_copy = effective_input.len().min(available);
+            self.paste_buffer
+                .extend_from_slice(&effective_input[..to_copy]);
             Err(ParseError::Incomplete)
         }
     }
