@@ -177,6 +177,23 @@
 
 ---
 
+## 11. Unicode/UTF-8 ✅ Complete
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Grapheme Iteration | ✅ | Via unicode-segmentation crate |
+| Display Width | ✅ | WcWidth and Unicode methods |
+| ASCII Check (Fast) | ✅ | is_ascii_only_fast, is_printable_ascii_only |
+| Line Break Detection | ✅ | find_line_breaks (LF/CR/CRLF) |
+| Tab Stop Detection | ✅ | find_tab_stops |
+| Wrap Break Detection | ✅ | find_wrap_breaks (whitespace, punctuation, brackets) |
+| Text Width Calculation | ✅ | calculate_text_width with tab support |
+| Wrap Position Finder | ✅ | find_wrap_position with word boundary preference |
+| Position by Width | ✅ | find_position_by_width |
+| Previous Grapheme | ✅ | get_prev_grapheme_start |
+
+---
+
 ## Parity Notes (Resolved)
 
 All parity gaps identified in the Zig spec have been closed. In particular:
@@ -190,14 +207,17 @@ All parity gaps identified in the Zig spec have been closed. In particular:
 - Cross-checked EXISTING_OPENTUI_STRUCTURE.md sections 1–15 against Rust modules and public APIs.
 - Conformance fixtures (81/81) and unit/e2e suites pass with latest dependency updates.
 - Independent verification on 2026-01-27 confirmed 100% feature parity:
-  - All 63 features verified present in Rust implementation
+  - All 78 features verified present in Rust implementation
   - Undo/redo with configurable depth limit: ✅ (src/text/edit.rs:66-165)
-  - EditBuffer.clear_history(): ✅ (src/text/edit.rs:159-165) - Added 2026-01-27
-  - CursorState.color field: ✅ (src/terminal/cursor.rs:31) - Added 2026-01-27
+  - EditBuffer.clear_history(): ✅ (src/text/edit.rs:159-165)
+  - CursorState.color field: ✅ (src/terminal/cursor.rs:31)
   - Grapheme pool with 24-bit IDs and ref counting: ✅
   - Link pool with URL storage: ✅
   - Text attributes with link ID packing: ✅
   - All terminal capability queries: ✅
+  - Pixel rendering (supersample, grayscale): ✅ (src/buffer/pixel.rs) - Added 2026-01-27
+  - UTF-8 search functions: ✅ (src/unicode/search.rs) - Added 2026-01-27
+  - Draw TextBufferView/EditorView wrappers: ✅ (src/buffer/mod.rs) - Added 2026-01-27
 
 ---
 
