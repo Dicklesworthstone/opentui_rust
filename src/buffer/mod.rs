@@ -573,8 +573,12 @@ impl OptimizedBuffer {
         // Calculate destination intersection with this buffer
         let dest_x_start = x.max(0) as u32;
         let dest_y_start = y.max(0) as u32;
-        let dest_x_end = (x.saturating_add(copy_w as i32)).min(self.width as i32) as u32;
-        let dest_y_end = (y.saturating_add(copy_h as i32)).min(self.height as i32) as u32;
+        let dest_x_end = (x.saturating_add(copy_w as i32))
+            .max(0)
+            .min(self.width as i32) as u32;
+        let dest_y_end = (y.saturating_add(copy_h as i32))
+            .max(0)
+            .min(self.height as i32) as u32;
 
         if dest_x_start >= dest_x_end || dest_y_start >= dest_y_end {
             return;
@@ -642,8 +646,12 @@ impl OptimizedBuffer {
         // Calculate destination intersection with this buffer
         let dest_x_start = x.max(0) as u32;
         let dest_y_start = y.max(0) as u32;
-        let dest_x_end = (x.saturating_add(copy_w as i32)).min(self.width as i32) as u32;
-        let dest_y_end = (y.saturating_add(copy_h as i32)).min(self.height as i32) as u32;
+        let dest_x_end = (x.saturating_add(copy_w as i32))
+            .max(0)
+            .min(self.width as i32) as u32;
+        let dest_y_end = (y.saturating_add(copy_h as i32))
+            .max(0)
+            .min(self.height as i32) as u32;
 
         if dest_x_start >= dest_x_end || dest_y_start >= dest_y_end {
             return;
@@ -829,5 +837,21 @@ mod tests {
             dst.get(0, 0).unwrap().content,
             crate::cell::CellContent::Char('X')
         );
+    }
+
+    #[test]
+    fn test_draw_buffer_negative_out_of_bounds() {
+        let mut src = OptimizedBuffer::new(10, 10);
+        src.fill_rect(0, 0, 10, 10, Rgba::RED);
+
+        let mut dst = OptimizedBuffer::new(10, 10);
+        // Draw src at -20, -20. Width is 10.
+        // End x is -10.
+        // Should draw nothing and definitely not crash/hang.
+        dst.draw_buffer_region(-20, -20, &src, 0, 0, 10, 10, true);
+
+        // Verify dst is still empty/transparent
+        let cell = dst.get(0, 0).unwrap();
+        assert_eq!(cell.bg, Rgba::TRANSPARENT);
     }
 }

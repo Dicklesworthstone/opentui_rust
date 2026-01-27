@@ -241,15 +241,21 @@ impl HighlightedBuffer {
     #[must_use]
     pub fn styled_line(&self, line: usize) -> Vec<StyledSegment> {
         let mut segments = Vec::new();
-        let Some(_line_str) = self.buffer.line(line) else {
+        let Some(line_str) = self.buffer.line(line) else {
             return segments;
         };
 
         let line_start = self.buffer.rope().line_to_char(line);
         let line_start_byte = self.buffer.rope().char_to_byte(line_start);
+        let line_byte_len = line_str.len();
 
         if let Some(tokens) = self.line_tokens.get(line) {
             for token in tokens {
+                // Validate token bounds: skip malformed tokens
+                if token.start > token.end || token.end > line_byte_len {
+                    continue;
+                }
+
                 let style = self.theme.style_for(token.kind);
                 if *style != Style::default() {
                     let start = line_start_byte + token.start;
@@ -326,9 +332,23 @@ impl HighlightedBuffer {
         let line_start_char = buffer.rope().line_to_char(line);
         let line_start_byte = buffer.rope().char_to_byte(line_start_char);
 
+        // Calculate line byte length for bounds validation
+        let line_end_char = if line + 1 < buffer.rope().len_lines() {
+            buffer.rope().line_to_char(line + 1)
+        } else {
+            buffer.rope().len_chars()
+        };
+        let line_end_byte = buffer.rope().char_to_byte(line_end_char);
+        let line_byte_len = line_end_byte.saturating_sub(line_start_byte);
+
         for token in tokens {
             let style = theme.style_for(token.kind);
             if *style == Style::default() {
+                continue;
+            }
+
+            // Validate token bounds: skip malformed tokens
+            if token.start > token.end || token.end > line_byte_len {
                 continue;
             }
 
@@ -413,5 +433,63 @@ mod tests {
 
         let tokens_after = buffer.tokens_for_line(1).to_vec();
         assert_eq!(tokens_before, tokens_after);
+    }
+
+    /// Mock tokenizer that produces malformed tokens for testing bounds validation.
+    struct MalformedTokenizer;
+
+    impl crate::highlight::tokenizer::Tokenizer for MalformedTokenizer {
+        fn name(&self) -> &'static str {
+            "malformed-test"
+        }
+
+        fn extensions(&self) -> &'static [&'static str] {
+            &[]
+        }
+
+        fn tokenize_line(&self, _line: &str, state: LineState) -> (Vec<Token>, LineState) {
+            // Produce tokens with various invalid bounds:
+            // - Token with start > end (inverted)
+            // - Token with end exceeding line length
+            // - Token at line boundary (valid)
+            let tokens = vec![
+                Token {
+                    kind: TokenKind::Keyword,
+                    start: 10,
+                    end: 5,
+                }, // Inverted
+                Token {
+                    kind: TokenKind::String,
+                    start: 0,
+                    end: 1000,
+                }, // Exceeds line
+                Token {
+                    kind: TokenKind::Comment,
+                    start: 0,
+                    end: 2,
+                }, // Valid
+            ];
+            (tokens, state)
+        }
+    }
+
+    #[test]
+    fn test_malformed_token_bounds_are_skipped() {
+        // This test verifies that tokens with invalid bounds don't cause panics
+        let mut buffer = HighlightedBuffer::new(TextBuffer::with_text("hello"));
+        buffer.set_tokenizer(Some(Arc::new(MalformedTokenizer)));
+
+        // Should not panic even with malformed tokens
+        buffer.update_highlighting();
+
+        // styled_line should also handle malformed tokens gracefully
+        let segments = buffer.styled_line(0);
+
+        // Only the valid token (Comment, 0..2) should produce a segment
+        // (assuming Comment has a non-default style in the theme)
+        assert!(
+            segments.len() <= 1,
+            "Only valid tokens should produce segments"
+        );
     }
 }
