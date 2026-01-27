@@ -43,8 +43,8 @@ mod pixel;
 mod scissor;
 
 pub use drawing::{BoxOptions, BoxSides, BoxStyle, TitleAlign};
-pub use pixel::{GrayscaleBuffer, PixelBuffer};
 pub use opacity::OpacityStack;
+pub use pixel::{GrayscaleBuffer, PixelBuffer};
 pub use scissor::{ClipRect, ScissorStack};
 
 use crate::cell::{Cell, CellContent};

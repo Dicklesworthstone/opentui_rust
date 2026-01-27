@@ -247,7 +247,11 @@ pub fn find_position_by_width(text: &str, target_column: u32, tab_width: u8) -> 
 ///
 /// Returns the byte offset and width of the grapheme before the given position.
 #[must_use]
-pub fn get_prev_grapheme_start(text: &str, byte_offset: usize, tab_width: u8) -> Option<(usize, u32)> {
+pub fn get_prev_grapheme_start(
+    text: &str,
+    byte_offset: usize,
+    tab_width: u8,
+) -> Option<(usize, u32)> {
     if byte_offset == 0 || text.is_empty() {
         return None;
     }

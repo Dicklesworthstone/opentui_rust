@@ -161,13 +161,7 @@ impl OptimizedBuffer {
     /// * `src` - Source pixel buffer
     /// * `threshold` - Brightness threshold (0.0-1.0) for considering a pixel "lit"
     #[allow(clippy::similar_names)]
-    pub fn draw_supersample_buffer(
-        &mut self,
-        x: u32,
-        y: u32,
-        src: &PixelBuffer,
-        threshold: f32,
-    ) {
+    pub fn draw_supersample_buffer(&mut self, x: u32, y: u32, src: &PixelBuffer, threshold: f32) {
         // Each terminal cell = 2x2 pixels
         let cells_w = src.width / 2;
         let cells_h = src.height / 2;
@@ -205,7 +199,12 @@ impl OptimizedBuffer {
                 }
 
                 // Average colors for foreground (lit) and background (unlit)
-                let lit_mask = [tl_bright >= threshold, tr_bright >= threshold, bl_bright >= threshold, br_bright >= threshold];
+                let lit_mask = [
+                    tl_bright >= threshold,
+                    tr_bright >= threshold,
+                    bl_bright >= threshold,
+                    br_bright >= threshold,
+                ];
                 let (fg, bg) = average_colors(&[tl, tr, bl, br], &lit_mask);
 
                 let ch = QUADRANT_CHARS[mask as usize];
@@ -267,7 +266,8 @@ impl OptimizedBuffer {
             for px in 0..src.width {
                 let intensity = src.get(px, py).unwrap_or(0.0);
                 // Map intensity to character index
-                let idx = ((intensity * (num_chars - 1) as f32).round() as usize).min(num_chars - 1);
+                let idx =
+                    ((intensity * (num_chars - 1) as f32).round() as usize).min(num_chars - 1);
                 let ch = chars[idx];
                 let cell = Cell::new(ch, style);
                 self.set(x + px, y + py, cell);
@@ -321,14 +321,7 @@ impl OptimizedBuffer {
     /// * `x`, `y` - Destination position
     /// * `width`, `height` - Dimensions of packed data
     /// * `cells` - Pre-computed cells in row-major order
-    pub fn draw_packed_buffer(
-        &mut self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        cells: &[Cell],
-    ) {
+    pub fn draw_packed_buffer(&mut self, x: u32, y: u32, width: u32, height: u32, cells: &[Cell]) {
         if cells.len() < (width as usize * height as usize) {
             return;
         }
