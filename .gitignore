@@ -22,3 +22,4 @@ Thumbs.db
 
 # Alternate target directories (upgrade experiments)
 target-upgrade/
+target-sagebeacon/
