@@ -257,17 +257,19 @@ impl<W: Write> Terminal<W> {
 
     /// Set window title.
     ///
-    /// Control characters (0x00-0x1F, 0x7F) in the title are filtered out to prevent
-    /// escape sequence injection attacks. This is critical because an unescaped
-    /// ESC (0x1B) or BEL (0x07) could terminate the OSC sequence early and
-    /// allow arbitrary terminal command injection.
+    /// Control characters are filtered out to prevent escape sequence injection attacks.
+    /// This includes:
+    /// - C0 controls (U+0000-U+001F): Contains ESC (0x1B) and BEL (0x07) which could
+    ///   terminate the OSC sequence early and inject terminal commands
+    /// - DEL (U+007F): Another control character
+    /// - C1 controls (U+0080-U+009F): Contains CSI (0x9B), OSC (0x9D), and ST (0x9C)
+    ///   which some terminals interpret as control sequences
     pub fn set_title(&mut self, title: &str) -> io::Result<()> {
         write!(self.writer, "{}", sequences::TITLE_PREFIX)?;
         // Filter out control characters to prevent escape sequence injection
+        // Using char::is_control() which covers C0, DEL, and C1 control characters
         for ch in title.chars() {
-            let byte = ch as u32;
-            // Skip C0 control characters (0x00-0x1F) and DEL (0x7F)
-            if byte >= 0x20 && byte != 0x7F {
+            if !ch.is_control() {
                 write!(self.writer, "{ch}")?;
             }
         }
@@ -520,5 +522,38 @@ mod tests {
         );
 
         eprintln!("[TEST] PASS: set_title preserves unicode characters");
+    }
+
+    #[test]
+    fn test_set_title_filters_c1_controls() {
+        eprintln!("[TEST] test_set_title_filters_c1_controls");
+        let mut output = Vec::new();
+        {
+            let mut terminal = Terminal::new(&mut output);
+            // \u{009B} is CSI (Control Sequence Introducer) in C1 controls
+            terminal.set_title("Safe\u{009B}Title").unwrap();
+        }
+
+        let s = String::from_utf8_lossy(&output);
+        eprintln!("[TEST] Output: {s:?}");
+
+        // C1 control should be filtered out
+        assert!(
+            s.contains("\x1b]0;SafeTitle\x1b\\"),
+            "C1 control char should be filtered"
+        );
+        assert!(!s.contains('\u{009B}'), "Output should not contain CSI");
+    }
+
+    #[test]
+    fn test_is_control_behavior() {
+        assert!('\u{0000}'.is_control()); // C0
+        assert!('\u{001F}'.is_control()); // C0
+        assert!('\u{007F}'.is_control()); // DEL
+        assert!('\u{0080}'.is_control()); // C1
+        assert!('\u{009F}'.is_control()); // C1
+        assert!('\u{009B}'.is_control()); // CSI
+        assert!(!' '.is_control());
+        assert!(!'A'.is_control());
     }
 }
