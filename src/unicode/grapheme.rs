@@ -112,4 +112,26 @@ mod tests {
         assert_eq!(infos[0].byte_offset, 0);
         assert_eq!(infos[0].width, 1);
     }
+
+    #[test]
+    fn test_grapheme_info_clamping() {
+        // Test clamping of byte_len
+        // Create a fake grapheme > 255 bytes (not a real unicode grapheme, but treated as one block if we force it,
+        // actually unicode segmentation will split it. So we construct a string where a single grapheme is huge.
+        // A huge sequence of combining marks on a base char.
+        let mut huge_grapheme = String::from("a");
+        for _ in 0..300 {
+            huge_grapheme.push('\u{0301}'); // combining acute accent
+        }
+
+        let infos = grapheme_info(&huge_grapheme, 4, WidthMethod::WcWidth);
+        assert_eq!(infos.len(), 1); // Should be one huge grapheme
+        assert_eq!(infos[0].byte_len, 255); // Clamped to u8::MAX
+
+        // Test clamping of width (tab width > 255)
+        // If tab width is huge, a single tab character should report width 255 max
+        let infos_tab = grapheme_info("\t", 300, WidthMethod::WcWidth);
+        assert_eq!(infos_tab.len(), 1);
+        assert_eq!(infos_tab[0].width, 255); // Clamped to u8::MAX
+    }
 }

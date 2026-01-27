@@ -4,6 +4,8 @@
 #![allow(clippy::too_many_lines)]
 // Closures with method references are more readable in context
 #![allow(clippy::redundant_closure_for_method_calls)]
+// if-let-else is clearer than map_or_else for mutable pool reborrowing
+#![allow(clippy::option_if_let_else)]
 
 use crate::buffer::OptimizedBuffer;
 use crate::cell::{Cell, CellContent, GraphemeId};
@@ -635,6 +637,27 @@ impl<'a> TextBufferView<'a> {
 
     /// Render the view to an output buffer.
     pub fn render_to(&self, output: &mut OptimizedBuffer, dest_x: i32, dest_y: i32) {
+        self.render_impl(output, dest_x, dest_y, None);
+    }
+
+    /// Render the view to an output buffer, interning complex graphemes in the pool.
+    pub fn render_to_with_pool(
+        &self,
+        output: &mut OptimizedBuffer,
+        pool: &mut crate::grapheme_pool::GraphemePool,
+        dest_x: i32,
+        dest_y: i32,
+    ) {
+        self.render_impl(output, dest_x, dest_y, Some(pool));
+    }
+
+    fn render_impl(
+        &self,
+        output: &mut OptimizedBuffer,
+        dest_x: i32,
+        dest_y: i32,
+        mut pool: Option<&mut crate::grapheme_pool::GraphemePool>,
+    ) {
         let cache = self.line_cache();
         let virtual_lines = &cache.virtual_lines;
         let start_line = self.scroll_y as usize;
@@ -646,7 +669,20 @@ impl<'a> TextBufferView<'a> {
             if dest_row < 0 {
                 continue;
             }
-            self.render_virtual_line(output, dest_x, dest_row as u32, vline, row_offset as u32);
+            // We need to re-borrow pool for each iteration if it exists
+            // Since Option<&mut T> is not Copy, we need a way to pass it.
+            // But we can't easily clone mutable ref.
+            // However, render_virtual_line works on one line.
+            // We can pass `as_deref_mut`? No, that consumes the option if we are not careful.
+            // Actually, we can just pass `pool.as_deref_mut()` to re-borrow.
+            self.render_virtual_line(
+                output,
+                dest_x,
+                dest_row as u32,
+                vline,
+                row_offset as u32,
+                pool.as_deref_mut(),
+            );
         }
     }
 
@@ -657,6 +693,7 @@ impl<'a> TextBufferView<'a> {
         dest_y: u32,
         vline: &VirtualLine,
         view_row: u32,
+        mut pool: Option<&mut crate::grapheme_pool::GraphemePool>,
     ) {
         use unicode_segmentation::UnicodeSegmentation;
 
@@ -747,7 +784,12 @@ impl<'a> TextBufferView<'a> {
                 (CellContent::Char(ch), w)
             } else {
                 let w = display_width_with_method(grapheme, method);
-                (CellContent::Grapheme(GraphemeId::placeholder(w as u8)), w)
+                if let Some(pool) = &mut pool {
+                    let id = pool.intern(grapheme);
+                    (CellContent::Grapheme(id), w)
+                } else {
+                    (CellContent::Grapheme(GraphemeId::placeholder(w as u8)), w)
+                }
             };
             let mut main_cell = Cell {
                 content,
@@ -1944,5 +1986,34 @@ mod tests {
         );
 
         eprintln!("[PERF] PASS: 10K lines processed efficiently");
+    }
+
+    #[test]
+    fn test_render_emoji_with_pool() {
+        use crate::buffer::OptimizedBuffer;
+        use crate::cell::CellContent;
+        use crate::grapheme_pool::GraphemePool;
+
+        let buffer = TextBuffer::with_text("👨‍👩‍👧");
+        let view = TextBufferView::new(&buffer).viewport(0, 0, 10, 1);
+        let mut output = OptimizedBuffer::new(10, 1);
+        let mut pool = GraphemePool::new();
+
+        view.render_to_with_pool(&mut output, &mut pool, 0, 0);
+
+        let cell = output.get(0, 0).unwrap();
+        if let CellContent::Grapheme(id) = cell.content {
+            // Confirm it's NOT a placeholder (pool_id > 0)
+            assert!(
+                id.pool_id() > 0,
+                "Expected valid pool ID for interned grapheme"
+            );
+            assert_eq!(id.width(), 2, "Width should be 2");
+
+            // Verify content is preserved in pool
+            assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
+        } else {
+            panic!("Expected Grapheme content");
+        }
     }
 }
