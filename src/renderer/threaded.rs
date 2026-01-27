@@ -524,7 +524,7 @@ fn render_thread_inner(
                 link_pool,
             }) => {
                 // Compute diff and render
-                let total_cells = (current_width * current_height) as usize;
+                let total_cells = (current_width as usize).saturating_mul(current_height as usize);
                 let diff = BufferDiff::compute(&front_buffer, &buffer);
 
                 let render_result = if force_redraw || diff.should_full_redraw(total_cells) {

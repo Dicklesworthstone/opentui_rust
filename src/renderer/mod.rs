@@ -260,7 +260,7 @@ impl Renderer {
             self.draw_debug_overlay();
         }
 
-        let total_cells = (self.width * self.height) as usize;
+        let total_cells = (self.width as usize).saturating_mul(self.height as usize);
         let diff = BufferDiff::compute(&self.front_buffer, &self.back_buffer);
 
         if self.force_redraw || diff.should_full_redraw(total_cells) {

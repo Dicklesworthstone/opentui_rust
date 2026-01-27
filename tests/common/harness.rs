@@ -33,8 +33,7 @@ fn next_step_id() -> u64 {
 fn unix_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| millis_to_u64(d.as_millis()))
-        .unwrap_or(0)
+        .map_or(0, |d| millis_to_u64(d.as_millis()))
 }
 
 fn millis_to_u64(ms: u128) -> u64 {
