@@ -256,14 +256,22 @@ impl<W: Write> Terminal<W> {
     }
 
     /// Set window title.
+    ///
+    /// Control characters (0x00-0x1F, 0x7F) in the title are filtered out to prevent
+    /// escape sequence injection attacks. This is critical because an unescaped
+    /// ESC (0x1B) or BEL (0x07) could terminate the OSC sequence early and
+    /// allow arbitrary terminal command injection.
     pub fn set_title(&mut self, title: &str) -> io::Result<()> {
-        write!(
-            self.writer,
-            "{}{}{}",
-            sequences::TITLE_PREFIX,
-            title,
-            sequences::TITLE_SUFFIX
-        )?;
+        write!(self.writer, "{}", sequences::TITLE_PREFIX)?;
+        // Filter out control characters to prevent escape sequence injection
+        for ch in title.chars() {
+            let byte = ch as u32;
+            // Skip C0 control characters (0x00-0x1F) and DEL (0x7F)
+            if byte >= 0x20 && byte != 0x7F {
+                write!(self.writer, "{ch}")?;
+            }
+        }
+        write!(self.writer, "{}", sequences::TITLE_SUFFIX)?;
         Ok(())
     }
 
@@ -434,5 +442,83 @@ mod tests {
         );
 
         eprintln!("[TEST] PASS: reset_cursor_color writes correct sequence");
+    }
+
+    #[test]
+    fn test_set_title_basic() {
+        eprintln!("[TEST] test_set_title_basic");
+        let mut output = Vec::new();
+        {
+            let mut terminal = Terminal::new(&mut output);
+            terminal.set_title("Hello World").unwrap();
+        }
+
+        let s = String::from_utf8_lossy(&output);
+        eprintln!("[TEST] Output: {s:?}");
+
+        // Should contain the title prefix, title text, and suffix
+        assert!(s.contains("\x1b]0;Hello World\x1b\\"));
+
+        eprintln!("[TEST] PASS: set_title writes correct sequence");
+    }
+
+    #[test]
+    fn test_set_title_sanitizes_control_chars() {
+        eprintln!("[TEST] test_set_title_sanitizes_control_chars");
+        let mut output = Vec::new();
+        {
+            let mut terminal = Terminal::new(&mut output);
+            // Try to inject an escape sequence via the title
+            // \x1b (ESC) and \x07 (BEL) should be filtered out
+            terminal.set_title("Evil\x1b[2JTitle\x07Injected").unwrap();
+        }
+
+        let s = String::from_utf8_lossy(&output);
+        eprintln!("[TEST] Output: {s:?}");
+
+        // The ESC and BEL characters should be stripped, leaving safe text
+        // Control chars like \x1b and \x07 must not appear in the title portion
+        assert!(
+            s.contains("\x1b]0;Evil[2JTitleInjected\x1b\\"),
+            "Control characters should be filtered from title"
+        );
+        // Verify no unescaped ESC appears in the title itself (between prefix and suffix)
+        let title_start = s.find("\x1b]0;").unwrap() + 4;
+        let title_end = s[title_start..].find("\x1b\\").unwrap() + title_start;
+        let title_content = &s[title_start..title_end];
+        assert!(
+            !title_content.contains('\x1b'),
+            "Title should not contain ESC character"
+        );
+        assert!(
+            !title_content.contains('\x07'),
+            "Title should not contain BEL character"
+        );
+
+        eprintln!("[TEST] PASS: set_title sanitizes control characters");
+    }
+
+    #[test]
+    fn test_set_title_preserves_unicode() {
+        eprintln!("[TEST] test_set_title_preserves_unicode");
+        let mut output = Vec::new();
+        {
+            let mut terminal = Terminal::new(&mut output);
+            terminal
+                .set_title("Hello \u{1F600} World \u{4E2D}\u{6587}")
+                .unwrap();
+        }
+
+        let s = String::from_utf8_lossy(&output);
+        eprintln!("[TEST] Output: {s:?}");
+
+        // Unicode characters should be preserved
+        assert!(s.contains("\u{1F600}"), "Emoji should be preserved");
+        assert!(
+            s.contains("\u{4E2D}\u{6587}"),
+            "Chinese characters should be preserved"
+        );
+
+        eprintln!("[TEST] PASS: set_title preserves unicode characters");
     }
 }

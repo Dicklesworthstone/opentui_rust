@@ -195,6 +195,30 @@ pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()>
     Ok(())
 }
 
+/// Escape a URL for safe inclusion in OSC 8 hyperlink sequences.
+///
+/// Control characters (0x00-0x1F, 0x7F) are percent-encoded to prevent
+/// escape sequence injection attacks. This is critical because an unescaped
+/// ESC (0x1B) or BEL (0x07) could terminate the OSC sequence early and
+/// allow arbitrary terminal command injection.
+#[must_use]
+pub fn escape_url_for_osc8(url: &str) -> String {
+    let mut escaped = String::with_capacity(url.len());
+    for byte in url.bytes() {
+        match byte {
+            // Control characters (C0 and DEL) must be percent-encoded
+            0x00..=0x1F | 0x7F => {
+                escaped.push('%');
+                escaped.push(char::from_digit((byte >> 4) as u32, 16).unwrap_or('0'));
+                escaped.push(char::from_digit((byte & 0x0F) as u32, 16).unwrap_or('0'));
+            }
+            // Safe ASCII characters pass through
+            _ => escaped.push(byte as char),
+        }
+    }
+    escaped
+}
+
 /// Generate OSC 8 hyperlink start sequence.
 #[must_use]
 pub fn hyperlink_start(id: u32, url: &str) -> String {
@@ -204,8 +228,11 @@ pub fn hyperlink_start(id: u32, url: &str) -> String {
 }
 
 /// Write OSC 8 hyperlink start sequence to a writer.
+///
+/// The URL is automatically escaped to prevent control character injection.
 pub fn write_hyperlink_start(w: &mut impl Write, id: u32, url: &str) -> io::Result<()> {
-    write!(w, "\x1b]8;id={id};{url}\x1b\\")
+    let escaped_url = escape_url_for_osc8(url);
+    write!(w, "\x1b]8;id={id};{escaped_url}\x1b\\")
 }
 
 /// OSC 8 hyperlink end sequence.
@@ -449,5 +476,64 @@ mod tests {
             AnsiSequence::new("link_end", HYPERLINK_END),
         ];
         assert_json_snapshot!(sequences);
+    }
+
+    #[test]
+    fn test_osc8_url_escaping() {
+        // Normal URLs should pass through unchanged
+        assert_eq!(
+            escape_url_for_osc8("https://example.com/path?query=value"),
+            "https://example.com/path?query=value"
+        );
+
+        // ESC (0x1B) must be escaped - this is the critical injection vector
+        assert_eq!(escape_url_for_osc8("http://x\x1b"), "http://x%1b");
+
+        // BEL (0x07) must be escaped - another OSC terminator
+        assert_eq!(escape_url_for_osc8("http://x\x07"), "http://x%07");
+
+        // NUL (0x00) must be escaped
+        assert_eq!(escape_url_for_osc8("http://x\x00"), "http://x%00");
+
+        // DEL (0x7F) must be escaped
+        assert_eq!(escape_url_for_osc8("http://x\x7f"), "http://x%7f");
+
+        // All control characters should be escaped
+        for byte in 0x00u8..=0x1F {
+            let url = format!("http://x{}", byte as char);
+            let escaped = escape_url_for_osc8(&url);
+            assert!(
+                !escaped.contains(byte as char),
+                "Control char 0x{byte:02x} should be escaped"
+            );
+            assert!(
+                escaped.contains('%'),
+                "Control char 0x{byte:02x} should be percent-encoded"
+            );
+        }
+    }
+
+    #[test]
+    fn test_osc8_injection_prevention() {
+        // Attempt to inject an escape sequence that would close OSC 8 early
+        // and execute arbitrary terminal commands.
+        // Malicious URL: tries to inject ST (ESC \) to end OSC, then clear screen
+        let malicious_url = "http://evil\x1b\\x1b[2J";
+        let escaped = escape_url_for_osc8(malicious_url);
+
+        // The escaped URL should NOT contain raw ESC bytes
+        assert!(
+            !escaped.bytes().any(|b| b == 0x1B),
+            "Escaped URL must not contain raw ESC bytes"
+        );
+
+        // The hyperlink start should be safe
+        let output = hyperlink_start(1, malicious_url);
+        let esc_count = output.bytes().filter(|&b| b == 0x1B).count();
+        // Should only have 2 ESC bytes: one for OSC start, one for ST terminator
+        assert_eq!(
+            esc_count, 2,
+            "Hyperlink output should only have opening and closing ESC, not injected ones"
+        );
     }
 }
