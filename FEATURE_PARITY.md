@@ -3,7 +3,7 @@
 > Tracks implementation status of the Rust port against the Zig specification.
 
 **Last Updated:** 2026-01-27
-**Test Status:** cargo test passing (431+ tests including unit, conformance, e2e, and doc tests) on 2026-01-27
+**Test Status:** cargo test passing (438+ tests including unit, conformance, e2e, and doc tests) on 2026-01-27
 **Clippy Status:** 0 warnings/errors (`cargo clippy --all-targets -- -D warnings`) on 2026-01-27
 **Estimated Completion:** 100% (verified against EXISTING_OPENTUI_STRUCTURE.md)
 
@@ -186,6 +186,8 @@ All parity gaps identified in the Zig spec have been closed. In particular:
 - Independent verification on 2026-01-27 confirmed 100% feature parity:
   - All 63 features verified present in Rust implementation
   - Undo/redo with configurable depth limit: ✅ (src/text/edit.rs:66-165)
+  - EditBuffer.clear_history(): ✅ (src/text/edit.rs:159-165) - Added 2026-01-27
+  - CursorState.color field: ✅ (src/terminal/cursor.rs:31) - Added 2026-01-27
   - Grapheme pool with 24-bit IDs and ref counting: ✅
   - Link pool with URL storage: ✅
   - Text attributes with link ID packing: ✅

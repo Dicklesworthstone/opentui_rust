@@ -744,6 +744,14 @@ impl EditBuffer {
         self.history.commit();
     }
 
+    /// Clear the undo/redo history.
+    ///
+    /// This removes all undo and redo entries. Useful when loading new content
+    /// where previous history is no longer relevant.
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
     fn apply_op(&mut self, op: &EditOp) {
         match op {
             EditOp::Insert { offset, text } => {

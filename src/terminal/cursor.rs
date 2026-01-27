@@ -1,5 +1,7 @@
 //! Cursor state and styles.
 
+use crate::color::Rgba;
+
 /// Cursor shape style.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
@@ -13,7 +15,7 @@ pub enum CursorStyle {
 }
 
 /// Cursor state.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct CursorState {
     /// X position (column).
     pub x: u32,
@@ -25,19 +27,28 @@ pub struct CursorState {
     pub style: CursorStyle,
     /// Whether cursor is blinking.
     pub blinking: bool,
+    /// Cursor color (None = terminal default).
+    pub color: Option<Rgba>,
 }
 
-impl CursorState {
-    /// Create a new cursor state at origin.
-    #[must_use]
-    pub fn new() -> Self {
+impl Default for CursorState {
+    fn default() -> Self {
         Self {
             x: 0,
             y: 0,
             visible: true,
             style: CursorStyle::Block,
             blinking: true,
+            color: None,
         }
+    }
+}
+
+impl CursorState {
+    /// Create a new cursor state at origin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Create a cursor at a specific position.
@@ -49,7 +60,13 @@ impl CursorState {
             visible: true,
             style: CursorStyle::Block,
             blinking: true,
+            color: None,
         }
+    }
+
+    /// Set cursor color.
+    pub fn set_color(&mut self, color: Option<Rgba>) {
+        self.color = color;
     }
 
     /// Set position.
