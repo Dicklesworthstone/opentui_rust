@@ -352,27 +352,35 @@ impl Rgba {
 
         // Use 6x6x6 color cube (colors 16-231)
         // Each component maps to 0-5: 0, 95, 135, 175, 215, 255
-        let cube_values: [u8; 6] = [0, 95, 135, 175, 215, 255];
-
-        let ri = Self::nearest_cube_index(r, cube_values);
-        let gi = Self::nearest_cube_index(g, cube_values);
-        let bi = Self::nearest_cube_index(b, cube_values);
+        let ri = Self::nearest_cube_index(r);
+        let gi = Self::nearest_cube_index(g);
+        let bi = Self::nearest_cube_index(b);
 
         16 + 36 * ri + 6 * gi + bi
     }
 
     /// Find the nearest index in the 6x6x6 cube for a component value.
-    fn nearest_cube_index(val: u8, cube_values: [u8; 6]) -> u8 {
-        let mut best = 0;
-        let mut best_dist = u16::MAX;
-        for (i, &cv) in cube_values.iter().enumerate() {
-            let dist = (val as i16 - cv as i16).unsigned_abs();
-            if dist < best_dist {
-                best_dist = dist;
-                best = i as u8;
-            }
+    ///
+    /// Uses a lookup table for O(1) mapping instead of linear search.
+    /// The cube values are [0, 95, 135, 175, 215, 255] with boundaries
+    /// at midpoints: 48, 115, 155, 195, 235.
+    #[inline]
+    fn nearest_cube_index(val: u8) -> u8 {
+        // Boundaries between cube values (midpoints)
+        // 0-47→0, 48-114→1, 115-154→2, 155-194→3, 195-234→4, 235-255→5
+        if val < 48 {
+            0
+        } else if val < 115 {
+            1
+        } else if val < 155 {
+            2
+        } else if val < 195 {
+            3
+        } else if val < 235 {
+            4
+        } else {
+            5
         }
-        best
     }
 
     /// Convert to nearest 16-color (basic ANSI) palette index.
