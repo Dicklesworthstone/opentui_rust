@@ -43,8 +43,21 @@ pub fn display_width(s: &str) -> usize {
 }
 
 /// Get the display width of a character in terminal columns (global method).
+///
+/// This includes a fast path for ASCII printable characters (0x20-0x7E)
+/// which are always width 1 and are the most common case.
+#[inline]
 #[must_use]
 pub fn display_width_char(c: char) -> usize {
+    // Fast path: ASCII printable characters are always width 1
+    // This covers the vast majority of terminal content
+    if c.is_ascii() && c >= ' ' && c <= '~' {
+        return 1;
+    }
+    // Control characters (below space) have width 0
+    if c < ' ' {
+        return 0;
+    }
     display_width_char_with_method(c, width_method())
 }
 

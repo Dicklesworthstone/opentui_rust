@@ -211,8 +211,15 @@ pub fn draw_text_with_pool(
         }
 
         // Determine cell content and width
-        let (content, width) = if grapheme.chars().count() == 1 {
-            // Single codepoint - store directly as Char
+        // Fast path: ASCII single-byte characters are always single codepoint
+        let (content, width) = if grapheme.len() == 1 {
+            // SAFETY: len() == 1 means exactly one ASCII byte
+            let ch = grapheme.as_bytes()[0] as char;
+            // ASCII printable characters have width 1
+            let w = if ch >= ' ' && ch <= '~' { 1 } else { 0 };
+            (CellContent::Char(ch), w)
+        } else if grapheme.chars().count() == 1 {
+            // Single non-ASCII codepoint - store directly as Char
             let ch = grapheme.chars().next().unwrap();
             let w = crate::unicode::display_width_char(ch);
             (CellContent::Char(ch), w)
@@ -256,7 +263,13 @@ pub fn draw_char_with_pool(
     let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
     let attrs = style.attributes;
 
-    let (content, width) = if grapheme.chars().count() == 1 {
+    // Fast path: ASCII single-byte characters are always single codepoint
+    let (content, width) = if grapheme.len() == 1 {
+        // SAFETY: len() == 1 means exactly one ASCII byte
+        let ch = grapheme.as_bytes()[0] as char;
+        let w = if ch >= ' ' && ch <= '~' { 1 } else { 0 };
+        (CellContent::Char(ch), w)
+    } else if grapheme.chars().count() == 1 {
         let ch = grapheme.chars().next().unwrap();
         let w = crate::unicode::display_width_char(ch);
         (CellContent::Char(ch), w)
