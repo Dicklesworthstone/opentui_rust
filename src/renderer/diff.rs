@@ -60,17 +60,22 @@ impl BufferDiff {
         let reserve = (total_cells / 8).max(32).min(total_cells);
         let mut changed_cells = Vec::with_capacity(reserve);
 
+        // Use direct slice access for faster iteration
+        // This avoids Option unwrapping overhead per cell
+        let old_cells = old.cells();
+        let new_cells = new.cells();
+
         // Use fast bitwise comparison for cell diffing
         // This is significantly faster than PartialEq because it uses
         // integer comparison for colors instead of floating-point ops
         for y in 0..height {
+            let row_offset = (y * width) as usize;
             for x in 0..width {
-                let old_cell = old.get(x, y);
-                let new_cell = new.get(x, y);
-                if let (Some(old_cell), Some(new_cell)) = (old_cell, new_cell) {
-                    if !old_cell.bits_eq(new_cell) {
-                        changed_cells.push((x, y));
-                    }
+                let idx = row_offset + x as usize;
+                // SAFETY: We're iterating within bounds since we use width/height from old buffer
+                // and both buffers have the same dimensions (checked at start of compute)
+                if !old_cells[idx].bits_eq(&new_cells[idx]) {
+                    changed_cells.push((x, y));
                 }
             }
         }
