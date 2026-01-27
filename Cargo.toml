@@ -8,6 +8,22 @@ license = "MIT"
 repository = "https://github.com/anomalyco/opentui"
 keywords = ["tui", "terminal", "ui", "cli"]
 categories = ["command-line-interface", "rendering"]
+exclude = [
+    "*.png",
+    "*.webp",
+    "beads_import.md",
+    "claude-upgrade-progress.json",
+    "AGENTS.md",
+    "IMPLEMENTATION_REPORT.md",
+    "UPGRADE_LOG.md",
+    "PLAN_TO_PORT_OPENTUI_TO_RUST.md",
+    "EXISTING_OPENTUI_STRUCTURE.md",
+    "PROPOSED_RUST_ARCHITECTURE.md",
+    ".beads/",
+    "target-sagebeacon/",
+    "scripts/",
+    "a.out",
+]
 
 [dependencies]
 bitflags = "2.10"
