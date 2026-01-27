@@ -60,10 +60,17 @@ impl BufferDiff {
         let reserve = (total_cells / 8).max(32).min(total_cells);
         let mut changed_cells = Vec::with_capacity(reserve);
 
+        // Use fast bitwise comparison for cell diffing
+        // This is significantly faster than PartialEq because it uses
+        // integer comparison for colors instead of floating-point ops
         for y in 0..height {
             for x in 0..width {
-                if old.get(x, y) != new.get(x, y) {
-                    changed_cells.push((x, y));
+                let old_cell = old.get(x, y);
+                let new_cell = new.get(x, y);
+                if let (Some(old_cell), Some(new_cell)) = (old_cell, new_cell) {
+                    if !old_cell.bits_eq(new_cell) {
+                        changed_cells.push((x, y));
+                    }
                 }
             }
         }

@@ -280,6 +280,34 @@ impl Rgba {
         self.a >= 1.0
     }
 
+    /// Convert to packed u64 for fast integer comparison.
+    ///
+    /// This packs all 4 f32 components into a single u128 by reinterpreting
+    /// their bit patterns. This allows fast cell comparison during diff
+    /// detection by comparing integers instead of floating-point.
+    ///
+    /// Note: This is for comparison purposes only, not for serialization.
+    /// NaN values will compare as different even if logically equivalent.
+    #[inline]
+    #[must_use]
+    pub const fn to_bits(self) -> u128 {
+        let r = self.r.to_bits() as u128;
+        let g = self.g.to_bits() as u128;
+        let b = self.b.to_bits() as u128;
+        let a = self.a.to_bits() as u128;
+        r | (g << 32) | (b << 64) | (a << 96)
+    }
+
+    /// Fast bitwise equality check.
+    ///
+    /// This is faster than float comparison for cell diffing
+    /// because it uses integer operations instead of floating-point.
+    #[inline]
+    #[must_use]
+    pub const fn bits_eq(self, other: Self) -> bool {
+        self.to_bits() == other.to_bits()
+    }
+
     /// Calculate luminance (perceived brightness).
     ///
     /// Uses the standard luminance formula: 0.299*R + 0.587*G + 0.114*B

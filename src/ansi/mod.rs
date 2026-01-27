@@ -56,7 +56,21 @@ pub fn fg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
     String::from_utf8(buf).unwrap()
 }
 
+/// Write a u8 as decimal digits to a writer without formatting overhead.
+#[inline]
+fn write_u8_decimal(w: &mut impl Write, n: u8) -> io::Result<()> {
+    if n >= 100 {
+        w.write_all(&[b'0' + n / 100, b'0' + (n / 10) % 10, b'0' + n % 10])
+    } else if n >= 10 {
+        w.write_all(&[b'0' + n / 10, b'0' + n % 10])
+    } else {
+        w.write_all(&[b'0' + n])
+    }
+}
+
 /// Write SGR sequence for foreground color to a writer.
+///
+/// Uses direct byte writes to avoid `write!` formatting overhead on hot paths.
 pub fn write_fg_color_with_mode(
     w: &mut impl Write,
     color: Rgba,
@@ -65,17 +79,27 @@ pub fn write_fg_color_with_mode(
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();
-            write!(w, "\x1b[38;2;{r};{g};{b}m")
+            w.write_all(b"\x1b[38;2;")?;
+            write_u8_decimal(w, r)?;
+            w.write_all(b";")?;
+            write_u8_decimal(w, g)?;
+            w.write_all(b";")?;
+            write_u8_decimal(w, b)?;
+            w.write_all(b"m")
         }
         ColorMode::Color256 => {
             let idx = color.to_256_color();
-            write!(w, "\x1b[38;5;{idx}m")
+            w.write_all(b"\x1b[38;5;")?;
+            write_u8_decimal(w, idx)?;
+            w.write_all(b"m")
         }
         ColorMode::Color16 => {
             let idx = color.to_16_color();
             // ANSI 16 colors: 30-37 for normal, 90-97 for bright
             let code = if idx < 8 { 30 + idx } else { 90 + idx - 8 };
-            write!(w, "\x1b[{code}m")
+            w.write_all(b"\x1b[")?;
+            write_u8_decimal(w, code)?;
+            w.write_all(b"m")
         }
         ColorMode::NoColor => Ok(()),
     }
@@ -90,6 +114,8 @@ pub fn bg_color_with_mode(color: Rgba, mode: ColorMode) -> String {
 }
 
 /// Write SGR sequence for background color to a writer.
+///
+/// Uses direct byte writes to avoid `write!` formatting overhead on hot paths.
 pub fn write_bg_color_with_mode(
     w: &mut impl Write,
     color: Rgba,
@@ -98,17 +124,27 @@ pub fn write_bg_color_with_mode(
     match mode {
         ColorMode::TrueColor => {
             let (r, g, b) = color.to_rgb_u8();
-            write!(w, "\x1b[48;2;{r};{g};{b}m")
+            w.write_all(b"\x1b[48;2;")?;
+            write_u8_decimal(w, r)?;
+            w.write_all(b";")?;
+            write_u8_decimal(w, g)?;
+            w.write_all(b";")?;
+            write_u8_decimal(w, b)?;
+            w.write_all(b"m")
         }
         ColorMode::Color256 => {
             let idx = color.to_256_color();
-            write!(w, "\x1b[48;5;{idx}m")
+            w.write_all(b"\x1b[48;5;")?;
+            write_u8_decimal(w, idx)?;
+            w.write_all(b"m")
         }
         ColorMode::Color16 => {
             let idx = color.to_16_color();
             // ANSI 16 colors: 40-47 for normal, 100-107 for bright
             let code = if idx < 8 { 40 + idx } else { 100 + idx - 8 };
-            write!(w, "\x1b[{code}m")
+            w.write_all(b"\x1b[")?;
+            write_u8_decimal(w, code)?;
+            w.write_all(b"m")
         }
         ColorMode::NoColor => Ok(()),
     }
@@ -123,38 +159,58 @@ pub fn attributes(attrs: TextAttributes) -> String {
 }
 
 /// Write SGR sequence for text attributes to a writer.
+///
+/// Uses a stack-allocated array to avoid heap allocation on every call.
 pub fn write_attributes(w: &mut impl Write, attrs: TextAttributes) -> io::Result<()> {
-    let mut codes = Vec::new();
+    // Stack-allocated array - max 8 attribute codes possible
+    let mut codes: [&str; 8] = [""; 8];
+    let mut count = 0;
 
     if attrs.contains(TextAttributes::BOLD) {
-        codes.push("1");
+        codes[count] = "1";
+        count += 1;
     }
     if attrs.contains(TextAttributes::DIM) {
-        codes.push("2");
+        codes[count] = "2";
+        count += 1;
     }
     if attrs.contains(TextAttributes::ITALIC) {
-        codes.push("3");
+        codes[count] = "3";
+        count += 1;
     }
     if attrs.contains(TextAttributes::UNDERLINE) {
-        codes.push("4");
+        codes[count] = "4";
+        count += 1;
     }
     if attrs.contains(TextAttributes::BLINK) {
-        codes.push("5");
+        codes[count] = "5";
+        count += 1;
     }
     if attrs.contains(TextAttributes::INVERSE) {
-        codes.push("7");
+        codes[count] = "7";
+        count += 1;
     }
     if attrs.contains(TextAttributes::HIDDEN) {
-        codes.push("8");
+        codes[count] = "8";
+        count += 1;
     }
     if attrs.contains(TextAttributes::STRIKETHROUGH) {
-        codes.push("9");
+        codes[count] = "9";
+        count += 1;
     }
 
-    if codes.is_empty() {
+    if count == 0 {
         Ok(())
     } else {
-        write!(w, "\x1b[{}m", codes.join(";"))
+        // Write CSI sequence manually to avoid format! overhead
+        w.write_all(b"\x1b[")?;
+        for (i, code) in codes[..count].iter().enumerate() {
+            if i > 0 {
+                w.write_all(b";")?;
+            }
+            w.write_all(code.as_bytes())?;
+        }
+        w.write_all(b"m")
     }
 }
 

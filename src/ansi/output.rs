@@ -137,6 +137,8 @@ impl<W: Write> AnsiWriter<W> {
     }
 
     /// Set text attributes, only writing changes.
+    ///
+    /// Uses a stack-allocated array to avoid heap allocation on every call.
     pub fn set_attributes(&mut self, attrs: TextAttributes) {
         let attrs = attrs.flags_only();
         if self.current_attrs == attrs {
@@ -146,33 +148,44 @@ impl<W: Write> AnsiWriter<W> {
         // Check what needs to be turned off
         let removed = self.current_attrs - attrs;
         if !removed.is_empty() {
-            let mut codes = Vec::new();
+            // Use stack-allocated array instead of Vec to avoid heap allocation
+            // Maximum 7 reset codes possible (one per attribute type)
+            let mut codes: [&str; 7] = [""; 7];
+            let mut count = 0;
+
             if removed.contains(TextAttributes::BOLD) || removed.contains(TextAttributes::DIM) {
-                codes.push("22");
+                codes[count] = "22";
+                count += 1;
             }
             if removed.contains(TextAttributes::ITALIC) {
-                codes.push("23");
+                codes[count] = "23";
+                count += 1;
             }
             if removed.contains(TextAttributes::UNDERLINE) {
-                codes.push("24");
+                codes[count] = "24";
+                count += 1;
             }
             if removed.contains(TextAttributes::BLINK) {
-                codes.push("25");
+                codes[count] = "25";
+                count += 1;
             }
             if removed.contains(TextAttributes::INVERSE) {
-                codes.push("27");
+                codes[count] = "27";
+                count += 1;
             }
             if removed.contains(TextAttributes::HIDDEN) {
-                codes.push("28");
+                codes[count] = "28";
+                count += 1;
             }
             if removed.contains(TextAttributes::STRIKETHROUGH) {
-                codes.push("29");
+                codes[count] = "29";
+                count += 1;
             }
 
-            if !codes.is_empty() {
+            if count > 0 {
                 // Manually construct the SGR escape sequence
                 self.buffer.extend_from_slice(b"\x1b[");
-                for (i, code) in codes.iter().enumerate() {
+                for (i, code) in codes[..count].iter().enumerate() {
                     if i > 0 {
                         self.buffer.push(b';');
                     }

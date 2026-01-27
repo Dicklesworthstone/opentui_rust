@@ -375,6 +375,23 @@ impl Cell {
         self.bg = self.bg.multiply_alpha(opacity);
     }
 
+    /// Fast bitwise equality check for cell diffing.
+    ///
+    /// This is optimized for the diff detection hot path, using integer
+    /// comparison for colors instead of floating-point. This is typically
+    /// faster than derived `PartialEq` because:
+    /// - Integer comparison is simpler than float comparison
+    /// - No special handling for NaN needed in this context
+    /// - Better branch prediction on simple integer ops
+    #[inline]
+    #[must_use]
+    pub fn bits_eq(&self, other: &Self) -> bool {
+        self.content == other.content
+            && self.fg.bits_eq(other.fg)
+            && self.bg.bits_eq(other.bg)
+            && self.attributes == other.attributes
+    }
+
     /// Blend this cell over a background cell using alpha compositing.
     #[must_use]
     pub fn blend_over(self, background: &Cell) -> Cell {
