@@ -51,7 +51,7 @@ pub fn display_width(s: &str) -> usize {
 pub fn display_width_char(c: char) -> usize {
     // Fast path: ASCII printable characters are always width 1
     // This covers the vast majority of terminal content
-    if c.is_ascii() && c >= ' ' && c <= '~' {
+    if c.is_ascii() && (' '..='~').contains(&c) {
         return 1;
     }
     // Control characters (below space) have width 0

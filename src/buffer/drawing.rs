@@ -235,7 +235,7 @@ pub fn draw_text_with_pool(
             // SAFETY: len() == 1 means exactly one ASCII byte
             let ch = grapheme.as_bytes()[0] as char;
             // ASCII printable characters have width 1
-            let w = if ch >= ' ' && ch <= '~' { 1 } else { 0 };
+            let w = usize::from((' '..='~').contains(&ch));
             (CellContent::Char(ch), w)
         } else if grapheme.chars().count() == 1 {
             // Single non-ASCII codepoint - store directly as Char
@@ -286,7 +286,7 @@ pub fn draw_char_with_pool(
     let (content, width) = if grapheme.len() == 1 {
         // SAFETY: len() == 1 means exactly one ASCII byte
         let ch = grapheme.as_bytes()[0] as char;
-        let w = if ch >= ' ' && ch <= '~' { 1 } else { 0 };
+        let w = usize::from((' '..='~').contains(&ch));
         (CellContent::Char(ch), w)
     } else if grapheme.chars().count() == 1 {
         let ch = grapheme.chars().next().unwrap();
