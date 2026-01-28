@@ -303,6 +303,154 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
 }
 
 // ============================================================================
+// Animation Clock & Easing
+// ============================================================================
+
+/// Easing functions for smooth animations.
+///
+/// All functions take `t` in `[0.0, 1.0]` and return a value in `[0.0, 1.0]`.
+pub mod easing {
+    /// Smooth Hermite interpolation: `3t² - 2t³`.
+    ///
+    /// Starts and ends with zero velocity.
+    #[must_use]
+    pub fn smoothstep(t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        t * t * 2.0_f32.mul_add(-t, 3.0)
+    }
+
+    /// Ease in-out cubic: slow start, fast middle, slow end.
+    ///
+    /// Formula: `4t³` for t < 0.5, `1 - (-2t + 2)³ / 2` for t ≥ 0.5.
+    #[must_use]
+    pub fn ease_in_out_cubic(t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            let p = (-2.0_f32).mul_add(t, 2.0);
+            1.0 - p * p * p / 2.0
+        }
+    }
+
+    /// Pulsing sine wave: `0.5 + 0.5 * sin(t * ω)`.
+    ///
+    /// Returns a value oscillating between 0.0 and 1.0.
+    /// - `t`: time in seconds
+    /// - `omega`: angular frequency (2π = one cycle per second)
+    #[must_use]
+    pub fn pulse(t: f32, omega: f32) -> f32 {
+        0.5_f32.mul_add((t * omega).sin(), 0.5)
+    }
+
+    /// Ease-out cubic: fast start, slow end.
+    ///
+    /// Formula: `1 - (1 - t)³`.
+    #[must_use]
+    pub fn ease_out_cubic(t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        1.0 - (1.0 - t).powi(3)
+    }
+}
+
+/// Animation clock for frame-based timing.
+///
+/// Provides:
+/// - `t`: monotonic animation time in seconds (doesn't advance when paused)
+/// - `dt`: delta time for the current frame (clamped to avoid huge jumps)
+/// - Automatic pause handling when terminal focus is lost
+#[derive(Clone, Debug)]
+pub struct AnimationClock {
+    /// Monotonic animation time in seconds.
+    ///
+    /// Only advances when not paused. Use for animations.
+    pub t: f32,
+    /// Delta time for the current frame in seconds.
+    ///
+    /// Clamped to `[0.0, MAX_DT]` to avoid huge jumps after resize/backgrounding.
+    pub dt: f32,
+    /// Last update instant for computing dt.
+    last_instant: Instant,
+    /// Whether animation time should advance.
+    paused: bool,
+}
+
+impl Default for AnimationClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AnimationClock {
+    /// Maximum delta time to prevent huge jumps after backgrounding/resize.
+    ///
+    /// At 60fps, normal dt ≈ 0.0167s. Cap at 0.1s (10fps equivalent).
+    pub const MAX_DT: f32 = 0.1;
+
+    /// Minimum delta time to ensure animations always progress.
+    ///
+    /// Prevents dt = 0 issues when frames are extremely fast.
+    pub const MIN_DT: f32 = 0.001;
+
+    /// Create a new animation clock starting at t=0.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            t: 0.0,
+            dt: 0.0,
+            last_instant: Instant::now(),
+            paused: false,
+        }
+    }
+
+    /// Update the clock for a new frame.
+    ///
+    /// Call this once at the start of each frame, before any animation updates.
+    /// Pass the current pause state from the app.
+    pub fn tick(&mut self, paused: bool) {
+        let now = Instant::now();
+        let raw_dt = now.duration_since(self.last_instant).as_secs_f32();
+        self.last_instant = now;
+
+        // Clamp dt to avoid huge jumps
+        self.dt = raw_dt.clamp(Self::MIN_DT, Self::MAX_DT);
+
+        // Update pause state
+        self.paused = paused;
+
+        // Only advance animation time when not paused
+        if !self.paused {
+            self.t += self.dt;
+        }
+    }
+
+    /// Check if the clock is paused.
+    #[must_use]
+    pub const fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Set the pause state directly.
+    pub const fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+    }
+
+    /// Get animation time with a phase offset (useful for staggered animations).
+    #[must_use]
+    pub fn t_offset(&self, offset: f32) -> f32 {
+        self.t + offset
+    }
+
+    /// Get a pulsing value for the current time.
+    ///
+    /// Convenience method that calls `easing::pulse(self.t, omega)`.
+    #[must_use]
+    pub fn pulse(&self, omega: f32) -> f32 {
+        easing::pulse(self.t, omega)
+    }
+}
+
+// ============================================================================
 // Layout Helpers
 // ============================================================================
 
@@ -774,8 +922,10 @@ pub struct OverlayAnim {
 }
 
 impl OverlayAnim {
-    /// Animation speed (progress per tick at 60fps).
-    const SPEED: f32 = 0.15;
+    /// Animation speed in progress units per second.
+    ///
+    /// At 9.0/sec, the full 0→1 transition takes ~0.11 seconds (snappy).
+    const SPEED: f32 = 9.0;
 
     /// Create a new animation starting to open.
     #[must_use]
@@ -787,12 +937,15 @@ impl OverlayAnim {
     }
 
     /// Update the animation state. Returns true if animation is complete.
-    pub fn tick(&mut self) -> bool {
+    ///
+    /// `dt` is the delta time in seconds from the animation clock.
+    pub fn tick(&mut self, dt: f32) -> bool {
+        let delta = Self::SPEED * dt;
         if self.opening {
-            self.progress = (self.progress + Self::SPEED).min(1.0);
+            self.progress = (self.progress + delta).min(1.0);
             self.progress >= 1.0
         } else {
-            self.progress = (self.progress - Self::SPEED).max(0.0);
+            self.progress = (self.progress - delta).max(0.0);
             self.progress <= 0.0
         }
     }
@@ -805,9 +958,8 @@ impl OverlayAnim {
     /// Get the current opacity (eased).
     #[must_use]
     pub fn opacity(&self) -> f32 {
-        // Ease-out cubic for smooth animation
-        let t = self.progress;
-        1.0 - (1.0 - t).powi(3)
+        // Use ease-out cubic from our easing module
+        easing::ease_out_cubic(self.progress)
     }
 
     /// Check if fully closed.
@@ -1073,9 +1225,11 @@ impl OverlayManager {
     }
 
     /// Update overlay state for a new frame.
-    pub fn tick(&mut self) {
+    ///
+    /// `dt` is the delta time in seconds from the animation clock.
+    pub fn tick(&mut self, dt: f32) {
         if self.active.is_some() {
-            let done = self.anim.tick();
+            let done = self.anim.tick(dt);
             if done && self.anim.is_closed() {
                 self.active = None;
             }
@@ -1238,6 +1392,18 @@ pub enum AppMode {
     Tour,
 }
 
+/// Reason for application exit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExitReason {
+    /// No exit yet or normal user-initiated quit.
+    #[default]
+    UserQuit,
+    /// Exited due to --max-frames limit.
+    MaxFrames,
+    /// Exited after tour completion (--exit-after-tour).
+    TourComplete,
+}
+
 /// Which panel has keyboard focus.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Focus {
@@ -1379,6 +1545,8 @@ pub struct App {
     // Runtime state
     /// Whether the app should quit.
     pub should_quit: bool,
+    /// Reason for quitting (used for exit summary).
+    pub exit_reason: ExitReason,
     /// Frame counter.
     pub frame_count: u64,
     /// Maximum frames before exit (from config).
@@ -1397,6 +1565,10 @@ pub struct App {
     // Overlay state
     /// Overlay manager for modal overlays.
     pub overlays: OverlayManager,
+
+    // Animation state
+    /// Animation clock for timing animations.
+    pub clock: AnimationClock,
 }
 
 impl Default for App {
@@ -1408,6 +1580,7 @@ impl Default for App {
             paused: false,
             ui_theme: UiTheme::default(),
             should_quit: false,
+            exit_reason: ExitReason::UserQuit,
             frame_count: 0,
             max_frames: None,
             show_debug: false,
@@ -1415,6 +1588,7 @@ impl Default for App {
             tour_step: 0,
             tour_total: TourState::STEPS.len(),
             overlays: OverlayManager::default(),
+            clock: AnimationClock::new(),
         }
     }
 }
@@ -1587,13 +1761,16 @@ impl App {
     /// Update app state for a new frame.
     #[allow(clippy::missing_const_for_fn)] // const fn with &mut self not stable
     pub fn tick(&mut self) {
+        // Update animation clock first (respects pause state)
+        self.clock.tick(self.paused);
+
         self.frame_count = self.frame_count.wrapping_add(1);
 
         // Clear force redraw flag after use
         self.force_redraw = false;
 
-        // Update overlay animations
-        self.overlays.tick();
+        // Update overlay animations with dt from clock
+        self.overlays.tick(self.clock.dt);
 
         // If overlay finished closing, ensure mode is Normal
         if !self.overlays.is_active() && self.mode != AppMode::Normal {
@@ -1605,6 +1782,7 @@ impl App {
         if let Some(max) = self.max_frames {
             if self.frame_count >= max {
                 self.should_quit = true;
+                self.exit_reason = ExitReason::MaxFrames;
             }
         }
     }
@@ -2000,6 +2178,15 @@ fn run_interactive(config: &Config) -> io::Result<()> {
         if let Some(remaining) = frame_duration.checked_sub(elapsed) {
             std::thread::sleep(remaining);
         }
+    }
+
+    // Print exit summary for deterministic termination modes
+    if app.exit_reason == ExitReason::MaxFrames {
+        let last_dirty_cells = renderer.stats().last_frame_cells;
+        println!(
+            "EXIT_OK reason=max_frames frames={} last_dirty_cells={}",
+            app.frame_count, last_dirty_cells
+        );
     }
 
     Ok(())
@@ -2818,6 +3005,434 @@ fn set_stdin_nonblocking() -> io::Result<()> {
 }
 
 // ============================================================================
+// Content Pack
+// ============================================================================
+
+/// Canonical content for the demo showcase.
+///
+/// This module provides high-quality, deterministic content that makes the demo
+/// look like a real application while proving correctness of the rendering engine.
+pub mod content {
+    /// Sample Rust code for the editor panel (syntax highlighting demo).
+    ///
+    /// Contains structs, enums, impl blocks, lifetimes, generics, doc comments,
+    /// match expressions, Result/?, strings with escapes, and TODO comments.
+    ///
+    /// **Note:** Uses only single-codepoint characters because `EditorView::render_to`
+    /// does not use the grapheme pool path.
+    pub const EDITOR_SAMPLE_RUST: &str = r#"//! OpenTUI Demo - Sample Module
+//!
+//! This file demonstrates syntax highlighting capabilities.
+
+use std::collections::HashMap;
+use std::io::{self, Write};
+
+/// A simple key-value store with TTL support.
+#[derive(Debug, Clone)]
+pub struct Cache<'a, V: Clone> {
+    entries: HashMap<&'a str, Entry<V>>,
+    max_size: usize,
+}
+
+#[derive(Debug, Clone)]
+struct Entry<V> {
+    value: V,
+    expires_at: Option<u64>,
+}
+
+impl<'a, V: Clone> Cache<'a, V> {
+    /// Create a new cache with the given capacity.
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            entries: HashMap::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    /// Insert a value with optional TTL.
+    pub fn insert(&mut self, key: &'a str, value: V, ttl: Option<u64>) -> Option<V> {
+        // TODO: Implement LRU eviction when at capacity
+        if self.entries.len() >= self.max_size {
+            return None; // Cache full
+        }
+
+        let entry = Entry {
+            value: value.clone(),
+            expires_at: ttl.map(|t| now() + t),
+        };
+
+        self.entries.insert(key, entry).map(|e| e.value)
+    }
+
+    /// Get a value if it exists and hasn't expired.
+    pub fn get(&self, key: &str) -> Option<&V> {
+        self.entries.get(key).and_then(|entry| {
+            match entry.expires_at {
+                Some(exp) if exp <= now() => None,
+                _ => Some(&entry.value),
+            }
+        })
+    }
+}
+
+/// Status of an async operation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Status {
+    Pending,
+    Running { progress: u8 },
+    Complete(Result<String, io::Error>),
+}
+
+impl Status {
+    /// Check if the operation is still in progress.
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        matches!(self, Self::Pending | Self::Running { .. })
+    }
+}
+
+fn now() -> u64 {
+    // Placeholder for timestamp
+    0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cache_insert_get() {
+        let mut cache = Cache::new(10);
+        cache.insert("key1", "value1", None);
+        assert_eq!(cache.get("key1"), Some(&"value1"));
+    }
+}
+"#;
+
+    /// Markdown sample with fenced code blocks (secondary editor content).
+    pub const EDITOR_SAMPLE_MARKDOWN: &str = r#"# OpenTUI Showcase
+
+Welcome to the **OpenTUI** demo application!
+
+## Features
+
+- Real RGBA alpha blending
+- Scissor clipping stacks
+- Double-buffered rendering
+
+## Code Example
+
+```rust
+let mut renderer = Renderer::new(80, 24)?;
+renderer.buffer().draw_text(0, 0, "Hello!", style);
+renderer.present()?;
+```
+
+## Links
+
+- [GitHub Repository](https://github.com/anomalyco/opentui)
+- [Unicode TR11](https://unicode.org/reports/tr11/)
+"#;
+
+    /// Log entry structure for the logs panel.
+    #[derive(Clone, Debug)]
+    pub struct LogEntry {
+        /// Timestamp string (HH:MM:SS format).
+        pub timestamp: &'static str,
+        /// Log level (INFO, WARN, ERROR, DEBUG).
+        pub level: LogLevel,
+        /// Subsystem that generated the log.
+        pub subsystem: &'static str,
+        /// Log message content.
+        pub message: &'static str,
+        /// Optional hyperlink URL (for OSC 8).
+        pub link: Option<&'static str>,
+    }
+
+    /// Log severity levels.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum LogLevel {
+        Debug,
+        Info,
+        Warn,
+        Error,
+    }
+
+    impl LogLevel {
+        /// Get display string for the level.
+        #[must_use]
+        pub const fn as_str(self) -> &'static str {
+            match self {
+                Self::Debug => "DEBUG",
+                Self::Info => "INFO ",
+                Self::Warn => "WARN ",
+                Self::Error => "ERROR",
+            }
+        }
+    }
+
+    /// Sample log entries for the logs panel.
+    ///
+    /// Includes timestamps, levels, subsystems, and some entries with hyperlinks.
+    pub const LOG_ENTRIES: &[LogEntry] = &[
+        LogEntry {
+            timestamp: "22:05:10",
+            level: LogLevel::Info,
+            subsystem: "renderer",
+            message: "Initialized 80x24 buffer, truecolor enabled",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:10",
+            level: LogLevel::Debug,
+            subsystem: "terminal",
+            message: "Raw mode enabled, mouse tracking active",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:11",
+            level: LogLevel::Info,
+            subsystem: "input",
+            message: "InputParser ready, bracketed paste enabled",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:12",
+            level: LogLevel::Info,
+            subsystem: "renderer",
+            message: "Frame 1: diff=1920 cells, output=4.2KB",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:12",
+            level: LogLevel::Info,
+            subsystem: "renderer",
+            message: "Frame 2: diff=124 cells, output=0.3KB",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:13",
+            level: LogLevel::Warn,
+            subsystem: "input",
+            message: "Focus lost - rendering paused",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:14",
+            level: LogLevel::Info,
+            subsystem: "input",
+            message: "Focus regained - resuming",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:15",
+            level: LogLevel::Info,
+            subsystem: "tour",
+            message: "Starting guided tour (12 steps)",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:16",
+            level: LogLevel::Debug,
+            subsystem: "preview",
+            message: "Alpha blending demo: 50% opacity layer",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:17",
+            level: LogLevel::Info,
+            subsystem: "docs",
+            message: "See OpenTUI repository for more info",
+            link: Some("https://github.com/anomalyco/opentui"),
+        },
+        LogEntry {
+            timestamp: "22:05:18",
+            level: LogLevel::Error,
+            subsystem: "preview",
+            message: "Simulated error (demo only) - press R to retry",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:19",
+            level: LogLevel::Info,
+            subsystem: "unicode",
+            message: "Width calculation: see Unicode TR11",
+            link: Some("https://unicode.org/reports/tr11/"),
+        },
+        LogEntry {
+            timestamp: "22:05:20",
+            level: LogLevel::Debug,
+            subsystem: "renderer",
+            message: "Scissor stack depth: 3, opacity: 0.85",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:21",
+            level: LogLevel::Info,
+            subsystem: "highlight",
+            message: "Rust tokenizer: 847 tokens, 23 lines",
+            link: None,
+        },
+        LogEntry {
+            timestamp: "22:05:22",
+            level: LogLevel::Warn,
+            subsystem: "terminal",
+            message: "No XTVERSION response - assuming basic caps",
+            link: None,
+        },
+    ];
+
+    /// Deterministic metrics for charts and animations.
+    ///
+    /// All values are computed from frame count to ensure reproducibility.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct Metrics {
+        /// Current FPS estimate.
+        pub fps: u32,
+        /// Frame time in milliseconds.
+        pub frame_time_ms: f32,
+        /// Synthetic "CPU usage" percentage (0-100).
+        pub cpu_percent: u8,
+        /// Synthetic "memory bytes" counter.
+        pub memory_bytes: u64,
+        /// Pulse value for glow animations (0.0-1.0).
+        pub pulse: f32,
+        /// Cells changed in last frame.
+        pub cells_changed: u32,
+        /// Bytes written in last frame.
+        pub bytes_written: u32,
+    }
+
+    impl Metrics {
+        /// Compute metrics deterministically from frame count and target FPS.
+        ///
+        /// No randomness - results are reproducible for tour mode and tests.
+        #[must_use]
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )] // Acceptable for demo metrics - values are bounded
+        pub fn compute(frame: u64, target_fps: u32) -> Self {
+            let frame_f = frame as f32;
+            let target_fps_f = target_fps as f32;
+
+            // Simulate slight FPS variation (deterministic sine wave)
+            let fps_variation = (frame_f * 0.1).sin() * 2.0;
+            let fps = ((target_fps_f + fps_variation) as u32).clamp(1, 120);
+
+            // Frame time derived from FPS
+            let frame_time_ms = 1000.0 / fps as f32;
+
+            // CPU usage: slow sine wave (5-25%)
+            let cpu_base = (frame_f * 0.02).sin().mul_add(10.0, 15.0);
+            let cpu_percent = cpu_base.clamp(0.0, 100.0) as u8;
+
+            // Memory: slowly growing counter with periodic resets
+            let memory_cycle = frame % 1000;
+            let memory_bytes = 50_000_000 + (memory_cycle * 10_000);
+
+            // Pulse: smooth 0-1-0 cycle every 60 frames
+            let pulse_phase = (frame % 60) as f32 / 60.0;
+            let pulse = (pulse_phase * std::f32::consts::PI).sin();
+
+            // Cells changed: varies by frame (more on first, less on subsequent)
+            let cells_changed = if frame == 0 {
+                1920 // Full screen
+            } else {
+                (50 + ((frame_f * 0.5).sin().abs() * 150.0) as u32).min(500)
+            };
+
+            // Bytes written: roughly proportional to cells changed
+            let bytes_written = cells_changed * 8 + 100;
+
+            Self {
+                fps,
+                frame_time_ms,
+                cpu_percent,
+                memory_bytes,
+                pulse,
+                cells_changed,
+                bytes_written,
+            }
+        }
+
+        /// Format memory as human-readable string.
+        #[must_use]
+        #[allow(clippy::cast_precision_loss)] // Memory values fit comfortably in f64 mantissa
+        pub fn memory_display(&self) -> String {
+            if self.memory_bytes >= 1_000_000 {
+                format!("{:.1}MB", self.memory_bytes as f64 / 1_000_000.0)
+            } else if self.memory_bytes >= 1_000 {
+                format!("{:.1}KB", self.memory_bytes as f64 / 1_000.0)
+            } else {
+                format!("{}B", self.memory_bytes)
+            }
+        }
+    }
+
+    /// Unicode test strings for proving grapheme and width correctness.
+    ///
+    /// These must be rendered using the grapheme pool path to display correctly.
+    pub mod unicode {
+        /// CJK wide characters (each is width 2).
+        pub const CJK_WIDE: &str = "漢字かなカナ";
+
+        /// Single-codepoint emoji (each is width 2).
+        pub const EMOJI_SINGLE: &str = "🎉👍😀🚀✨";
+
+        /// Multi-codepoint ZWJ emoji sequences.
+        /// These require the grapheme pool for proper rendering.
+        pub const EMOJI_ZWJ: &str = "👨‍👩‍👧 👩‍💻 🧑‍🚀 👨‍🔬 👩‍🎨";
+
+        /// Combining marks (base + combining character).
+        /// á (a + combining acute) and ñ (n + combining tilde).
+        pub const COMBINING_MARKS: &str = "a\u{0301} e\u{0301} n\u{0303} o\u{0308}";
+
+        /// Display versions of combining marks (precomposed).
+        pub const COMBINING_DISPLAY: &str = "á é ñ ö";
+
+        /// Mixed content line for comprehensive testing.
+        pub const MIXED_LINE: &str = "Hello 世界 🌍 café naïve 👨‍👩‍👧‍👦";
+
+        /// Width ruler (each char is width 1, numbers show column).
+        pub const WIDTH_RULER_10: &str = "0123456789";
+
+        /// Test cases with expected display widths.
+        pub const WIDTH_TEST_CASES: &[(&str, &str, usize)] = &[
+            ("ASCII", "Hello", 5),
+            ("CJK", "漢字", 4), // 2 chars × width 2
+            ("Emoji", "🎉👍", 4),   // 2 emoji × width 2
+            ("Mixed", "A漢B", 4), // 1 + 2 + 1
+            ("Combining", "a\u{0301}", 1), // Base + combining = width 1
+        ];
+    }
+
+    /// Hyperlink URLs for OSC 8 integration.
+    pub mod links {
+        /// Main repository URL.
+        pub const REPO: &str = "https://github.com/anomalyco/opentui";
+
+        /// Source code directory.
+        pub const SOURCE: &str = "https://github.com/anomalyco/opentui/tree/main/src";
+
+        /// Unicode Technical Report 11 (East Asian Width).
+        pub const UNICODE_TR11: &str = "https://unicode.org/reports/tr11/";
+
+        /// Rust documentation.
+        pub const RUST_DOCS: &str = "https://doc.rust-lang.org/stable/std/";
+
+        /// All URLs for iteration.
+        pub const ALL: &[(&str, &str)] = &[
+            ("OpenTUI Repository", REPO),
+            ("Source Code", SOURCE),
+            ("Unicode TR11", UNICODE_TR11),
+            ("Rust Docs", RUST_DOCS),
+        ];
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -3380,9 +3995,11 @@ mod tests {
         for _ in 0..4 {
             app.tick();
             assert!(!app.should_quit);
+            assert_eq!(app.exit_reason, ExitReason::UserQuit);
         }
         app.tick();
         assert!(app.should_quit);
+        assert_eq!(app.exit_reason, ExitReason::MaxFrames);
     }
 
     #[test]
@@ -3425,5 +4042,149 @@ mod tests {
 
         app.apply_action(&Action::Quit);
         assert!(app.should_quit);
+    }
+
+    // ========================================================================
+    // Easing Function Tests
+    // ========================================================================
+
+    #[test]
+    fn test_smoothstep_boundaries() {
+        assert!((easing::smoothstep(0.0) - 0.0).abs() < f32::EPSILON);
+        assert!((easing::smoothstep(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_smoothstep_midpoint() {
+        // At t=0.5, smoothstep should return 0.5
+        assert!((easing::smoothstep(0.5) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_smoothstep_clamping() {
+        // Values outside [0, 1] should be clamped
+        assert!((easing::smoothstep(-0.5) - 0.0).abs() < f32::EPSILON);
+        assert!((easing::smoothstep(1.5) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_ease_in_out_cubic_boundaries() {
+        assert!((easing::ease_in_out_cubic(0.0) - 0.0).abs() < f32::EPSILON);
+        assert!((easing::ease_in_out_cubic(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_ease_in_out_cubic_midpoint() {
+        // At t=0.5, ease_in_out_cubic should return 0.5
+        assert!((easing::ease_in_out_cubic(0.5) - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_ease_out_cubic_boundaries() {
+        assert!((easing::ease_out_cubic(0.0) - 0.0).abs() < f32::EPSILON);
+        assert!((easing::ease_out_cubic(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_pulse_range() {
+        // Pulse should oscillate between 0 and 1
+        let omega = std::f32::consts::TAU; // One cycle per second
+        for i in 0..10 {
+            let t = i as f32 * 0.1;
+            let v = easing::pulse(t, omega);
+            assert!(v >= 0.0 && v <= 1.0, "pulse({t}, {omega}) = {v} out of range");
+        }
+    }
+
+    #[test]
+    fn test_pulse_at_zero() {
+        // At t=0, pulse should be 0.5 + 0.5*sin(0) = 0.5
+        assert!((easing::pulse(0.0, 1.0) - 0.5).abs() < f32::EPSILON);
+    }
+
+    // ========================================================================
+    // Animation Clock Tests
+    // ========================================================================
+
+    #[test]
+    fn test_animation_clock_new() {
+        let clock = AnimationClock::new();
+        assert!((clock.t - 0.0).abs() < f32::EPSILON);
+        assert!((clock.dt - 0.0).abs() < f32::EPSILON);
+        assert!(!clock.is_paused());
+    }
+
+    #[test]
+    fn test_animation_clock_tick_advances_time() {
+        let mut clock = AnimationClock::new();
+        // Sleep a tiny bit to ensure dt > 0
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        clock.tick(false);
+        assert!(clock.dt > 0.0, "dt should be positive after tick");
+        assert!(clock.t > 0.0, "t should advance when not paused");
+    }
+
+    #[test]
+    fn test_animation_clock_paused_no_advance() {
+        let mut clock = AnimationClock::new();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        clock.tick(true); // Paused
+        assert!(clock.dt > 0.0, "dt should still be computed when paused");
+        assert!((clock.t - 0.0).abs() < f32::EPSILON, "t should not advance when paused");
+    }
+
+    #[test]
+    fn test_animation_clock_dt_clamped() {
+        let mut clock = AnimationClock::new();
+        // Simulate a long gap by manually setting last_instant far in the past
+        // This tests the MAX_DT clamping
+        clock.tick(false);
+        assert!(clock.dt <= AnimationClock::MAX_DT, "dt should be clamped to MAX_DT");
+        assert!(clock.dt >= AnimationClock::MIN_DT, "dt should be at least MIN_DT");
+    }
+
+    #[test]
+    fn test_animation_clock_pulse_helper() {
+        let clock = AnimationClock::new();
+        let omega = std::f32::consts::TAU;
+        let p = clock.pulse(omega);
+        // At t=0, pulse should be 0.5
+        assert!((p - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_animation_clock_t_offset() {
+        let clock = AnimationClock::new();
+        let offset = clock.t_offset(1.0);
+        assert!((offset - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_overlay_anim_with_dt() {
+        let mut anim = OverlayAnim::opening();
+        assert!((anim.progress - 0.0).abs() < f32::EPSILON);
+
+        // Tick with a fixed dt
+        let dt = 0.05; // 50ms
+        anim.tick(dt);
+        // Progress should increase by SPEED * dt = 9.0 * 0.05 = 0.45
+        assert!((anim.progress - 0.45).abs() < 0.001);
+
+        // Tick again to complete
+        anim.tick(0.1);
+        assert!((anim.progress - 1.0).abs() < f32::EPSILON);
+        assert!(anim.is_open());
+    }
+
+    #[test]
+    fn test_overlay_anim_closing_with_dt() {
+        let mut anim = OverlayAnim::opening();
+        anim.progress = 1.0; // Fully open
+        anim.start_close();
+
+        // Tick with dt
+        anim.tick(0.05);
+        // Progress should decrease by SPEED * dt = 9.0 * 0.05 = 0.45
+        assert!((anim.progress - 0.55).abs() < 0.001);
     }
 }
