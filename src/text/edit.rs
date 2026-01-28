@@ -1537,7 +1537,7 @@ mod tests {
     // --- History depth limits ---
 
     #[test]
-    fn test_history_depth_limit() {
+    fn test_history_depth_limit_extended() {
         let mut edit = EditBuffer::with_max_history_depth(3);
 
         edit.insert("A");
@@ -1561,7 +1561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_max_history_depth() {
+    fn test_set_max_history_depth_and_verify() {
         let mut edit = EditBuffer::new();
         edit.set_max_history_depth(2);
         assert_eq!(edit.max_history_depth(), 2);
@@ -1580,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_history() {
+    fn test_clear_history_preserves_text() {
         let mut edit = EditBuffer::new();
         edit.insert("Hello");
         edit.commit();
