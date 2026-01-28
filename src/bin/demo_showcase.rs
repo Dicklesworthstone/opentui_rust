@@ -1,6 +1,6 @@
-//! demo_showcase — OpenTUI demonstration binary
+//! `demo_showcase` — `OpenTUI` demonstration binary
 //!
-//! A comprehensive showcase of OpenTUI's rendering capabilities, presenting
+//! A comprehensive showcase of `OpenTUI`'s rendering capabilities, presenting
 //! a Developer Workbench with editor, preview, logs, and overlays.
 //!
 //! # Usage
@@ -11,6 +11,9 @@
 //!
 //! Press Ctrl+Q to quit.
 
+// Required for libc FFI (fcntl for non-blocking stdin).
+#![allow(unsafe_code)]
+
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{Renderer, RendererOptions, Rgba, Style};
@@ -18,7 +21,7 @@ use std::io::{self, Read};
 use std::time::{Duration, Instant};
 
 /// Application configuration (placeholder for CLI args).
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 struct Config {
     /// Target frames per second.
     fps_cap: u32,
@@ -34,8 +37,8 @@ impl Config {
         Self { fps_cap: 60 }
     }
 
-    /// Get renderer options from config.
-    fn renderer_options(&self) -> RendererOptions {
+    /// Get renderer options.
+    const fn renderer_options() -> RendererOptions {
         RendererOptions {
             use_alt_screen: true,
             hide_cursor: true,
@@ -45,7 +48,7 @@ impl Config {
     }
 
     /// Get target frame duration.
-    fn frame_duration(&self) -> Duration {
+    fn frame_duration(self) -> Duration {
         Duration::from_micros(1_000_000 / u64::from(self.fps_cap))
     }
 }
@@ -86,6 +89,7 @@ impl App {
     }
 
     /// Update app state for a new frame.
+    #[allow(clippy::missing_const_for_fn)] // const fn with &mut self not stable
     fn tick(&mut self) {
         self.frame_count = self.frame_count.wrapping_add(1);
     }
@@ -105,7 +109,7 @@ fn run(config: Config) -> io::Result<()> {
     let mut renderer = Renderer::new_with_options(
         u32::from(width),
         u32::from(height),
-        config.renderer_options(),
+        Config::renderer_options(),
     )?;
 
     // Enable raw mode for input handling.
@@ -146,15 +150,15 @@ fn run(config: Config) -> io::Result<()> {
         app.tick();
 
         // --- Render phase ---
-        draw_frame(&mut renderer, &app)?;
+        draw_frame(&mut renderer, &app);
 
         // --- Present ---
         renderer.present()?;
 
         // --- Frame pacing ---
         let elapsed = frame_start.elapsed();
-        if elapsed < frame_duration {
-            std::thread::sleep(frame_duration - elapsed);
+        if let Some(remaining) = frame_duration.checked_sub(elapsed) {
+            std::thread::sleep(remaining);
         }
     }
 
@@ -162,7 +166,7 @@ fn run(config: Config) -> io::Result<()> {
 }
 
 /// Draw a single frame.
-fn draw_frame(renderer: &mut Renderer, app: &App) -> io::Result<()> {
+fn draw_frame(renderer: &mut Renderer, app: &App) {
     let (width, height) = renderer.size();
 
     // Clear buffer.
@@ -232,8 +236,6 @@ fn draw_frame(renderer: &mut Renderer, app: &App) -> io::Result<()> {
         subtext,
         Style::fg(Rgba::from_hex("#888888").unwrap_or(Rgba::WHITE)),
     );
-
-    Ok(())
 }
 
 /// Set stdin to non-blocking mode on Unix.
@@ -242,6 +244,7 @@ fn set_stdin_nonblocking() -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
     let fd = io::stdin().as_raw_fd();
     // SAFETY: fcntl with F_GETFL/F_SETFL is safe on a valid file descriptor.
+    // stdin is always a valid file descriptor.
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
         if flags == -1 {
