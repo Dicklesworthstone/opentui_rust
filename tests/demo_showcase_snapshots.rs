@@ -41,6 +41,19 @@ fn extract_snapshot(json: &serde_json::Value) -> serde_json::Value {
     })
 }
 
+/// Extract snapshot with effective capabilities for degradation testing.
+fn extract_capability_snapshot(json: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "config": {
+            "cap_preset": json["config"]["cap_preset"],
+        },
+        "headless_size": json["headless_size"],
+        "effective_caps": json["effective_caps"],
+        "warnings": json["warnings"],
+        "layout_mode": json["layout_mode"],
+    })
+}
+
 #[test]
 fn test_headless_default_snapshot() {
     let json = run_headless_json(&[]);
@@ -84,4 +97,107 @@ fn test_headless_deterministic() {
         json1["sentinels"], json2["sentinels"],
         "Sentinels should be deterministic with same seed"
     );
+}
+
+// ============================================================================
+// Capability + Size Degradation Matrix (bd-2bnv)
+// ============================================================================
+//
+// These tests verify that the demo stays usable across constrained terminals
+// by snapshotting output across different capability presets and sizes.
+
+#[test]
+fn test_cap_degradation_ideal_120x40() {
+    let json = run_headless_json(&["--headless-size", "120x40", "--cap-preset", "ideal"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants
+    assert!(json["warnings"].as_array().unwrap().is_empty(),
+        "Ideal preset should have no warnings");
+    assert_eq!(json["effective_caps"]["truecolor"], true);
+    assert_eq!(json["effective_caps"]["hyperlinks"], true);
+    assert_eq!(json["effective_caps"]["mouse"], true);
+
+    insta::assert_json_snapshot!("cap_ideal_120x40", snapshot);
+}
+
+#[test]
+fn test_cap_degradation_no_truecolor_120x40() {
+    let json = run_headless_json(&["--headless-size", "120x40", "--cap-preset", "no_truecolor"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants
+    let warnings = json["warnings"].as_array().unwrap();
+    assert!(!warnings.is_empty(), "no_truecolor preset should have warnings");
+    assert_eq!(json["effective_caps"]["truecolor"], false);
+    assert_eq!(json["effective_caps"]["hyperlinks"], true); // Still available
+    assert_eq!(json["effective_caps"]["mouse"], true); // Still available
+
+    insta::assert_json_snapshot!("cap_no_truecolor_120x40", snapshot);
+}
+
+#[test]
+fn test_cap_degradation_no_hyperlinks_120x40() {
+    let json = run_headless_json(&["--headless-size", "120x40", "--cap-preset", "no_hyperlinks"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants
+    let warnings = json["warnings"].as_array().unwrap();
+    assert!(!warnings.is_empty(), "no_hyperlinks preset should have warnings");
+    assert_eq!(json["effective_caps"]["hyperlinks"], false);
+    assert_eq!(json["effective_caps"]["truecolor"], true); // Still available
+    assert_eq!(json["effective_caps"]["mouse"], true); // Still available
+
+    insta::assert_json_snapshot!("cap_no_hyperlinks_120x40", snapshot);
+}
+
+#[test]
+fn test_cap_degradation_no_mouse_120x40() {
+    let json = run_headless_json(&["--headless-size", "120x40", "--cap-preset", "no_mouse"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants
+    let warnings = json["warnings"].as_array().unwrap();
+    assert!(!warnings.is_empty(), "no_mouse preset should have warnings");
+    assert_eq!(json["effective_caps"]["mouse"], false);
+    assert_eq!(json["effective_caps"]["truecolor"], true); // Still available
+    assert_eq!(json["effective_caps"]["hyperlinks"], true); // Still available
+
+    insta::assert_json_snapshot!("cap_no_mouse_120x40", snapshot);
+}
+
+#[test]
+fn test_cap_degradation_minimal_80x24() {
+    let json = run_headless_json(&["--headless-size", "80x24", "--cap-preset", "minimal"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants
+    let warnings = json["warnings"].as_array().unwrap();
+    assert!(warnings.len() >= 3, "minimal preset should degrade multiple capabilities");
+    assert_eq!(json["effective_caps"]["truecolor"], false);
+    assert_eq!(json["effective_caps"]["hyperlinks"], false);
+    assert_eq!(json["effective_caps"]["mouse"], false);
+
+    insta::assert_json_snapshot!("cap_minimal_80x24", snapshot);
+}
+
+#[test]
+fn test_cap_degradation_tiny_50x15() {
+    let json = run_headless_json(&["--headless-size", "50x15", "--cap-preset", "minimal"]);
+    let snapshot = extract_capability_snapshot(&json);
+
+    // Assert invariants - 50x15 triggers Minimal layout (40-59 x 12-15)
+    assert_eq!(
+        json["layout_mode"].as_str().unwrap(),
+        "Minimal",
+        "50x15 should trigger Minimal layout mode (single panel, no sidebar)"
+    );
+
+    let warnings = json["warnings"].as_array().unwrap();
+    assert!(warnings.len() >= 3, "minimal preset should degrade multiple capabilities");
+    assert_eq!(json["effective_caps"]["truecolor"], false);
+    assert_eq!(json["effective_caps"]["hyperlinks"], false);
+    assert_eq!(json["effective_caps"]["mouse"], false);
+
+    insta::assert_json_snapshot!("cap_tiny_50x15", snapshot);
 }

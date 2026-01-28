@@ -19,15 +19,18 @@
 
 use opentui::GraphemePool;
 use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
+use opentui::event::{LogLevel as OpentuiLogLevel, set_log_callback};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_size};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
 use opentui::{CellContent, Renderer, RendererOptions, Rgba, Style};
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Read};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -58,7 +61,7 @@ OPTIONS:
                             palette, hitgrid, logs)
 
     --cap-preset <NAME>     Capability preset: auto, ideal, no_truecolor,
-                            no_mouse, minimal (default: auto)
+                            no_hyperlinks, no_mouse, minimal (default: auto)
 
     --threaded              Use ThreadedRenderer backend
     --seed <N>              Deterministic seed for animations (default: 0)
@@ -78,6 +81,7 @@ pub enum CapPreset {
     Auto,
     Ideal,
     NoTruecolor,
+    NoHyperlinks,
     NoMouse,
     Minimal,
 }
@@ -88,6 +92,7 @@ impl CapPreset {
             "auto" => Some(Self::Auto),
             "ideal" => Some(Self::Ideal),
             "no_truecolor" | "notruecolor" => Some(Self::NoTruecolor),
+            "no_hyperlinks" | "nohyperlinks" => Some(Self::NoHyperlinks),
             "no_mouse" | "nomouse" => Some(Self::NoMouse),
             "minimal" => Some(Self::Minimal),
             _ => None,
@@ -159,6 +164,12 @@ impl EffectiveCaps {
                 }
                 caps.truecolor = false;
             }
+            CapPreset::NoHyperlinks => {
+                if caps.hyperlinks {
+                    degraded.push("hyperlinks (preset)");
+                }
+                caps.hyperlinks = false;
+            }
             CapPreset::NoMouse => {
                 if caps.mouse {
                     degraded.push("mouse (preset)");
@@ -196,7 +207,8 @@ impl EffectiveCaps {
             if !det.mouse && preset != CapPreset::NoMouse && preset != CapPreset::Minimal {
                 degraded.push("mouse (terminal)");
             }
-            if !det.hyperlinks && preset != CapPreset::Minimal {
+            if !det.hyperlinks && preset != CapPreset::NoHyperlinks && preset != CapPreset::Minimal
+            {
                 degraded.push("hyperlinks (terminal)");
             }
         }
@@ -3292,12 +3304,136 @@ fn restore_cooked_mode() {
 }
 
 // ============================================================================
+// Event/Log Routing (OpenTUI → Demo Logs Panel)
+// ============================================================================
+
+/// Maximum entries in the log queue before oldest entries are dropped.
+const LOG_QUEUE_CAPACITY: usize = 500;
+
+/// Thread-safe log queue for routing OpenTUI events to the demo logs panel.
+fn log_queue() -> &'static Arc<Mutex<VecDeque<content::LogEntry>>> {
+    static QUEUE: OnceLock<Arc<Mutex<VecDeque<content::LogEntry>>>> = OnceLock::new();
+    QUEUE.get_or_init(|| Arc::new(Mutex::new(VecDeque::with_capacity(LOG_QUEUE_CAPACITY))))
+}
+
+/// Install OpenTUI event/log callbacks that route to the demo's log queue.
+///
+/// Call this at demo startup. The callbacks push entries to a bounded queue,
+/// which is drained into `App.logs` each frame via `drain_log_queue()`.
+fn install_log_routing() {
+    let queue = log_queue().clone();
+
+    set_log_callback(move |level, message| {
+        let demo_level = match level {
+            OpentuiLogLevel::Debug => content::LogLevel::Debug,
+            OpentuiLogLevel::Info => content::LogLevel::Info,
+            OpentuiLogLevel::Warn => content::LogLevel::Warn,
+            OpentuiLogLevel::Error => content::LogLevel::Error,
+        };
+
+        let entry = content::LogEntry::new_runtime(
+            current_timestamp(),
+            demo_level,
+            "opentui".to_string(),
+            message.to_string(),
+        );
+
+        if let Ok(mut q) = queue.lock() {
+            q.push_back(entry);
+            // Keep queue bounded to avoid unbounded memory growth.
+            while q.len() > LOG_QUEUE_CAPACITY {
+                q.pop_front();
+            }
+        }
+    });
+}
+
+/// Get current timestamp in HH:MM:SS format.
+fn current_timestamp() -> String {
+    use std::time::SystemTime;
+
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+
+    let secs = now.as_secs();
+    let hours = (secs / 3600) % 24;
+    let mins = (secs / 60) % 60;
+    let seconds = secs % 60;
+
+    format!("{hours:02}:{mins:02}:{seconds:02}")
+}
+
+/// Drain queued log entries into the app's log list.
+///
+/// Call this once per frame to move runtime log entries from the shared queue
+/// into `App.logs` for display in the logs panel.
+fn drain_log_queue(app: &mut App) {
+    if let Ok(mut queue) = log_queue().lock() {
+        for entry in queue.drain(..) {
+            app.add_log(entry);
+        }
+    }
+}
+
+// ============================================================================
+// Demo Logging Helpers
+// ============================================================================
+
+/// Log an info-level message to the demo's logs panel.
+///
+/// This is a convenience wrapper that routes through the shared log queue.
+#[allow(dead_code)]
+pub fn log_info(subsystem: &str, message: &str) {
+    demo_log(content::LogLevel::Info, subsystem, message);
+}
+
+/// Log a warning-level message to the demo's logs panel.
+#[allow(dead_code)]
+pub fn log_warn(subsystem: &str, message: &str) {
+    demo_log(content::LogLevel::Warn, subsystem, message);
+}
+
+/// Log an error-level message to the demo's logs panel.
+#[allow(dead_code)]
+pub fn log_error(subsystem: &str, message: &str) {
+    demo_log(content::LogLevel::Error, subsystem, message);
+}
+
+/// Log a debug-level message to the demo's logs panel.
+#[allow(dead_code)]
+pub fn log_debug(subsystem: &str, message: &str) {
+    demo_log(content::LogLevel::Debug, subsystem, message);
+}
+
+/// Internal: push a log entry to the shared queue.
+fn demo_log(level: content::LogLevel, subsystem: &str, message: &str) {
+    let entry = content::LogEntry::new_runtime(
+        current_timestamp(),
+        level,
+        subsystem.to_string(),
+        message.to_string(),
+    );
+
+    if let Ok(mut queue) = log_queue().lock() {
+        queue.push_back(entry);
+        // Keep queue bounded.
+        while queue.len() > LOG_QUEUE_CAPACITY {
+            queue.pop_front();
+        }
+    }
+}
+
+// ============================================================================
 // Entry Point
 // ============================================================================
 
 fn main() -> io::Result<()> {
     // Install panic hook for robust terminal cleanup on crash.
     install_panic_hook();
+
+    // Install OpenTUI event/log routing to demo's logs panel.
+    install_log_routing();
 
     match Config::from_args(std::env::args_os()) {
         ParseResult::Config(config) => {
@@ -3393,6 +3529,13 @@ fn extract_buffer_row(buffer: &OptimizedBuffer, y: u32, start_x: u32, max_len: u
 
 /// Run headless smoke test (no TTY required).
 ///
+/// Run a specific headless check (layout, config, palette, hitgrid, logs).
+fn run_headless_check(config: &Config, check_name: &str) {
+    // For now, delegate to smoke test - specific checks can be added later
+    eprintln!("Running headless check: {check_name}");
+    run_headless_smoke(config);
+}
+
 /// This exercises the full render pipeline:
 /// - Creates App with proper config
 /// - Runs N frames through all render passes
@@ -3480,6 +3623,15 @@ fn run_headless_smoke(config: &Config) {
             })
             .collect();
 
+        // Format effective capabilities as JSON
+        let caps = &app.effective_caps;
+        let warnings_json: String = if caps.degraded.is_empty() {
+            "[]".to_string()
+        } else {
+            let items: Vec<String> = caps.degraded.iter().map(|s| format!("\"{s}\"")).collect();
+            format!("[{}]", items.join(", "))
+        };
+
         let json = format!(
             r#"{{
   "config": {{
@@ -3494,6 +3646,14 @@ fn run_headless_smoke(config: &Config) {
     "width": {},
     "height": {}
   }},
+  "effective_caps": {{
+    "truecolor": {},
+    "mouse": {},
+    "hyperlinks": {},
+    "focus": {},
+    "sync_output": {}
+  }},
+  "warnings": {},
   "layout_mode": "{}",
   "frames_rendered": {},
   "total_dirty_cells": {},
@@ -3514,6 +3674,12 @@ fn run_headless_smoke(config: &Config) {
             config.cap_preset,
             width,
             height,
+            caps.truecolor,
+            caps.mouse,
+            caps.hyperlinks,
+            caps.focus,
+            caps.sync_output,
+            warnings_json,
             layout_mode,
             frame_count,
             total_dirty_cells,
@@ -3626,6 +3792,10 @@ fn run_interactive(config: &Config) -> io::Result<()> {
                 eprintln!("Input error: {e}");
             }
         }
+
+        // --- Log routing phase ---
+        // Drain queued log entries from OpenTUI callbacks into app.logs.
+        drain_log_queue(&mut app);
 
         // --- Update phase ---
         // Capture force_redraw before tick() clears it
@@ -5307,7 +5477,7 @@ fn draw_logs_panel(
         let mut col = x + 1;
 
         // Timestamp (dim)
-        buffer.draw_text(col, log_y, log.timestamp, Style::fg(theme.fg2));
+        buffer.draw_text(col, log_y, &log.timestamp, Style::fg(theme.fg2));
         col += u32::try_from(log.timestamp.len()).unwrap_or(0) + 1;
 
         // Log level with color
@@ -5578,6 +5748,8 @@ fn set_stdin_nonblocking() -> io::Result<()> {
 /// This module provides high-quality, deterministic content that makes the demo
 /// look like a real application while proving correctness of the rendering engine.
 pub mod content {
+    use std::borrow::Cow;
+
     /// Sample Rust code for the editor panel (syntax highlighting demo).
     ///
     /// Contains structs, enums, impl blocks, lifetimes, generics, doc comments,
@@ -5700,18 +5872,61 @@ renderer.present()?;
 "#;
 
     /// Log entry structure for the logs panel.
+    ///
+    /// Uses `Cow<'static, str>` to support both static content (no allocation)
+    /// and runtime-generated log entries (owned strings).
     #[derive(Clone, Debug)]
     pub struct LogEntry {
         /// Timestamp string (HH:MM:SS format).
-        pub timestamp: &'static str,
+        pub timestamp: Cow<'static, str>,
         /// Log level (INFO, WARN, ERROR, DEBUG).
         pub level: LogLevel,
         /// Subsystem that generated the log.
-        pub subsystem: &'static str,
+        pub subsystem: Cow<'static, str>,
         /// Log message content.
-        pub message: &'static str,
+        pub message: Cow<'static, str>,
         /// Optional hyperlink URL (for OSC 8).
-        pub link: Option<&'static str>,
+        pub link: Option<Cow<'static, str>>,
+    }
+
+    impl LogEntry {
+        /// Create a static log entry (compile-time strings, no allocation).
+        #[must_use]
+        pub const fn new_static(
+            timestamp: &'static str,
+            level: LogLevel,
+            subsystem: &'static str,
+            message: &'static str,
+            link: Option<&'static str>,
+        ) -> Self {
+            Self {
+                timestamp: Cow::Borrowed(timestamp),
+                level,
+                subsystem: Cow::Borrowed(subsystem),
+                message: Cow::Borrowed(message),
+                link: match link {
+                    Some(s) => Some(Cow::Borrowed(s)),
+                    None => None,
+                },
+            }
+        }
+
+        /// Create a runtime log entry with owned strings.
+        #[must_use]
+        pub fn new_runtime(
+            timestamp: String,
+            level: LogLevel,
+            subsystem: String,
+            message: String,
+        ) -> Self {
+            Self {
+                timestamp: Cow::Owned(timestamp),
+                level,
+                subsystem: Cow::Owned(subsystem),
+                message: Cow::Owned(message),
+                link: None,
+            }
+        }
     }
 
     /// Log severity levels.
@@ -5740,111 +5955,21 @@ renderer.present()?;
     ///
     /// Includes timestamps, levels, subsystems, and some entries with hyperlinks.
     pub const LOG_ENTRIES: &[LogEntry] = &[
-        LogEntry {
-            timestamp: "22:05:10",
-            level: LogLevel::Info,
-            subsystem: "renderer",
-            message: "Initialized 80x24 buffer, truecolor enabled",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:10",
-            level: LogLevel::Debug,
-            subsystem: "terminal",
-            message: "Raw mode enabled, mouse tracking active",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:11",
-            level: LogLevel::Info,
-            subsystem: "input",
-            message: "InputParser ready, bracketed paste enabled",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:12",
-            level: LogLevel::Info,
-            subsystem: "renderer",
-            message: "Frame 1: diff=1920 cells, output=4.2KB",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:12",
-            level: LogLevel::Info,
-            subsystem: "renderer",
-            message: "Frame 2: diff=124 cells, output=0.3KB",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:13",
-            level: LogLevel::Warn,
-            subsystem: "input",
-            message: "Focus lost - rendering paused",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:14",
-            level: LogLevel::Info,
-            subsystem: "input",
-            message: "Focus regained - resuming",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:15",
-            level: LogLevel::Info,
-            subsystem: "tour",
-            message: "Starting guided tour (12 steps)",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:16",
-            level: LogLevel::Debug,
-            subsystem: "preview",
-            message: "Alpha blending demo: 50% opacity layer",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:17",
-            level: LogLevel::Info,
-            subsystem: "docs",
-            message: "See OpenTUI repository for more info",
-            link: Some("https://github.com/anomalyco/opentui"),
-        },
-        LogEntry {
-            timestamp: "22:05:18",
-            level: LogLevel::Error,
-            subsystem: "preview",
-            message: "Simulated error (demo only) - press R to retry",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:19",
-            level: LogLevel::Info,
-            subsystem: "unicode",
-            message: "Width calculation: see Unicode TR11",
-            link: Some("https://unicode.org/reports/tr11/"),
-        },
-        LogEntry {
-            timestamp: "22:05:20",
-            level: LogLevel::Debug,
-            subsystem: "renderer",
-            message: "Scissor stack depth: 3, opacity: 0.85",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:21",
-            level: LogLevel::Info,
-            subsystem: "highlight",
-            message: "Rust tokenizer: 847 tokens, 23 lines",
-            link: None,
-        },
-        LogEntry {
-            timestamp: "22:05:22",
-            level: LogLevel::Warn,
-            subsystem: "terminal",
-            message: "No XTVERSION response - assuming basic caps",
-            link: None,
-        },
+        LogEntry::new_static("22:05:10", LogLevel::Info, "renderer", "Initialized 80x24 buffer, truecolor enabled", None),
+        LogEntry::new_static("22:05:10", LogLevel::Debug, "terminal", "Raw mode enabled, mouse tracking active", None),
+        LogEntry::new_static("22:05:11", LogLevel::Info, "input", "InputParser ready, bracketed paste enabled", None),
+        LogEntry::new_static("22:05:12", LogLevel::Info, "renderer", "Frame 1: diff=1920 cells, output=4.2KB", None),
+        LogEntry::new_static("22:05:12", LogLevel::Info, "renderer", "Frame 2: diff=124 cells, output=0.3KB", None),
+        LogEntry::new_static("22:05:13", LogLevel::Warn, "input", "Focus lost - rendering paused", None),
+        LogEntry::new_static("22:05:14", LogLevel::Info, "input", "Focus regained - resuming", None),
+        LogEntry::new_static("22:05:15", LogLevel::Info, "tour", "Starting guided tour (12 steps)", None),
+        LogEntry::new_static("22:05:16", LogLevel::Debug, "preview", "Alpha blending demo: 50% opacity layer", None),
+        LogEntry::new_static("22:05:17", LogLevel::Info, "docs", "See OpenTUI repository for more info", Some("https://github.com/anomalyco/opentui")),
+        LogEntry::new_static("22:05:18", LogLevel::Error, "preview", "Simulated error (demo only) - press R to retry", None),
+        LogEntry::new_static("22:05:19", LogLevel::Info, "unicode", "Width calculation: see Unicode TR11", Some("https://unicode.org/reports/tr11/")),
+        LogEntry::new_static("22:05:20", LogLevel::Debug, "renderer", "Scissor stack depth: 3, opacity: 0.85", None),
+        LogEntry::new_static("22:05:21", LogLevel::Info, "highlight", "Rust tokenizer: 847 tokens, 23 lines", None),
+        LogEntry::new_static("22:05:22", LogLevel::Warn, "terminal", "No XTVERSION response - assuming basic caps", None),
     ];
 
     /// Deterministic metrics for charts and animations.
