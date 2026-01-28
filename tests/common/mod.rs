@@ -1,2 +1,3 @@
 pub mod harness;
+pub mod mock_terminal;
 pub mod pty;
