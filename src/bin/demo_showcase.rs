@@ -1814,7 +1814,7 @@ fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
     // --- Sidebar ---
     if !panels.sidebar.is_empty() {
         draw_rect_bg(buffer, &panels.sidebar, theme.bg2);
-        draw_sidebar(buffer, &panels.sidebar, panels.mode, theme);
+        draw_sidebar(buffer, &panels.sidebar, panels.mode, theme, app);
     }
 
     // --- Editor panel ---
@@ -1938,24 +1938,79 @@ fn draw_too_small_message(buffer: &mut OptimizedBuffer, width: u32, height: u32,
 }
 
 /// Draw the sidebar with section icons/labels.
-fn draw_sidebar(buffer: &mut OptimizedBuffer, sidebar: &Rect, mode: LayoutMode, theme: &Theme) {
-    let x = u32::try_from(sidebar.x).unwrap_or(0) + 1;
+/// Draw the sidebar navigation panel.
+///
+/// Shows all sections with the current one highlighted. In compact mode,
+/// only shows the key shortcut.
+fn draw_sidebar(
+    buffer: &mut OptimizedBuffer,
+    sidebar: &Rect,
+    mode: LayoutMode,
+    theme: &Theme,
+    app: &App,
+) {
+    let x = u32::try_from(sidebar.x).unwrap_or(0);
     let mut y = u32::try_from(sidebar.y).unwrap_or(0) + 1;
+    let is_focused = app.focus == Focus::Sidebar;
 
-    let sections = ["[O] Overview", "[E] Editor", "[P] Preview", "[L] Logs", "[U] Unicode", "[F] FPS"];
+    // Draw focused panel border indicator on left edge if focused
+    if is_focused && mode != LayoutMode::Minimal {
+        for row in 0..sidebar.h.saturating_sub(2) {
+            buffer.draw_text(x, y + row, "│", Style::fg(theme.focus_border));
+        }
+    }
 
-    for section in sections {
-        if y >= u32::try_from(sidebar.bottom()).unwrap_or(0) {
+    let content_x = x + if mode == LayoutMode::Compact { 0 } else { 2 };
+
+    for (i, section) in Section::ALL.iter().enumerate() {
+        let bottom = u32::try_from(sidebar.bottom()).unwrap_or(u32::MAX);
+        if y >= bottom.saturating_sub(1) {
             break;
         }
-        // In compact mode, show only the bracketed letter.
+
+        let is_selected = *section == app.section;
+
+        // Format text based on layout mode
+        let label = section.name();
+        #[allow(clippy::cast_possible_truncation)] // i is always 0..6
+        let key = (b'1' + i as u8) as char;
         let text = if mode == LayoutMode::Compact {
-            &section[..3]
+            format!("{key}")
         } else {
-            section
+            format!(" {key}. {label}")
         };
-        buffer.draw_text(x, y, text, Style::fg(theme.fg2));
+
+        // Style based on selection state
+        let style = if is_selected {
+            if is_focused {
+                // Selected + focused: inverted colors
+                Style::fg(theme.bg0).with_bg(theme.accent_primary).with_bold()
+            } else {
+                // Selected but not focused: highlight bg
+                Style::fg(theme.fg0).with_bg(theme.selection_bg)
+            }
+        } else {
+            // Normal item
+            Style::fg(theme.fg1)
+        };
+
+        // Draw selection indicator
+        if is_selected && mode != LayoutMode::Compact {
+            buffer.draw_text(content_x, y, "▸", Style::fg(theme.accent_primary));
+        }
+
+        // Draw the text (with padding for alignment)
+        let text_x = if mode == LayoutMode::Compact { content_x } else { content_x + 2 };
+        buffer.draw_text(text_x, y, &text, style);
+
         y += 1;
+    }
+
+    // Draw section count at bottom if there's room
+    let bottom = u32::try_from(sidebar.bottom()).unwrap_or(0);
+    if y < bottom.saturating_sub(1) && mode == LayoutMode::Full {
+        let count_text = format!("{}/{}", Section::ALL.len(), Section::ALL.len());
+        buffer.draw_text(content_x + 2, bottom.saturating_sub(2), &count_text, Style::fg(theme.fg2));
     }
 }
 
