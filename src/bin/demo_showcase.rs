@@ -1882,7 +1882,6 @@ fn draw_rect_bg(buffer: &mut OptimizedBuffer, rect: &Rect, color: Rgba) {
 }
 
 /// Draw a horizontal gradient bar.
-/// Draw a horizontal gradient bar.
 #[allow(clippy::cast_precision_loss)] // Precision loss acceptable for gradient
 fn draw_gradient_bar(buffer: &mut OptimizedBuffer, rect: &Rect, start: Rgba, end: Rgba) {
     if rect.is_empty() {
@@ -1937,7 +1936,6 @@ fn draw_too_small_message(buffer: &mut OptimizedBuffer, width: u32, height: u32,
     draw_centered(buffer, center_y.saturating_add(2), msg4, Style::fg(theme.fg0));
 }
 
-/// Draw the sidebar with section icons/labels.
 /// Draw the sidebar navigation panel.
 ///
 /// Shows all sections with the current one highlighted. In compact mode,
