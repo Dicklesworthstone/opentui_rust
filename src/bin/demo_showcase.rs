@@ -19,7 +19,7 @@
 
 use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
-use opentui::terminal::{enable_raw_mode, terminal_size};
+use opentui::terminal::{enable_raw_mode, terminal_size, MouseButton, MouseEventKind};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
@@ -2601,6 +2601,54 @@ impl App {
         }
     }
 
+    /// Convert a mouse hit ID to an action.
+    ///
+    /// This method maps hit test results to app actions for mouse interactions.
+    fn hit_to_action(&self, hit_id: u32, kind: MouseEventKind) -> Action {
+        use hit_ids::*;
+
+        // Only respond to press events (not release/move)
+        if kind != MouseEventKind::Press {
+            return Action::None;
+        }
+
+        match hit_id {
+            // Chrome buttons
+            BTN_HELP => Action::ToggleHelp,
+            BTN_PALETTE => Action::TogglePalette,
+            BTN_TOUR => Action::ToggleTour,
+            BTN_THEME => Action::CycleTheme,
+
+            // Panel focus areas
+            PANEL_SIDEBAR => Action::SetFocus(Focus::Sidebar),
+            PANEL_EDITOR => Action::SetFocus(Focus::Editor),
+            PANEL_PREVIEW => Action::SetFocus(Focus::Preview),
+            PANEL_LOGS => Action::SetFocus(Focus::Logs),
+
+            // Sidebar rows (click to navigate section)
+            id if id >= SIDEBAR_ROW_BASE && id < SIDEBAR_ROW_BASE + 100 => {
+                let idx = (id - SIDEBAR_ROW_BASE) as usize;
+                if let Some(section) = Section::from_index(idx) {
+                    Action::NavigateSection(section)
+                } else {
+                    Action::None
+                }
+            }
+
+            // Palette items (click to select and execute)
+            id if id >= PALETTE_ITEM_BASE && id < PALETTE_ITEM_BASE + 100 => {
+                let idx = (id - PALETTE_ITEM_BASE) as usize;
+                Action::PaletteClick(idx)
+            }
+
+            // Overlay close button
+            OVERLAY_CLOSE => Action::CloseOverlay,
+
+            // No hit or unknown ID
+            _ => Action::None,
+        }
+    }
+
     /// Apply an action to update state.
     #[allow(clippy::too_many_lines)] // State machine pattern - all actions in one match
     fn apply_action(&mut self, action: &Action) {
@@ -3408,14 +3456,28 @@ fn run_interactive(config: &Config) -> io::Result<()> {
         match input_pump.poll(input_timeout) {
             Ok(events) => {
                 for tagged_event in events {
-                    // Handle resize events specially - need to resize renderer
-                    if let Event::Resize(resize) = &tagged_event.event {
-                        let new_w = u32::from(resize.width);
-                        let new_h = u32::from(resize.height);
-                        if let Err(e) = renderer.resize(new_w, new_h) {
-                            eprintln!("Resize error: {e}");
+                    match &tagged_event.event {
+                        // Handle resize events specially - need to resize renderer
+                        Event::Resize(resize) => {
+                            let new_w = u32::from(resize.width);
+                            let new_h = u32::from(resize.height);
+                            if let Err(e) = renderer.resize(new_w, new_h) {
+                                eprintln!("Resize error: {e}");
+                            }
+                            app.handle_resize(new_w, new_h);
                         }
-                        app.handle_resize(new_w, new_h);
+                        // Handle mouse events with hit testing
+                        Event::Mouse(mouse) => {
+                            // Only process left-button clicks
+                            if mouse.button == MouseButton::Left {
+                                if let Some(hit_id) = renderer.hit_test(mouse.x, mouse.y) {
+                                    let action = app.hit_to_action(hit_id, mouse.kind);
+                                    app.apply_action(&action);
+                                }
+                            }
+                        }
+                        // Other events processed below
+                        _ => {}
                     }
                     // Process all events through normal handling
                     app.handle_event(&tagged_event.event);

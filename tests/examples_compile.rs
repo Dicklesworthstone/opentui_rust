@@ -91,3 +91,54 @@ fn demo_showcase_compiles() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Validates that the demo_showcase binary runs successfully in headless mode.
+///
+/// This test exercises the full render pipeline without requiring a TTY:
+/// - Initializes app state
+/// - Executes update + render cycles
+/// - Exercises diff computation
+///
+/// Expects the process to exit 0 with HEADLESS_SMOKE_OK marker in stdout.
+#[test]
+fn demo_showcase_headless_smoke() {
+    // Run the demo in headless mode with a fixed frame count
+    let output = run_cargo(&[
+        "run",
+        "--all-features",
+        "--bin",
+        "demo_showcase",
+        "--",
+        "--headless-smoke",
+        "--max-frames",
+        "10",
+        "--headless-size",
+        "80x24",
+    ]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // On failure, print full output for debugging
+    if !output.status.success() {
+        eprintln!("=== STDOUT ===\n{stdout}");
+        eprintln!("=== STDERR ===\n{stderr}");
+    }
+
+    assert!(
+        output.status.success(),
+        "demo_showcase headless smoke test failed with exit code {:?}\n\
+         STDERR:\n{}\n\n\
+         This indicates a bug in the demo's render pipeline.",
+        output.status.code(),
+        stderr
+    );
+
+    assert!(
+        stdout.contains("HEADLESS_SMOKE_OK"),
+        "demo_showcase headless output missing HEADLESS_SMOKE_OK marker.\n\
+         STDOUT:\n{}\n\n\
+         The demo should print this marker when headless smoke completes successfully.",
+        stdout
+    );
+}
