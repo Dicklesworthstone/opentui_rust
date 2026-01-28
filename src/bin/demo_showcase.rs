@@ -4413,4 +4413,159 @@ mod tests {
         // Progress should decrease by SPEED * dt = 9.0 * 0.05 = 0.45
         assert!((anim.progress - 0.55).abs() < 0.001);
     }
+
+    // ========================================================================
+    // Content Wiring Tests
+    // ========================================================================
+
+    #[test]
+    fn test_demo_content_default() {
+        let content = content::DemoContent::default();
+        assert!(!content.files.is_empty(), "Should have default files");
+        assert_eq!(content.files[0].name, "cache.rs");
+        assert_eq!(content.files[0].language, content::Language::Rust);
+        assert!(!content.seed_logs.is_empty(), "Should have seed logs");
+        assert_eq!(content.metric_params.target_fps, 60);
+    }
+
+    #[test]
+    fn test_demo_content_primary_file() {
+        let content = content::DemoContent::default();
+        let primary = content.primary_file();
+        assert!(primary.is_some());
+        assert_eq!(primary.unwrap().name, "cache.rs");
+    }
+
+    #[test]
+    fn test_demo_content_log_count() {
+        let content = content::DemoContent::default();
+        assert_eq!(content.log_count(), content::LOG_ENTRIES.len());
+    }
+
+    #[test]
+    fn test_demo_content_compute_metrics() {
+        let content = content::DemoContent::default();
+        let m = content.compute_metrics(0);
+        assert!(m.fps > 0);
+        assert!(m.frame_time_ms > 0.0);
+    }
+
+    #[test]
+    fn test_language_extension() {
+        assert_eq!(content::Language::Rust.extension(), "rs");
+        assert_eq!(content::Language::Markdown.extension(), "md");
+        assert_eq!(content::Language::Plain.extension(), "txt");
+    }
+
+    #[test]
+    fn test_app_content_initialization() {
+        let app = App::default();
+        // App should start with content from DemoContent
+        assert_eq!(app.current_file_idx, 0);
+        assert!(!app.logs.is_empty(), "Should have seed logs");
+        assert_eq!(app.target_fps, 60);
+    }
+
+    #[test]
+    fn test_app_current_file() {
+        let app = App::default();
+        let file = app.current_file();
+        assert!(file.is_some());
+        assert_eq!(file.unwrap().name, "cache.rs");
+    }
+
+    #[test]
+    fn test_app_current_file_name() {
+        let app = App::default();
+        assert_eq!(app.current_file_name(), "cache.rs");
+    }
+
+    #[test]
+    fn test_app_current_file_language() {
+        let app = App::default();
+        assert_eq!(app.current_file_language(), content::Language::Rust);
+    }
+
+    #[test]
+    fn test_app_next_file() {
+        let mut app = App::default();
+        assert_eq!(app.current_file_idx, 0);
+        app.next_file();
+        assert_eq!(app.current_file_idx, 1);
+        assert_eq!(app.current_file_name(), "README.md");
+        // Wrap around
+        app.next_file();
+        assert_eq!(app.current_file_idx, 0);
+        assert_eq!(app.current_file_name(), "cache.rs");
+    }
+
+    #[test]
+    fn test_app_prev_file() {
+        let mut app = App::default();
+        assert_eq!(app.current_file_idx, 0);
+        // Wrap to last
+        app.prev_file();
+        assert_eq!(app.current_file_idx, 1);
+        assert_eq!(app.current_file_name(), "README.md");
+        app.prev_file();
+        assert_eq!(app.current_file_idx, 0);
+    }
+
+    #[test]
+    fn test_app_metrics_update() {
+        let mut app = App::default();
+        let initial_metrics = app.metrics;
+        app.tick();
+        // After tick, frame_count is 1, so metrics should be recomputed
+        assert_eq!(app.frame_count, 1);
+        // Metrics values change with frame count
+        assert!(app.metrics.memory_bytes != initial_metrics.memory_bytes
+            || app.metrics.cells_changed != initial_metrics.cells_changed);
+    }
+
+    #[test]
+    fn test_app_add_log() {
+        let mut app = App::default();
+        let initial_count = app.logs.len();
+        app.add_log(content::LogEntry {
+            timestamp: "23:00:00",
+            level: content::LogLevel::Info,
+            subsystem: "test",
+            message: "Test log entry",
+            link: None,
+        });
+        assert_eq!(app.logs.len(), initial_count + 1);
+    }
+
+    #[test]
+    fn test_metrics_compute_deterministic() {
+        // Same frame + fps should produce same metrics
+        let m1 = content::Metrics::compute(100, 60);
+        let m2 = content::Metrics::compute(100, 60);
+        assert_eq!(m1.fps, m2.fps);
+        assert_eq!(m1.cpu_percent, m2.cpu_percent);
+        assert_eq!(m1.memory_bytes, m2.memory_bytes);
+        assert!((m1.pulse - m2.pulse).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_metrics_memory_display() {
+        let m = content::Metrics {
+            memory_bytes: 50_000_000,
+            ..Default::default()
+        };
+        assert_eq!(m.memory_display(), "50.0MB");
+
+        let m2 = content::Metrics {
+            memory_bytes: 500_000,
+            ..Default::default()
+        };
+        assert_eq!(m2.memory_display(), "500.0KB");
+
+        let m3 = content::Metrics {
+            memory_bytes: 500,
+            ..Default::default()
+        };
+        assert_eq!(m3.memory_display(), "500B");
+    }
 }
