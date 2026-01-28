@@ -747,6 +747,59 @@ mod proptests {
             let idx = color.to_16_color();
             prop_assert!(idx < 16);
         }
+
+        /// HSV conversion produces valid RGB values in [0, 1].
+        #[test]
+        fn hsv_produces_valid_rgb(
+            h in -720.0f32..=720.0f32,
+            s in 0.0f32..=1.0f32,
+            v in 0.0f32..=1.0f32
+        ) {
+            let rgb = Rgba::from_hsv(h, s, v);
+            prop_assert!(rgb.r >= 0.0 && rgb.r <= 1.0, "R out of range: {}", rgb.r);
+            prop_assert!(rgb.g >= 0.0 && rgb.g <= 1.0, "G out of range: {}", rgb.g);
+            prop_assert!(rgb.b >= 0.0 && rgb.b <= 1.0, "B out of range: {}", rgb.b);
+        }
+
+        /// HSV hue is periodic with period 360.
+        #[test]
+        fn hsv_hue_periodicity(
+            h in 0.0f32..=360.0f32,
+            s in 0.0f32..=1.0f32,
+            v in 0.0f32..=1.0f32
+        ) {
+            let c1 = Rgba::from_hsv(h, s, v);
+            let c2 = Rgba::from_hsv(h + 360.0, s, v);
+            prop_assert!((c1.r - c2.r).abs() < 1e-5, "R mismatch at hue {h}");
+            prop_assert!((c1.g - c2.g).abs() < 1e-5, "G mismatch at hue {h}");
+            prop_assert!((c1.b - c2.b).abs() < 1e-5, "B mismatch at hue {h}");
+        }
+
+        /// HSV negative hue wraps correctly.
+        #[test]
+        fn hsv_negative_hue_wrap(
+            h in 0.0f32..=360.0f32,
+            s in 0.0f32..=1.0f32,
+            v in 0.0f32..=1.0f32
+        ) {
+            let c_neg = Rgba::from_hsv(-h, s, v);
+            let c_pos = Rgba::from_hsv(360.0 - h, s, v);
+            prop_assert!((c_neg.r - c_pos.r).abs() < 1e-5, "R mismatch at -hue {h}");
+            prop_assert!((c_neg.g - c_pos.g).abs() < 1e-5, "G mismatch at -hue {h}");
+            prop_assert!((c_neg.b - c_pos.b).abs() < 1e-5, "B mismatch at -hue {h}");
+        }
+
+        /// HSV with s=0 produces grayscale (r=g=b=v).
+        #[test]
+        fn hsv_zero_saturation_is_gray(
+            h in 0.0f32..=360.0f32,
+            v in 0.0f32..=1.0f32
+        ) {
+            let c = Rgba::from_hsv(h, 0.0, v);
+            prop_assert!((c.r - v).abs() < 1e-5, "R != V for zero saturation");
+            prop_assert!((c.g - v).abs() < 1e-5, "G != V for zero saturation");
+            prop_assert!((c.b - v).abs() < 1e-5, "B != V for zero saturation");
+        }
     }
 }
 
@@ -1065,5 +1118,415 @@ mod porter_duff_tests {
             "Green should be ~0, got {}",
             result.g
         );
+    }
+}
+
+// =========================================================================
+// Color Edge Case Tests (bd-ieb0)
+// =========================================================================
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+
+    // --- Blend edge cases with ALPHA_EPSILON threshold ---
+
+    #[test]
+    fn test_blend_both_alphas_near_epsilon() {
+        // Both alphas near the ALPHA_EPSILON (1e-6) threshold
+        let fg = Rgba::WHITE.with_alpha(1e-7);
+        let bg = Rgba::BLACK.with_alpha(1e-7);
+
+        let result = fg.blend_over(bg);
+        // Combined alpha ~2e-7 which is below ALPHA_EPSILON → TRANSPARENT
+        assert!(!result.r.is_nan());
+        assert!(!result.a.is_nan());
+    }
+
+    #[test]
+    fn test_blend_dst_alpha_zero_src_semi() {
+        // Semi-transparent over fully transparent background
+        let fg = Rgba::RED.with_alpha(0.5);
+        let bg = Rgba::TRANSPARENT;
+
+        let result = fg.blend_over(bg);
+        // out_a = 0.5 + 0.0*(1-0.5) = 0.5
+        assert!((result.a - 0.5).abs() < 1e-5);
+        // Color should be pure red (only fg contributes)
+        assert!((result.r - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_blend_sequential_accuracy_drift() {
+        // Many sequential blends should not accumulate significant errors
+        let layer = Rgba::WHITE.with_alpha(0.1);
+        let mut result = Rgba::BLACK;
+
+        for _ in 0..20 {
+            result = layer.blend_over(result);
+        }
+
+        // After 20 layers of 10% white over black, result should be valid
+        assert!(result.r >= 0.0 && result.r <= 1.0);
+        assert!(result.g >= 0.0 && result.g <= 1.0);
+        assert!(result.b >= 0.0 && result.b <= 1.0);
+        assert!(result.a >= 0.0 && result.a <= 1.0);
+        // Should be getting brighter but not fully white
+        assert!(
+            result.r > 0.5,
+            "Should be noticeably brighter after 20 layers"
+        );
+        assert!(result.r < 1.0, "Should not be fully white");
+    }
+
+    // --- from_hex() invalid formats ---
+
+    #[test]
+    fn test_from_hex_invalid_length() {
+        assert_eq!(Rgba::from_hex(""), None);
+        assert_eq!(Rgba::from_hex("#"), None);
+        assert_eq!(Rgba::from_hex("#F"), None);
+        assert_eq!(Rgba::from_hex("#FF"), None);
+        assert_eq!(Rgba::from_hex("#FFFF"), None);
+        assert_eq!(Rgba::from_hex("#FFFFF"), None);
+        assert_eq!(Rgba::from_hex("#FFFFFFF"), None);
+        assert_eq!(Rgba::from_hex("#FFFFFFFFF"), None);
+    }
+
+    #[test]
+    fn test_from_hex_invalid_chars() {
+        assert_eq!(Rgba::from_hex("#GGGGGG"), None);
+        assert_eq!(Rgba::from_hex("#ZZZZZZ"), None);
+        assert_eq!(Rgba::from_hex("#12345G"), None);
+        assert_eq!(Rgba::from_hex("#XYZ"), None);
+    }
+
+    #[test]
+    fn test_from_hex_all_valid_3char() {
+        // 3-char hex: each nibble is doubled (#RGB → #RRGGBB)
+        let c = Rgba::from_hex("#F00").unwrap();
+        assert_eq!(c.to_rgb_u8(), (255, 0, 0));
+
+        let c = Rgba::from_hex("#0F0").unwrap();
+        assert_eq!(c.to_rgb_u8(), (0, 255, 0));
+
+        let c = Rgba::from_hex("#00F").unwrap();
+        assert_eq!(c.to_rgb_u8(), (0, 0, 255));
+    }
+
+    #[test]
+    fn test_from_hex_8char_alpha() {
+        // RRGGBBAA format
+        let c = Rgba::from_hex("#FF000080").unwrap();
+        assert_eq!(c.to_rgb_u8(), (255, 0, 0));
+        let a_u8 = (c.a * 255.0).round() as u8;
+        assert_eq!(a_u8, 128); // 0x80 = 128
+    }
+
+    // --- from_hsv() full hue range ---
+
+    #[test]
+    fn test_from_hsv_all_primary_hues() {
+        // Test all six primary hue sectors (0, 60, 120, 180, 240, 300)
+        let hue_colors = [
+            (0.0, (1.0, 0.0, 0.0)),   // Red
+            (60.0, (1.0, 1.0, 0.0)),  // Yellow
+            (120.0, (0.0, 1.0, 0.0)), // Green
+            (180.0, (0.0, 1.0, 1.0)), // Cyan
+            (240.0, (0.0, 0.0, 1.0)), // Blue
+            (300.0, (1.0, 0.0, 1.0)), // Magenta
+        ];
+
+        for (hue, (expected_r, expected_g, expected_b)) in hue_colors {
+            let c = Rgba::from_hsv(hue, 1.0, 1.0);
+            assert!(
+                (c.r - expected_r).abs() < 0.02,
+                "Hue {hue}: R expected {expected_r}, got {}",
+                c.r
+            );
+            assert!(
+                (c.g - expected_g).abs() < 0.02,
+                "Hue {hue}: G expected {expected_g}, got {}",
+                c.g
+            );
+            assert!(
+                (c.b - expected_b).abs() < 0.02,
+                "Hue {hue}: B expected {expected_b}, got {}",
+                c.b
+            );
+        }
+    }
+
+    #[test]
+    fn test_from_hsv_zero_value_is_black() {
+        // Value=0 should always be black regardless of hue/saturation
+        for hue in [0.0, 60.0, 120.0, 240.0, 359.0] {
+            let c = Rgba::from_hsv(hue, 1.0, 0.0);
+            assert!(
+                c.r < 0.01 && c.g < 0.01 && c.b < 0.01,
+                "V=0 should be black at hue {hue}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_from_hsv_zero_saturation_is_gray() {
+        // S=0 should always be gray (r=g=b=v)
+        let c = Rgba::from_hsv(180.0, 0.0, 0.7);
+        assert!((c.r - 0.7).abs() < 0.01);
+        assert!((c.g - 0.7).abs() < 0.01);
+        assert!((c.b - 0.7).abs() < 0.01);
+    }
+
+    // --- Luminance calculation accuracy ---
+
+    #[test]
+    fn test_luminance_known_values() {
+        // Black = 0.0
+        assert!((Rgba::BLACK.luminance() - 0.0).abs() < 1e-6);
+        // White = 0.299 + 0.587 + 0.114 = 1.0
+        assert!((Rgba::WHITE.luminance() - 1.0).abs() < 1e-6);
+        // Pure red = 0.299
+        assert!((Rgba::RED.luminance() - 0.299).abs() < 1e-4);
+        // Pure green = 0.587
+        assert!((Rgba::GREEN.luminance() - 0.587).abs() < 1e-4);
+        // Pure blue = 0.114
+        assert!((Rgba::BLUE.luminance() - 0.114).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_luminance_green_brightest() {
+        // Green should have highest luminance of the primaries (per BT.601)
+        assert!(Rgba::GREEN.luminance() > Rgba::RED.luminance());
+        assert!(Rgba::GREEN.luminance() > Rgba::BLUE.luminance());
+    }
+
+    // --- bits_eq() and to_bits() ---
+
+    #[test]
+    fn test_bits_eq_identical_colors() {
+        assert!(Rgba::RED.bits_eq(Rgba::RED));
+        assert!(Rgba::BLACK.bits_eq(Rgba::BLACK));
+        assert!(Rgba::WHITE.bits_eq(Rgba::WHITE));
+        assert!(Rgba::TRANSPARENT.bits_eq(Rgba::TRANSPARENT));
+    }
+
+    #[test]
+    fn test_bits_eq_different_colors() {
+        assert!(!Rgba::RED.bits_eq(Rgba::BLUE));
+        assert!(!Rgba::BLACK.bits_eq(Rgba::WHITE));
+        assert!(!Rgba::RED.bits_eq(Rgba::RED.with_alpha(0.5)));
+    }
+
+    #[test]
+    fn test_to_bits_deterministic() {
+        let c = Rgba::new(0.1, 0.2, 0.3, 0.4);
+        let b1 = c.to_bits();
+        let b2 = c.to_bits();
+        assert_eq!(b1, b2);
+    }
+
+    #[test]
+    fn test_to_bits_unique_per_color() {
+        // Different colors should have different bit patterns
+        let colors = [Rgba::RED, Rgba::GREEN, Rgba::BLUE, Rgba::WHITE, Rgba::BLACK];
+        for (i, a) in colors.iter().enumerate() {
+            for (j, b) in colors.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a.to_bits(), b.to_bits(), "Colors {i} and {j} should differ");
+                }
+            }
+        }
+    }
+
+    // --- to_256_color() coverage ---
+
+    #[test]
+    fn test_to_256_pure_colors() {
+        // Pure red, green, blue should map to color cube
+        let r = Rgba::RED.to_256_color();
+        let g = Rgba::GREEN.to_256_color();
+        let b = Rgba::BLUE.to_256_color();
+
+        // Pure colors are in the 6x6x6 cube (16-231)
+        assert!((16..=231).contains(&r), "Red={r} should be in cube");
+        assert!((16..=231).contains(&g), "Green={g} should be in cube");
+        assert!((16..=231).contains(&b), "Blue={b} should be in cube");
+
+        // They should be different
+        assert_ne!(r, g);
+        assert_ne!(g, b);
+        assert_ne!(r, b);
+    }
+
+    #[test]
+    fn test_to_256_grayscale_range() {
+        // Grayscale colors should use the grayscale ramp (232-255)
+        for val in [64, 128, 192] {
+            let gray = Rgba::from_rgb_u8(val, val, val);
+            let idx = gray.to_256_color();
+            assert!(
+                (232..=255).contains(&idx),
+                "Gray({val}) → idx={idx} should be in grayscale ramp"
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_256_black_and_white() {
+        let black_idx = Rgba::BLACK.to_256_color();
+        let white_idx = Rgba::WHITE.to_256_color();
+        // Should map to different palette entries
+        assert_ne!(black_idx, white_idx);
+    }
+
+    // --- to_16_color() all mappings ---
+
+    #[test]
+    fn test_to_16_color_all_basic() {
+        // All 16 basic ANSI colors should be representable
+        let colors_and_expected: &[(Rgba, &[u8])] = &[
+            (Rgba::BLACK, &[0]),
+            (Rgba::RED, &[1, 9]),
+            (Rgba::GREEN, &[2, 10]),
+            (Rgba::BLUE, &[4, 12]),
+            (Rgba::WHITE, &[7, 15]),
+        ];
+
+        for (color, expected_indices) in colors_and_expected {
+            let idx = color.to_16_color();
+            assert!(
+                expected_indices.contains(&idx),
+                "Color {color:?} mapped to {idx}, expected one of {expected_indices:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_to_16_color_range() {
+        // All outputs should be in [0, 15]
+        let test_colors = [
+            Rgba::RED,
+            Rgba::GREEN,
+            Rgba::BLUE,
+            Rgba::WHITE,
+            Rgba::BLACK,
+            Rgba::from_rgb_u8(128, 128, 0),   // yellow-ish
+            Rgba::from_rgb_u8(0, 128, 128),   // cyan-ish
+            Rgba::from_rgb_u8(128, 0, 128),   // magenta-ish
+            Rgba::from_rgb_u8(64, 64, 64),    // dark gray
+            Rgba::from_rgb_u8(200, 200, 200), // light gray
+        ];
+
+        for color in &test_colors {
+            let idx = color.to_16_color();
+            assert!(idx <= 15, "to_16_color returned {idx} for {color:?}");
+        }
+    }
+
+    // --- is_transparent() and is_opaque() ---
+
+    #[test]
+    fn test_is_transparent() {
+        assert!(Rgba::TRANSPARENT.is_transparent());
+        assert!(!Rgba::BLACK.is_transparent()); // alpha=1.0
+        assert!(!Rgba::RED.with_alpha(0.5).is_transparent());
+    }
+
+    #[test]
+    fn test_is_opaque() {
+        assert!(Rgba::RED.is_opaque());
+        assert!(Rgba::BLACK.is_opaque());
+        assert!(!Rgba::TRANSPARENT.is_opaque());
+        assert!(!Rgba::RED.with_alpha(0.5).is_opaque());
+    }
+
+    // --- multiply_alpha ---
+
+    #[test]
+    fn test_multiply_alpha_zero_factor() {
+        let c = Rgba::RED.multiply_alpha(0.0);
+        assert_eq!(c.a, 0.0);
+        // RGB should be preserved
+        assert_eq!(c.r, 1.0);
+    }
+
+    #[test]
+    fn test_multiply_alpha_half() {
+        let c = Rgba::GREEN.multiply_alpha(0.5);
+        assert!((c.a - 0.5).abs() < 1e-6);
+        assert_eq!(c.g, 1.0); // RGB preserved
+    }
+
+    #[test]
+    fn test_multiply_alpha_identity() {
+        let c = Rgba::BLUE.multiply_alpha(1.0);
+        assert!((c.a - 1.0).abs() < 1e-6);
+    }
+
+    // --- lerp ---
+
+    #[test]
+    fn test_lerp_endpoints() {
+        let a = Rgba::RED;
+        let b = Rgba::BLUE;
+
+        // t=0 should return a
+        let r0 = a.lerp(b, 0.0);
+        assert!(a.bits_eq(r0));
+
+        // t=1 should return b
+        let r1 = a.lerp(b, 1.0);
+        assert!((r1.r - b.r).abs() < 1e-5);
+        assert!((r1.b - b.b).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lerp_midpoint() {
+        let a = Rgba::BLACK;
+        let b = Rgba::WHITE;
+        let mid = a.lerp(b, 0.5);
+
+        assert!((mid.r - 0.5).abs() < 1e-4);
+        assert!((mid.g - 0.5).abs() < 1e-4);
+        assert!((mid.b - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_lerp_clamps_t() {
+        let a = Rgba::RED;
+        let b = Rgba::BLUE;
+
+        // t < 0 should clamp to 0 → returns a
+        let r = a.lerp(b, -1.0);
+        assert!(a.bits_eq(r));
+
+        // t > 1 should clamp to 1 → returns b
+        let r = a.lerp(b, 2.0);
+        assert!((r.r - b.r).abs() < 1e-5);
+        assert!((r.b - b.b).abs() < 1e-5);
+    }
+
+    // --- with_alpha ---
+
+    #[test]
+    fn test_with_alpha_preserves_rgb() {
+        let c = Rgba::new(0.1, 0.2, 0.3, 1.0);
+        let c2 = c.with_alpha(0.5);
+        assert_eq!(c2.r, c.r);
+        assert_eq!(c2.g, c.g);
+        assert_eq!(c2.b, c.b);
+        assert_eq!(c2.a, 0.5);
+    }
+
+    // --- to_rgb_u8 clamping ---
+
+    #[test]
+    fn test_to_rgb_u8_clamps_overflow() {
+        // Values > 1.0 should clamp to 255
+        let c = Rgba::new(1.5, 2.0, -0.5, 1.0);
+        let (r, g, b) = c.to_rgb_u8();
+        assert_eq!(r, 255); // 1.5 clamped to 255
+        assert_eq!(g, 255); // 2.0 clamped to 255
+        assert_eq!(b, 0); // -0.5 clamped to 0
     }
 }

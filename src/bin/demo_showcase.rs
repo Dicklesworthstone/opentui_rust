@@ -29,7 +29,7 @@ use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_s
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
-use opentui::{CellContent, Renderer, RendererOptions, Rgba, Style};
+use opentui::{Cell, CellContent, Renderer, RendererOptions, Rgba, Style};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -8068,6 +8068,163 @@ mod tests {
         assert_eq!(app.logs.len(), initial_count + 1);
     }
 
+    // ========================================================================
+    // Bounded Log VecDeque Tests
+    // ========================================================================
+
+    #[test]
+    fn test_max_logs_constant() {
+        // Verify MAX_LOGS is the expected value
+        assert_eq!(App::MAX_LOGS, 1000);
+    }
+
+    #[test]
+    fn test_add_log_under_limit() {
+        // When logs.len() < MAX_LOGS, no eviction should occur
+        let mut app = App::default();
+        app.logs.clear();
+
+        // Add a few logs
+        for i in 0..10 {
+            app.add_log(content::LogEntry::new_runtime(
+                format!("00:00:{i:02}"),
+                content::LogLevel::Info,
+                "test".to_string(),
+                format!("Log entry {i}"),
+            ));
+        }
+
+        // All logs should be retained
+        assert_eq!(app.logs.len(), 10);
+    }
+
+    #[test]
+    fn test_add_log_at_limit_evicts_oldest() {
+        let mut app = App::default();
+        app.logs.clear();
+
+        // Fill to capacity
+        for i in 0..App::MAX_LOGS {
+            app.add_log(content::LogEntry::new_runtime(
+                format!("{i:06}"),
+                content::LogLevel::Info,
+                "test".to_string(),
+                format!("Log {i}"),
+            ));
+        }
+        assert_eq!(app.logs.len(), App::MAX_LOGS);
+
+        // The first entry should have timestamp "000000"
+        assert_eq!(app.logs.front().unwrap().timestamp.as_ref(), "000000");
+
+        // Add one more
+        app.add_log(content::LogEntry::new_runtime(
+            "NEW".to_string(),
+            content::LogLevel::Info,
+            "test".to_string(),
+            "Newest entry".to_string(),
+        ));
+
+        // Should still be at MAX_LOGS
+        assert_eq!(app.logs.len(), App::MAX_LOGS);
+
+        // Oldest entry should have been evicted
+        assert_ne!(app.logs.front().unwrap().timestamp.as_ref(), "000000");
+        // Should now start at "000001"
+        assert_eq!(app.logs.front().unwrap().timestamp.as_ref(), "000001");
+
+        // Newest entry should be at the back
+        assert_eq!(app.logs.back().unwrap().timestamp.as_ref(), "NEW");
+    }
+
+    #[test]
+    fn test_add_log_preserves_order() {
+        let mut app = App::default();
+        app.logs.clear();
+
+        // Add logs in order
+        for i in 0..5 {
+            app.add_log(content::LogEntry::new_runtime(
+                format!("{i}"),
+                content::LogLevel::Info,
+                "test".to_string(),
+                format!("Message {i}"),
+            ));
+        }
+
+        // Verify FIFO order: first in = front, last in = back
+        let timestamps: Vec<&str> = app.logs.iter().map(|e| e.timestamp.as_ref()).collect();
+        assert_eq!(timestamps, vec!["0", "1", "2", "3", "4"]);
+    }
+
+    #[test]
+    fn test_add_log_overflow_behavior() {
+        let mut app = App::default();
+        app.logs.clear();
+
+        // Fill to capacity plus 5
+        let total = App::MAX_LOGS + 5;
+        for i in 0..total {
+            app.add_log(content::LogEntry::new_runtime(
+                format!("{i:06}"),
+                content::LogLevel::Info,
+                "test".to_string(),
+                format!("Log {i}"),
+            ));
+        }
+
+        // Should be capped at MAX_LOGS
+        assert_eq!(app.logs.len(), App::MAX_LOGS);
+
+        // First 5 entries should have been evicted
+        // Oldest should now be "000005"
+        assert_eq!(app.logs.front().unwrap().timestamp.as_ref(), "000005");
+
+        // Newest should be the last one added
+        let last = total - 1;
+        assert_eq!(
+            app.logs.back().unwrap().timestamp.as_ref(),
+            format!("{last:06}")
+        );
+    }
+
+    #[test]
+    fn test_dropped_log_count_increments() {
+        // Reset the counter first
+        let _ = dropped_log_count().swap(0, std::sync::atomic::Ordering::Relaxed);
+
+        // Increment multiple times
+        dropped_log_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        dropped_log_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        dropped_log_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Check that it accumulated
+        let count = dropped_log_count().load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(count, 3);
+
+        // Clean up
+        let _ = dropped_log_count().swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_dropped_counter_swaps_zero() {
+        // Reset the counter first
+        let _ = dropped_log_count().swap(0, std::sync::atomic::Ordering::Relaxed);
+
+        // Increment to 5
+        for _ in 0..5 {
+            dropped_log_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        // Swap with 0 should return 5 and reset to 0
+        let dropped = dropped_log_count().swap(0, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(dropped, 5);
+
+        // Counter should now be 0
+        let after = dropped_log_count().load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(after, 0);
+    }
+
     #[test]
     fn test_metrics_compute_deterministic() {
         // Same frame + fps should produce same metrics
@@ -8254,5 +8411,693 @@ mod tests {
         // Select down at end should stay at end
         state.select_next();
         assert_eq!(state.selected, last_idx);
+    }
+
+    // ========================================================================
+    // Metrics Compute Wraparound Tests (bd-2inw)
+    // ========================================================================
+
+    #[test]
+    fn test_frame_modulo_prevents_overflow() {
+        // FRAME_CYCLE = 10_000_000
+        // frame % FRAME_CYCLE should always stay bounded
+        const FRAME_CYCLE: u64 = 10_000_000;
+
+        // Test at various large frame counts
+        for frame in [
+            0,
+            1,
+            FRAME_CYCLE - 1,
+            FRAME_CYCLE,
+            FRAME_CYCLE + 1,
+            u64::MAX,
+        ] {
+            let m = content::Metrics::compute(frame, 60);
+            // Should not panic and produce valid results
+            assert!(m.fps >= 1, "FPS should be >= 1 at frame {frame}");
+            assert!(m.fps <= 120, "FPS should be <= 120 at frame {frame}");
+        }
+    }
+
+    #[test]
+    fn test_fps_variation_bounded() {
+        // The sine-based variation should keep fps in [1, 120]
+        // Test across a full sine cycle
+        for frame in 0..1000 {
+            let m = content::Metrics::compute(frame, 60);
+            assert!(
+                m.fps >= 1 && m.fps <= 120,
+                "FPS {} out of bounds at frame {}",
+                m.fps,
+                frame
+            );
+        }
+    }
+
+    #[test]
+    fn test_fps_clamp_prevents_negative() {
+        // Even with low target FPS, result should be clamped to >= 1
+        let m = content::Metrics::compute(0, 1);
+        assert!(m.fps >= 1, "FPS should never be less than 1");
+
+        // Test with minimum possible target_fps
+        let m = content::Metrics::compute(0, 0);
+        // target_fps.max(1) ensures we use at least 1
+        assert!(m.fps >= 1, "FPS should be >= 1 even with target_fps=0");
+    }
+
+    #[test]
+    fn test_frame_time_no_div_by_zero() {
+        // fps.max(1.0) should prevent division by zero
+        for target_fps in [0, 1, 30, 60, 120] {
+            for frame in [0, 1, 100, 1000] {
+                let m = content::Metrics::compute(frame, target_fps);
+                assert!(
+                    m.frame_time_ms.is_finite(),
+                    "frame_time_ms should be finite at frame={frame}, target_fps={target_fps}"
+                );
+                assert!(
+                    m.frame_time_ms > 0.0,
+                    "frame_time_ms should be positive at frame={frame}, target_fps={target_fps}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_cast_after_clamp() {
+        // Ensure u32 cast happens after clamping (no undefined behavior)
+        // The dangerous case would be a negative float cast to u32
+        // Test with frame values that push sine to negative territory
+        for frame in 0..200 {
+            let m = content::Metrics::compute(frame, 60);
+            // u32 cast should have succeeded without UB
+            assert!(m.fps >= 1);
+            assert!(m.fps <= 120);
+            assert!(m.cpu_percent <= 100);
+        }
+    }
+
+    #[test]
+    fn test_metrics_at_frame_zero() {
+        let m = content::Metrics::compute(0, 60);
+
+        // At frame 0:
+        // fps_variation = sin(0) * 2.0 = 0.0, so fps should be ~60
+        assert_eq!(m.fps, 60);
+
+        // frame_time_ms = 1000.0 / 60.0
+        assert!((m.frame_time_ms - 1000.0 / 60.0).abs() < 0.01);
+
+        // cpu: sin(0)*10 + 15 = 15
+        assert_eq!(m.cpu_percent, 15);
+
+        // memory: 50_000_000 + (0 * 10_000) = 50_000_000
+        assert_eq!(m.memory_bytes, 50_000_000);
+
+        // pulse at frame 0: sin(0) = 0.0
+        assert!((m.pulse - 0.0).abs() < 0.01);
+
+        // cells_changed at frame 0: 1920 (full screen)
+        assert_eq!(m.cells_changed, 1920);
+
+        // bytes_written: 1920 * 8 + 100 = 15460
+        assert_eq!(m.bytes_written, 1920 * 8 + 100);
+    }
+
+    #[test]
+    fn test_metrics_at_frame_max_u64() {
+        // u64::MAX % FRAME_CYCLE should produce a valid frame_mod
+        let m = content::Metrics::compute(u64::MAX, 60);
+
+        // Should not panic or overflow
+        assert!(m.fps >= 1 && m.fps <= 120);
+        assert!(m.frame_time_ms.is_finite() && m.frame_time_ms > 0.0);
+        assert!(m.cpu_percent <= 100);
+        assert!(m.pulse >= 0.0 && m.pulse <= 1.0);
+        assert!(m.cells_changed <= 500);
+    }
+
+    #[test]
+    fn test_metrics_frame_cycle_boundary() {
+        // At exactly FRAME_CYCLE, frame_mod wraps to 0
+        // Only frame_mod-derived values repeat; pulse uses frame%60 and memory uses frame%1000
+        const FRAME_CYCLE: u64 = 10_000_000;
+
+        let m_zero = content::Metrics::compute(0, 60);
+        let m_cycle = content::Metrics::compute(FRAME_CYCLE, 60);
+
+        // frame_mod-derived values should be identical
+        assert_eq!(m_zero.fps, m_cycle.fps);
+        assert_eq!(m_zero.cpu_percent, m_cycle.cpu_percent);
+
+        // Memory uses frame%1000: both 0 and 10_000_000 have frame%1000==0
+        assert_eq!(m_zero.memory_bytes, m_cycle.memory_bytes);
+    }
+
+    #[test]
+    fn test_metrics_pulse_range() {
+        // Pulse should be in [0.0, 1.0] for all frames
+        // pulse_phase = (frame % 60) / 60.0 is in [0.0, 1.0)
+        // pulse = sin(phase * PI) is in [0.0, 1.0]
+        for frame in 0..120 {
+            let m = content::Metrics::compute(frame, 60);
+            assert!(
+                m.pulse >= -0.01 && m.pulse <= 1.01,
+                "Pulse {} out of range at frame {}",
+                m.pulse,
+                frame
+            );
+        }
+    }
+
+    #[test]
+    fn test_metrics_cpu_bounded() {
+        // CPU should be clamped to [0, 100]
+        for frame in 0..1000 {
+            let m = content::Metrics::compute(frame, 60);
+            assert!(
+                m.cpu_percent <= 100,
+                "CPU {}% out of bounds at frame {}",
+                m.cpu_percent,
+                frame
+            );
+        }
+    }
+
+    #[test]
+    fn test_metrics_cells_changed_bounded() {
+        // cells_changed: 1920 at frame 0, then min(50 + ..., 500)
+        let m0 = content::Metrics::compute(0, 60);
+        assert_eq!(m0.cells_changed, 1920);
+
+        for frame in 1..200 {
+            let m = content::Metrics::compute(frame, 60);
+            assert!(
+                m.cells_changed <= 500,
+                "cells_changed {} exceeds max at frame {}",
+                m.cells_changed,
+                frame
+            );
+            assert!(
+                m.cells_changed >= 50,
+                "cells_changed {} below min at frame {}",
+                m.cells_changed,
+                frame
+            );
+        }
+    }
+
+    #[test]
+    fn test_metrics_memory_grows_cyclically() {
+        // memory_bytes = 50_000_000 + (frame % 1000) * 10_000
+        // Should cycle every 1000 frames
+        let m0 = content::Metrics::compute(0, 60);
+        let m999 = content::Metrics::compute(999, 60);
+        let m1000 = content::Metrics::compute(1000, 60);
+
+        // Frame 0 and 1000 should have same memory (both frame%1000 == 0)
+        assert_eq!(m0.memory_bytes, m1000.memory_bytes);
+        // Frame 999 should be the max in the cycle
+        assert_eq!(m999.memory_bytes, 50_000_000 + 999 * 10_000);
+    }
+
+    // =========================================================
+    // extract_buffer_row Overflow Prevention Tests (bd-3mtq)
+    // =========================================================
+
+    /// Helper: create a buffer and fill row 0 with given chars starting at col 0.
+    fn buffer_with_row(width: u32, height: u32, chars: &[char]) -> OptimizedBuffer {
+        let mut buf = OptimizedBuffer::new(width, height);
+        let style = Style::default();
+        for (i, &ch) in chars.iter().enumerate() {
+            let x = i as u32;
+            if x < width {
+                buf.set(x, 0, Cell::new(ch, style));
+            }
+        }
+        buf
+    }
+
+    #[test]
+    fn test_extract_normal_range() {
+        let buf = buffer_with_row(10, 1, &['H', 'e', 'l', 'l', 'o']);
+        let result = extract_buffer_row(&buf, 0, 0, 10);
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn test_extract_with_start_offset() {
+        let buf = buffer_with_row(10, 1, &['A', 'B', 'C', 'D', 'E']);
+        let result = extract_buffer_row(&buf, 0, 2, 3);
+        assert_eq!(result, "CDE");
+    }
+
+    #[test]
+    fn test_extract_empty_buffer() {
+        let buf = OptimizedBuffer::new(10, 1);
+        let result = extract_buffer_row(&buf, 0, 0, 10);
+        // All cells are Empty, so nothing is pushed
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_saturating_at_max() {
+        // start_x near u32::MAX, max_len that would overflow
+        // saturating_add should clamp to u32::MAX
+        let buf = OptimizedBuffer::new(10, 1);
+        let result = extract_buffer_row(&buf, 0, u32::MAX - 10, 20);
+        // All positions are beyond buffer bounds (10 wide), so get() returns None
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_start_at_u32_max() {
+        let buf = OptimizedBuffer::new(10, 1);
+        let result = extract_buffer_row(&buf, 0, u32::MAX, 1);
+        // start_x=MAX, end_x=MAX+1 saturates to MAX, so range MAX..MAX is empty
+        // Actually saturating_add(MAX, 1) = MAX, so range is MAX..MAX which is empty
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_both_max() {
+        // Both start_x and max_len at u32::MAX
+        let buf = OptimizedBuffer::new(10, 1);
+        let result = extract_buffer_row(&buf, 0, u32::MAX, u32::MAX);
+        // saturating_add(MAX, MAX) = MAX, range MAX..MAX is empty
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_at_buffer_edge() {
+        // Buffer is 5 wide, extract starting at col 3 with max_len 10
+        // Should only get cols 3 and 4 (within bounds), cols 5..13 return None
+        let buf = buffer_with_row(5, 1, &['A', 'B', 'C', 'D', 'E']);
+        let result = extract_buffer_row(&buf, 0, 3, 10);
+        assert_eq!(result, "DE");
+    }
+
+    #[test]
+    fn test_extract_start_beyond_buffer() {
+        // start_x is past the buffer width
+        let buf = buffer_with_row(5, 1, &['A', 'B', 'C']);
+        let result = extract_buffer_row(&buf, 0, 100, 10);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_zero_max_len() {
+        let buf = buffer_with_row(10, 1, &['A', 'B', 'C']);
+        let result = extract_buffer_row(&buf, 0, 0, 0);
+        // Range start_x..start_x is empty
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_trims_trailing_spaces() {
+        // The function calls trim_end() on the result
+        let mut buf = OptimizedBuffer::new(10, 1);
+        let style = Style::default();
+        buf.set(0, 0, Cell::new('A', style));
+        buf.set(1, 0, Cell::new(' ', style));
+        buf.set(2, 0, Cell::new(' ', style));
+        // Cells 3..9 are Empty (not pushed)
+        let result = extract_buffer_row(&buf, 0, 0, 10);
+        assert_eq!(result, "A");
+    }
+
+    #[test]
+    fn test_extract_continuation_cells_skipped() {
+        // Continuation and Empty cells produce no output
+        let buf = OptimizedBuffer::new(5, 1);
+        // All cells default to Empty
+        let result = extract_buffer_row(&buf, 0, 0, 5);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_row_out_of_bounds_y() {
+        // y is beyond the buffer height - get() returns None for all
+        let buf = buffer_with_row(10, 2, &['A', 'B']);
+        let result = extract_buffer_row(&buf, 99, 0, 10);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_extract_exact_buffer_width() {
+        // Extract exactly the buffer width
+        let buf = buffer_with_row(5, 1, &['X', 'Y', 'Z', 'W', 'V']);
+        let result = extract_buffer_row(&buf, 0, 0, 5);
+        assert_eq!(result, "XYZWV");
+    }
+
+    #[test]
+    fn test_extract_max_len_one() {
+        let buf = buffer_with_row(10, 1, &['A', 'B', 'C']);
+        let result = extract_buffer_row(&buf, 0, 1, 1);
+        assert_eq!(result, "B");
+    }
+
+    // =========================================================
+    // Headless Check Functions Tests (bd-35ey)
+    // =========================================================
+
+    // --- Layout checks (run_check_layout) ---
+
+    #[test]
+    fn test_layout_mode_transitions() {
+        // Verify that LayoutMode thresholds are correct
+        assert_eq!(LayoutMode::from_size(120, 40), LayoutMode::Full);
+        assert_eq!(LayoutMode::from_size(80, 24), LayoutMode::Full);
+        assert_eq!(LayoutMode::from_size(79, 24), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(60, 16), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(59, 16), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(40, 12), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(39, 12), LayoutMode::TooSmall);
+        assert_eq!(LayoutMode::from_size(20, 8), LayoutMode::TooSmall);
+    }
+
+    #[test]
+    fn test_layout_boundary_width_only() {
+        // Width triggers at 80, 60, 40 with sufficient height
+        assert_eq!(LayoutMode::from_size(80, 40), LayoutMode::Full);
+        assert_eq!(LayoutMode::from_size(79, 40), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(60, 40), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(59, 40), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(40, 40), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(39, 40), LayoutMode::TooSmall);
+    }
+
+    #[test]
+    fn test_layout_boundary_height_only() {
+        // Height triggers at 24, 16, 12 with sufficient width
+        assert_eq!(LayoutMode::from_size(200, 24), LayoutMode::Full);
+        assert_eq!(LayoutMode::from_size(200, 23), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(200, 16), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from_size(200, 15), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(200, 12), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(200, 11), LayoutMode::TooSmall);
+    }
+
+    #[test]
+    fn test_layout_rects_in_bounds() {
+        // For full and compact sizes, all rects should be within screen bounds
+        for &(w, h) in &[(120, 40), (80, 24), (60, 16)] {
+            let layout = PanelLayout::compute(w, h);
+            let rects = [
+                ("top_bar", &layout.top_bar),
+                ("status_bar", &layout.status_bar),
+                ("content", &layout.content),
+                ("sidebar", &layout.sidebar),
+                ("main_area", &layout.main_area),
+                ("editor", &layout.editor),
+                ("preview", &layout.preview),
+                ("logs", &layout.logs),
+            ];
+            for (name, rect) in rects {
+                if rect.w > 0 && rect.h > 0 {
+                    #[allow(clippy::cast_possible_wrap)]
+                    let within = rect.x.saturating_add(rect.w as i32) <= w as i32
+                        && rect.y.saturating_add(rect.h as i32) <= h as i32;
+                    assert!(
+                        within,
+                        "Rect {name} out of bounds at {w}x{h}: x={}, y={}, w={}, h={}",
+                        rect.x, rect.y, rect.w, rect.h
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_layout_json_valid() {
+        let json = run_check_layout(120, 40);
+        assert!(json.contains(r#""check":"layout""#));
+        assert!(json.contains(r#""passed":true"#));
+        assert!(json.contains(r#""requested_size":[120,40]"#));
+        assert!(json.contains(r#""test_results":["#));
+    }
+
+    #[test]
+    fn test_layout_json_small_size() {
+        let json = run_check_layout(20, 8);
+        assert!(json.contains(r#""check":"layout""#));
+        assert!(json.contains(r#""passed":true"#));
+    }
+
+    // --- Config checks (run_check_config) ---
+
+    #[test]
+    fn test_config_parse_valid_args() {
+        // Default config
+        let result = Config::from_args(args(&["demo_showcase"]));
+        let ParseResult::Config(cfg) = result else {
+            panic!("Expected Config for default args");
+        };
+        assert_eq!(cfg.fps_cap, 60);
+        assert!(cfg.enable_mouse);
+
+        // --fps 30
+        let result = Config::from_args(args(&["demo_showcase", "--fps", "30"]));
+        let ParseResult::Config(cfg) = result else {
+            panic!("Expected Config for --fps 30");
+        };
+        assert_eq!(cfg.fps_cap, 30);
+
+        // --no-mouse
+        let result = Config::from_args(args(&["demo_showcase", "--no-mouse"]));
+        let ParseResult::Config(cfg) = result else {
+            panic!("Expected Config for --no-mouse");
+        };
+        assert!(!cfg.enable_mouse);
+
+        // --seed 42
+        let result = Config::from_args(args(&["demo_showcase", "--seed", "42"]));
+        let ParseResult::Config(cfg) = result else {
+            panic!("Expected Config for --seed 42");
+        };
+        assert_eq!(cfg.seed, 42);
+    }
+
+    #[test]
+    fn test_config_parse_error_cases() {
+        // Invalid fps (not a number)
+        let result = Config::from_args(args(&["demo_showcase", "--fps", "abc"]));
+        assert!(matches!(result, ParseResult::Error(_)));
+
+        // Missing fps value
+        let result = Config::from_args(args(&["demo_showcase", "--fps"]));
+        assert!(matches!(result, ParseResult::Error(_)));
+    }
+
+    #[test]
+    fn test_config_json_valid() {
+        let cfg = Config::default();
+        let json = run_check_config(&cfg);
+        assert!(json.contains(r#""check":"config""#));
+        assert!(json.contains(r#""passed":true"#));
+        assert!(json.contains(r#""test_results":["#));
+        assert!(json.contains(r#""label":"default""#));
+    }
+
+    // --- Palette checks (run_check_palette) ---
+
+    #[test]
+    fn test_palette_filter_all_on_empty() {
+        let mut state = PaletteState::default();
+        state.update_filter();
+        assert_eq!(
+            state.filtered.len(),
+            PaletteState::COMMANDS.len(),
+            "Empty query should show all commands"
+        );
+    }
+
+    #[test]
+    fn test_palette_filter_help() {
+        let mut state = PaletteState::default();
+        state.query = "help".to_string();
+        state.update_filter();
+        assert!(
+            !state.filtered.is_empty(),
+            "'help' query should match at least one command"
+        );
+    }
+
+    #[test]
+    fn test_palette_filter_no_match() {
+        let mut state = PaletteState::default();
+        state.query = "xyznonexistent".to_string();
+        state.update_filter();
+        assert!(
+            state.filtered.is_empty(),
+            "Nonsense query should match no commands"
+        );
+    }
+
+    #[test]
+    fn test_palette_selection_navigation() {
+        let mut state = PaletteState::default();
+        state.update_filter(); // all commands visible
+        assert_eq!(state.selected, 0);
+
+        state.select_next();
+        assert_eq!(state.selected, 1);
+        state.select_next();
+        assert_eq!(state.selected, 2);
+        state.select_next();
+        assert_eq!(state.selected, 3);
+
+        state.select_prev();
+        assert_eq!(state.selected, 2);
+        state.select_prev();
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn test_palette_boundary_selection() {
+        let mut state = PaletteState::default();
+        state.update_filter();
+
+        // select_prev at 0 should stay at 0
+        state.select_prev();
+        assert_eq!(state.selected, 0);
+
+        // Navigate to end
+        for _ in 0..100 {
+            state.select_next();
+        }
+        let max = state.filtered.len().saturating_sub(1);
+        assert_eq!(state.selected, max);
+
+        // select_next at max should stay at max
+        state.select_next();
+        assert_eq!(state.selected, max);
+    }
+
+    #[test]
+    fn test_palette_json_valid() {
+        let json = run_check_palette();
+        assert!(json.contains(r#""check":"palette""#));
+        assert!(json.contains(r#""passed":true"#));
+        assert!(json.contains(r#""total_commands":"#));
+        assert!(json.contains(r#""filter_tests":["#));
+    }
+
+    // --- Hitgrid checks (run_check_hitgrid) ---
+
+    #[test]
+    fn test_hitgrid_id_ranges() {
+        // Button IDs should be in the 1000-1999 range
+        assert!(hit_ids::BTN_HELP >= 1000 && hit_ids::BTN_HELP < 2000);
+        assert!(hit_ids::BTN_PALETTE >= 1000 && hit_ids::BTN_PALETTE < 2000);
+        assert!(hit_ids::BTN_TOUR >= 1000 && hit_ids::BTN_TOUR < 2000);
+        assert!(hit_ids::BTN_THEME >= 1000 && hit_ids::BTN_THEME < 2000);
+
+        // Sidebar in 2000-2999 range
+        assert!(hit_ids::SIDEBAR_ROW_BASE >= 2000 && hit_ids::SIDEBAR_ROW_BASE < 3000);
+
+        // Panels in 3000-3999 range
+        assert!(hit_ids::PANEL_SIDEBAR >= 3000 && hit_ids::PANEL_SIDEBAR < 4000);
+        assert!(hit_ids::PANEL_EDITOR >= 3000 && hit_ids::PANEL_EDITOR < 4000);
+        assert!(hit_ids::PANEL_PREVIEW >= 3000 && hit_ids::PANEL_PREVIEW < 4000);
+        assert!(hit_ids::PANEL_LOGS >= 3000 && hit_ids::PANEL_LOGS < 4000);
+
+        // Overlays in 4000+ range
+        assert!(hit_ids::OVERLAY_CLOSE >= 4000);
+        assert!(hit_ids::PALETTE_ITEM_BASE >= 4000);
+    }
+
+    #[test]
+    fn test_hitgrid_no_overlap() {
+        // Each specific button ID should be unique
+        let ids = [
+            hit_ids::BTN_HELP,
+            hit_ids::BTN_PALETTE,
+            hit_ids::BTN_TOUR,
+            hit_ids::BTN_THEME,
+            hit_ids::SIDEBAR_ROW_BASE,
+            hit_ids::PANEL_SIDEBAR,
+            hit_ids::PANEL_EDITOR,
+            hit_ids::PANEL_PREVIEW,
+            hit_ids::PANEL_LOGS,
+            hit_ids::OVERLAY_CLOSE,
+            hit_ids::PALETTE_ITEM_BASE,
+        ];
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                assert_ne!(ids[i], ids[j], "Hit IDs at index {i} and {j} overlap");
+            }
+        }
+    }
+
+    #[test]
+    fn test_hitgrid_json_valid() {
+        let json = run_check_hitgrid();
+        assert!(json.contains(r#""check":"hitgrid""#));
+        assert!(json.contains(r#""passed":true"#));
+        assert!(json.contains(r#""id_tests":["#));
+    }
+
+    // --- Logs checks (run_check_logs) ---
+
+    #[test]
+    fn test_logs_ring_buffer() {
+        // Simulates the ring buffer behavior in run_check_logs
+        let max_entries = 100;
+        let mut log_buffer: VecDeque<&str> = VecDeque::with_capacity(max_entries);
+        for i in 0..150 {
+            if log_buffer.len() >= max_entries {
+                log_buffer.pop_front();
+            }
+            log_buffer.push_back(if i % 2 == 0 { "INFO" } else { "DEBUG" });
+        }
+        // After 150 inserts with cap 100, should have exactly 100
+        assert_eq!(log_buffer.len(), max_entries);
+        // Oldest entries (0..49) should be dropped
+        // Entry 50 (even) = INFO should be the oldest
+        assert_eq!(log_buffer.front(), Some(&"INFO"));
+    }
+
+    #[test]
+    fn test_logs_selection_bounds() {
+        let final_count = 100_usize;
+        let max_sel = final_count.saturating_sub(1); // 99
+
+        let mut selection = 0_usize;
+        // Move down 5
+        selection = selection.saturating_add(5).min(max_sel);
+        assert_eq!(selection, 5);
+
+        // Move up 3
+        selection = selection.saturating_sub(3);
+        assert_eq!(selection, 2);
+    }
+
+    #[test]
+    fn test_logs_selection_at_boundaries() {
+        let final_count = 100_usize;
+        let max_sel = final_count.saturating_sub(1);
+
+        // Start at 0, move up should stay at 0
+        let mut selection = 0_usize;
+        selection = selection.saturating_sub(1);
+        assert_eq!(selection, 0);
+
+        // Move to max
+        selection = max_sel;
+        selection = selection.saturating_add(5).min(max_sel);
+        assert_eq!(selection, max_sel);
+    }
+
+    #[test]
+    fn test_logs_json_valid() {
+        let json = run_check_logs();
+        assert!(json.contains(r#""check":"logs""#));
+        assert!(json.contains(r#""passed":true"#));
+        assert!(json.contains(r#""ring_buffer":"#));
+        assert!(json.contains(r#""oldest_dropped":true"#));
+        assert!(json.contains(r#""selection":"#));
     }
 }

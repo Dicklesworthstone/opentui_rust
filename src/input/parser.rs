@@ -1248,4 +1248,218 @@ mod tests {
 
         eprintln!("[TEST] PASS: Coordinate boundaries handled correctly");
     }
+
+    // =========================================================================
+    // Additional Input Event Parsing Tests (bd-2a56)
+    // =========================================================================
+
+    #[test]
+    fn test_parse_ctrl_sequences_all() {
+        // Test Ctrl+A through Ctrl+Z (bytes 0x01 to 0x1a)
+        let mut parser = InputParser::new();
+
+        for (i, expected_char) in ('a'..='z').enumerate() {
+            let ctrl_byte = (i + 1) as u8;
+            let (event, consumed) = parser.parse(&[ctrl_byte]).unwrap();
+            assert_eq!(consumed, 1);
+
+            let key = event.key().expect("Should be key event");
+            assert_eq!(key.code, KeyCode::Char(expected_char));
+            assert!(
+                key.ctrl(),
+                "Ctrl modifier should be set for byte 0x{:02x}",
+                ctrl_byte
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_function_keys_f1_f12() {
+        let mut parser = InputParser::new();
+
+        // F1-F4 use SS3 sequences (ESC O P/Q/R/S)
+        let ss3_keys = [(b"P", 1), (b"Q", 2), (b"R", 3), (b"S", 4)];
+        for (suffix, num) in ss3_keys {
+            let mut input = vec![0x1b, b'O'];
+            input.push(suffix[0]);
+            let (event, _) = parser.parse(&input).unwrap();
+            let key = event.key().unwrap();
+            assert_eq!(
+                key.code,
+                KeyCode::F(num),
+                "F{} should be parsed from SS3",
+                num
+            );
+        }
+
+        // F5-F12 use CSI sequences with tilde
+        let csi_keys = [
+            (15, 5),
+            (17, 6),
+            (18, 7),
+            (19, 8),
+            (20, 9),
+            (21, 10),
+            (23, 11),
+            (24, 12),
+        ];
+        for (num_code, f_num) in csi_keys {
+            let input = format!("\x1b[{}~", num_code);
+            let (event, _) = parser.parse(input.as_bytes()).unwrap();
+            let key = event.key().unwrap();
+            assert_eq!(
+                key.code,
+                KeyCode::F(f_num),
+                "F{} should be parsed from CSI {}~",
+                f_num,
+                num_code
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_special_keys_navigation() {
+        let mut parser = InputParser::new();
+
+        // Home, End via CSI H/F
+        let (event, _) = parser.parse(b"\x1b[H").unwrap();
+        assert_eq!(event.key().unwrap().code, KeyCode::Home);
+
+        let (event, _) = parser.parse(b"\x1b[F").unwrap();
+        assert_eq!(event.key().unwrap().code, KeyCode::End);
+
+        // Insert, Delete, PageUp, PageDown via tilde sequences
+        let tilde_keys = [
+            (2, KeyCode::Insert),
+            (3, KeyCode::Delete),
+            (5, KeyCode::PageUp),
+            (6, KeyCode::PageDown),
+        ];
+        for (num, expected_code) in tilde_keys {
+            let input = format!("\x1b[{}~", num);
+            let (event, _) = parser.parse(input.as_bytes()).unwrap();
+            assert_eq!(event.key().unwrap().code, expected_code);
+        }
+    }
+
+    #[test]
+    fn test_parse_all_arrow_keys() {
+        let mut parser = InputParser::new();
+
+        let arrows = [
+            (b'A', KeyCode::Up),
+            (b'B', KeyCode::Down),
+            (b'C', KeyCode::Right),
+            (b'D', KeyCode::Left),
+        ];
+
+        for (char_code, expected_key) in arrows {
+            let input = [0x1b, b'[', char_code];
+            let (event, consumed) = parser.parse(&input).unwrap();
+            assert_eq!(consumed, 3);
+            assert_eq!(event.key().unwrap().code, expected_key);
+        }
+    }
+
+    #[test]
+    fn test_parse_malformed_sequence() {
+        let mut parser = InputParser::new();
+
+        // Unknown CSI sequence
+        let result = parser.parse(b"\x1b[999Z");
+        assert!(matches!(result, Err(ParseError::UnrecognizedSequence(_))));
+
+        // Unknown tilde sequence
+        let result = parser.parse(b"\x1b[999~");
+        assert!(matches!(result, Err(ParseError::UnrecognizedSequence(_))));
+    }
+
+    #[test]
+    fn test_parse_empty_input() {
+        let mut parser = InputParser::new();
+        let result = parser.parse(&[]);
+        assert_eq!(result, Err(ParseError::Empty));
+    }
+
+    #[test]
+    fn test_parse_incomplete_csi() {
+        let mut parser = InputParser::new();
+
+        // Just ESC [
+        let result = parser.parse(b"\x1b[");
+        assert_eq!(result, Err(ParseError::Incomplete));
+
+        // ESC [ with parameters but no terminator
+        let result = parser.parse(b"\x1b[1;2");
+        assert_eq!(result, Err(ParseError::Incomplete));
+    }
+
+    #[test]
+    fn test_parse_invalid_utf8() {
+        let mut parser = InputParser::new();
+
+        // Invalid UTF-8 continuation byte without start
+        let result = parser.parse(&[0x80]);
+        assert!(matches!(result, Err(ParseError::InvalidUtf8)));
+
+        // Incomplete UTF-8 (2-byte sequence with only first byte)
+        let result = parser.parse(&[0xc3]); // Start of 2-byte sequence
+        assert_eq!(result, Err(ParseError::Incomplete));
+    }
+
+    #[test]
+    fn test_parse_null_character() {
+        let mut parser = InputParser::new();
+        let (event, consumed) = parser.parse(&[0x00]).unwrap();
+        assert_eq!(consumed, 1);
+        assert_eq!(event.key().unwrap().code, KeyCode::Null);
+    }
+
+    #[test]
+    fn test_parse_double_escape() {
+        let mut parser = InputParser::new();
+        let (event, consumed) = parser.parse(b"\x1b\x1b").unwrap();
+        assert_eq!(consumed, 1);
+        assert_eq!(event.key().unwrap().code, KeyCode::Esc);
+    }
+
+    #[test]
+    fn test_parse_resize_event() {
+        let mut parser = InputParser::new();
+        let (event, _) = parser.parse(b"\x1b[8;50;120t").unwrap();
+        if let Event::Resize(resize) = event {
+            assert_eq!(resize.width, 120);
+            assert_eq!(resize.height, 50);
+        } else {
+            panic!("Expected Resize event");
+        }
+    }
+
+    #[test]
+    fn test_parse_keyboard_with_all_modifiers() {
+        let mut parser = InputParser::new();
+
+        // Ctrl+Shift+Alt+Up: ESC [ 1 ; 8 A (8 = 1 + 1(shift) + 2(alt) + 4(ctrl))
+        let (event, _) = parser.parse(b"\x1b[1;8A").unwrap();
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Up);
+        assert!(key.shift(), "Shift should be set");
+        assert!(key.alt(), "Alt should be set");
+        assert!(key.ctrl(), "Ctrl should be set");
+    }
+
+    #[test]
+    fn test_x11_mouse_with_modifiers() {
+        let mut parser = InputParser::new();
+
+        // X11 with Shift: button=0 + shift(4) + offset(32) = 36
+        // '$'=36, '+'=43, '&'=38
+        let input = b"\x1b[M$+&";
+        let (event, _) = parser.parse(input).unwrap();
+        let mouse = event.mouse().unwrap();
+        assert!(
+            mouse.shift,
+            "Shift modifier should be detected in X11 encoding"
+        );
+    }
 }

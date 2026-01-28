@@ -1107,4 +1107,197 @@ mod tests {
 
         eprintln!("[TEST] SUCCESS: Undo works for line operations");
     }
+
+    // =========================================================================
+    // Additional Text Editing Buffer Tests (bd-2jxq)
+    // =========================================================================
+
+    #[test]
+    fn test_delete_char_forward() {
+        let mut edit = EditBuffer::with_text("Hello");
+        edit.set_cursor_by_offset(0); // At start
+        edit.delete_forward();
+        assert_eq!(edit.text(), "ello");
+        assert_eq!(edit.cursor().offset, 0);
+    }
+
+    #[test]
+    fn test_delete_forward_at_end() {
+        let mut edit = EditBuffer::with_text("Hello");
+        edit.set_cursor_by_offset(5); // At end
+        edit.delete_forward(); // Should be no-op
+        assert_eq!(edit.text(), "Hello");
+    }
+
+    #[test]
+    fn test_newline_insert_splits_line() {
+        let mut edit = EditBuffer::with_text("HelloWorld");
+        edit.set_cursor_by_offset(5); // Between Hello and World
+        edit.insert("\n");
+        assert_eq!(edit.text(), "Hello\nWorld");
+        assert_eq!(edit.cursor().row, 1);
+        assert_eq!(edit.cursor().col, 0);
+    }
+
+    #[test]
+    fn test_join_lines_backspace_at_start() {
+        let mut edit = EditBuffer::with_text("Hello\nWorld");
+        edit.goto_line(1);
+        edit.move_to_line_start();
+        edit.delete_backward(); // Removes the newline
+        assert_eq!(edit.text(), "HelloWorld");
+        assert_eq!(edit.cursor().offset, 5);
+    }
+
+    #[test]
+    fn test_insert_utf8_chars() {
+        let mut edit = EditBuffer::new();
+        edit.insert("日本語");
+        assert_eq!(edit.text(), "日本語");
+        assert_eq!(edit.cursor().offset, 3); // 3 characters
+    }
+
+    #[test]
+    fn test_delete_utf8_chars() {
+        let mut edit = EditBuffer::with_text("日本語");
+        edit.set_cursor_by_offset(3); // At end
+        edit.delete_backward();
+        assert_eq!(edit.text(), "日本");
+        edit.delete_backward();
+        assert_eq!(edit.text(), "日");
+        edit.delete_backward();
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_insert_emoji() {
+        let mut edit = EditBuffer::new();
+        edit.insert("🎉🚀🔥");
+        assert_eq!(edit.text(), "🎉🚀🔥");
+        assert_eq!(edit.cursor().offset, 3);
+    }
+
+    #[test]
+    fn test_cursor_at_line_start() {
+        let mut edit = EditBuffer::with_text("Line 1\nLine 2");
+        edit.move_to(1, 0);
+        assert_eq!(edit.cursor().col, 0);
+        edit.move_to_line_start();
+        assert_eq!(edit.cursor().col, 0);
+    }
+
+    #[test]
+    fn test_cursor_at_line_end() {
+        let mut edit = EditBuffer::with_text("Hello\nWorld");
+        edit.move_to(0, 0);
+        edit.move_to_line_end();
+        assert_eq!(edit.cursor().col, 5); // "Hello" is 5 chars
+    }
+
+    #[test]
+    fn test_undo_delete_restores_text() {
+        let mut edit = EditBuffer::with_text("Hello World");
+        edit.set_cursor_by_offset(11);
+        edit.delete_backward(); // Delete 'd'
+        edit.commit();
+        assert_eq!(edit.text(), "Hello Worl");
+
+        edit.undo();
+        assert_eq!(edit.text(), "Hello World");
+    }
+
+    #[test]
+    fn test_insert_at_middle() {
+        let mut edit = EditBuffer::with_text("HelloWorld");
+        edit.set_cursor_by_offset(5);
+        edit.insert(" ");
+        assert_eq!(edit.text(), "Hello World");
+        assert_eq!(edit.cursor().offset, 6);
+    }
+
+    #[test]
+    fn test_multiple_inserts_single_undo() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.insert(" ");
+        edit.insert("World");
+        // No commit - all in same undo group
+        edit.undo();
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_clear_history() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        edit.insert(" World");
+        edit.commit();
+        assert!(edit.can_undo());
+
+        edit.clear_history();
+        assert!(!edit.can_undo());
+        assert!(!edit.can_redo());
+        // Text should be preserved
+        assert_eq!(edit.text(), "Hello World");
+    }
+
+    #[test]
+    fn test_get_eol() {
+        let mut edit = EditBuffer::with_text("Hello\nWorld");
+        edit.goto_line(0);
+        assert_eq!(edit.get_eol(), 5); // "Hello" without newline
+
+        edit.goto_line(1);
+        assert_eq!(edit.get_eol(), 11); // Position after "World"
+    }
+
+    #[test]
+    fn test_move_left_right_boundaries() {
+        let mut edit = EditBuffer::with_text("AB");
+        edit.set_cursor_by_offset(0);
+
+        // Move left at start should be no-op
+        edit.move_left();
+        assert_eq!(edit.cursor().offset, 0);
+
+        // Move right through text
+        edit.move_right();
+        assert_eq!(edit.cursor().offset, 1);
+        edit.move_right();
+        assert_eq!(edit.cursor().offset, 2);
+
+        // Move right at end should be no-op
+        edit.move_right();
+        assert_eq!(edit.cursor().offset, 2);
+    }
+
+    #[test]
+    fn test_empty_buffer_operations() {
+        let mut edit = EditBuffer::new();
+        assert_eq!(edit.text(), "");
+
+        // Delete operations on empty buffer should be safe
+        edit.delete_backward();
+        edit.delete_forward();
+        assert_eq!(edit.text(), "");
+
+        // Cursor movement should be safe
+        edit.move_left();
+        edit.move_right();
+        edit.move_up();
+        edit.move_down();
+        assert_eq!(edit.cursor().offset, 0);
+    }
+
+    #[test]
+    fn test_set_text_resets_cursor() {
+        let mut edit = EditBuffer::with_text("Hello World");
+        edit.set_cursor_by_offset(6);
+        assert_eq!(edit.cursor().offset, 6);
+
+        edit.set_text("New");
+        assert_eq!(edit.text(), "New");
+        assert_eq!(edit.cursor().offset, 0); // Reset to start
+    }
 }

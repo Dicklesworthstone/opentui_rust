@@ -1349,4 +1349,239 @@ mod tests {
         r.clear();
         assert_eq!(r.hit_test(5, 5), None);
     }
+
+    // ============================================
+    // Renderer Hit Testing & Scissor Tests (bd-aj8c)
+    // ============================================
+
+    #[test]
+    fn test_renderer_multiple_non_overlapping_hit_areas() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(0, 0, 10, 5, 1);
+        r.register_hit_area(20, 0, 10, 5, 2);
+        r.register_hit_area(40, 0, 10, 5, 3);
+
+        assert_eq!(r.hit_test(5, 2), Some(1));
+        assert_eq!(r.hit_test(25, 2), Some(2));
+        assert_eq!(r.hit_test(45, 2), Some(3));
+        assert_eq!(r.hit_test(15, 2), None); // gap
+    }
+
+    #[test]
+    fn test_renderer_overlapping_hit_areas_later_wins() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(0, 0, 30, 10, 100);
+        r.register_hit_area(20, 0, 30, 10, 200);
+
+        // Overlap region: later registration wins
+        assert_eq!(r.hit_test(5, 5), Some(100)); // Only in first
+        assert_eq!(r.hit_test(25, 5), Some(200)); // Overlap, second wins
+        assert_eq!(r.hit_test(45, 5), Some(200)); // Only in second
+    }
+
+    #[test]
+    fn test_renderer_hit_test_boundary_conditions() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(10, 5, 20, 10, 1);
+
+        // Exact boundaries
+        assert_eq!(r.hit_test(10, 5), Some(1)); // Top-left
+        assert_eq!(r.hit_test(29, 5), Some(1)); // Top-right
+        assert_eq!(r.hit_test(10, 14), Some(1)); // Bottom-left
+        assert_eq!(r.hit_test(29, 14), Some(1)); // Bottom-right
+
+        // Just outside
+        assert_eq!(r.hit_test(9, 5), None);
+        assert_eq!(r.hit_test(30, 5), None);
+        assert_eq!(r.hit_test(10, 4), None);
+        assert_eq!(r.hit_test(10, 15), None);
+    }
+
+    #[test]
+    fn test_renderer_hit_area_outside_buffer_bounds() {
+        let mut r = test_renderer(20, 20);
+        // Register area that extends beyond buffer
+        r.register_hit_area(15, 15, 20, 20, 1);
+
+        // Inside buffer + area
+        assert_eq!(r.hit_test(18, 18), Some(1));
+        // Outside buffer entirely
+        assert_eq!(r.hit_test(25, 25), None);
+    }
+
+    #[test]
+    fn test_renderer_nested_hit_scissors() {
+        let mut r = test_renderer(80, 24);
+
+        // Outer scissor
+        r.push_hit_scissor(ClipRect::new(5, 5, 40, 20));
+        // Inner scissor (narrower)
+        r.push_hit_scissor(ClipRect::new(10, 8, 20, 10));
+
+        // Register hit area that spans beyond both scissors
+        r.register_hit_area(0, 0, 80, 24, 1);
+
+        // Only the innermost scissor intersection should register
+        assert_eq!(r.hit_test(15, 12), Some(1)); // Inside inner
+        assert_eq!(r.hit_test(7, 7), None); // Inside outer but outside inner
+        assert_eq!(r.hit_test(2, 2), None); // Outside both
+
+        r.pop_hit_scissor(); // Pop inner
+        r.pop_hit_scissor(); // Pop outer
+    }
+
+    #[test]
+    fn test_renderer_pop_hit_scissor_restores_previous() {
+        let mut r = test_renderer(80, 24);
+
+        // Push restrictive scissor
+        r.push_hit_scissor(ClipRect::new(10, 10, 10, 10));
+        r.register_hit_area(0, 0, 80, 24, 1);
+        assert_eq!(r.hit_test(15, 15), Some(1));
+        assert_eq!(r.hit_test(5, 5), None); // Clipped
+
+        // Pop scissor
+        r.pop_hit_scissor();
+
+        // After pop, full area should be available for new registrations
+        r.register_hit_area(0, 0, 80, 24, 2);
+        assert_eq!(r.hit_test(5, 5), Some(2));
+    }
+
+    #[test]
+    fn test_renderer_hit_test_after_present() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(10, 5, 20, 3, 42);
+        r.buffer()
+            .draw_text(0, 0, "Hello", crate::style::Style::NONE);
+        r.present().unwrap();
+
+        // Hit grid is cleared after present (same as clear())
+        // So hit areas need to be re-registered each frame
+        assert_eq!(r.hit_test(15, 6), None);
+    }
+
+    #[test]
+    fn test_renderer_hit_test_none_on_empty() {
+        let r = test_renderer(80, 24);
+        // No areas registered
+        assert_eq!(r.hit_test(0, 0), None);
+        assert_eq!(r.hit_test(40, 12), None);
+        assert_eq!(r.hit_test(79, 23), None);
+    }
+
+    // ============================================
+    // Renderer Terminal Control Tests (bd-1303)
+    // ============================================
+
+    #[test]
+    fn test_set_cursor_visible() {
+        let mut r = test_renderer(80, 24);
+        // Show cursor at position - writes ANSI to stdout
+        assert!(r.set_cursor(10, 5, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_hidden() {
+        let mut r = test_renderer(80, 24);
+        // Hide cursor - writes ANSI to stdout
+        assert!(r.set_cursor(0, 0, false).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_at_origin() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_cursor(0, 0, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_at_boundary() {
+        let mut r = test_renderer(80, 24);
+        // Cursor beyond buffer - should not panic, ANSI output is unbounded
+        assert!(r.set_cursor(79, 23, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_style_block() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_cursor_style(CursorStyle::Block, false).is_ok());
+        assert!(r.set_cursor_style(CursorStyle::Block, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_style_underline() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_cursor_style(CursorStyle::Underline, false).is_ok());
+        assert!(r.set_cursor_style(CursorStyle::Underline, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_cursor_style_bar() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_cursor_style(CursorStyle::Bar, false).is_ok());
+        assert!(r.set_cursor_style(CursorStyle::Bar, true).is_ok());
+    }
+
+    #[test]
+    fn test_set_title_basic() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_title("OpenTUI").is_ok());
+    }
+
+    #[test]
+    fn test_set_title_empty() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_title("").is_ok());
+    }
+
+    #[test]
+    fn test_set_title_special_characters() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_title("Hello — World 🌍").is_ok());
+    }
+
+    #[test]
+    fn test_set_title_with_unicode() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.set_title("日本語タイトル").is_ok());
+    }
+
+    #[test]
+    fn test_capabilities_color_support_readable() {
+        let r = test_renderer(80, 24);
+        let caps = r.capabilities();
+        // Color support should be some value (depends on env)
+        let _ = caps.color;
+        let _ = caps.unicode;
+        let _ = caps.mouse;
+    }
+
+    #[test]
+    fn test_capabilities_override_persists() {
+        let mut r = test_renderer(80, 24);
+        r.capabilities_mut().sync_output = true;
+        assert!(r.capabilities().sync_output);
+        r.capabilities_mut().sync_output = false;
+        assert!(!r.capabilities().sync_output);
+    }
+
+    #[test]
+    fn test_capabilities_hyperlinks_override() {
+        let mut r = test_renderer(80, 24);
+        let original = r.capabilities().hyperlinks;
+        r.capabilities_mut().hyperlinks = !original;
+        assert_eq!(r.capabilities().hyperlinks, !original);
+    }
+
+    #[test]
+    fn test_set_background_and_present() {
+        let mut r = test_renderer(10, 10);
+        r.set_background(Rgba::BLUE);
+        r.clear();
+        // Verify the buffer has the new background
+        let cell = r.buffer().get(5, 5).unwrap();
+        assert_eq!(cell.bg, Rgba::BLUE);
+        // Present should succeed with new background
+        assert!(r.present().is_ok());
+    }
 }
