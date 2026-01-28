@@ -24,6 +24,7 @@ use opentui::terminal::{enable_raw_mode, terminal_size};
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
 use opentui::{Renderer, RendererOptions, Rgba, Style};
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Read};
 use std::time::{Duration, Instant};
@@ -1526,6 +1527,207 @@ impl OverlayManager {
 }
 
 // ============================================================================
+// Toast / Notification System
+// ============================================================================
+
+/// Toast severity level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ToastLevel {
+    /// Informational message.
+    #[default]
+    Info,
+    /// Warning message.
+    Warn,
+    /// Error message.
+    Error,
+}
+
+impl ToastLevel {
+    /// Get the level name for display.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+        }
+    }
+
+    /// Get icon glyph for this level.
+    #[must_use]
+    pub const fn icon(&self) -> &'static str {
+        match self {
+            Self::Info => "ℹ",
+            Self::Warn => "⚠",
+            Self::Error => "✗",
+        }
+    }
+}
+
+/// A single toast notification.
+#[derive(Clone, Debug)]
+pub struct Toast {
+    /// Severity level.
+    pub level: ToastLevel,
+    /// Short title text.
+    pub title: String,
+    /// Optional detail line.
+    pub detail: Option<String>,
+    /// Time-to-live in seconds (auto-dismiss).
+    pub ttl: f32,
+    /// Time elapsed since creation (for fade animation).
+    pub elapsed: f32,
+}
+
+impl Toast {
+    /// Default TTL for toasts (3 seconds).
+    pub const DEFAULT_TTL: f32 = 3.0;
+
+    /// Fade-out duration at end of life.
+    pub const FADE_DURATION: f32 = 0.3;
+
+    /// Create a new info toast.
+    #[must_use]
+    pub fn info(title: impl Into<String>) -> Self {
+        Self {
+            level: ToastLevel::Info,
+            title: title.into(),
+            detail: None,
+            ttl: Self::DEFAULT_TTL,
+            elapsed: 0.0,
+        }
+    }
+
+    /// Create a new warning toast.
+    #[must_use]
+    pub fn warn(title: impl Into<String>) -> Self {
+        Self {
+            level: ToastLevel::Warn,
+            title: title.into(),
+            detail: None,
+            ttl: Self::DEFAULT_TTL,
+            elapsed: 0.0,
+        }
+    }
+
+    /// Create a new error toast.
+    #[must_use]
+    pub fn error(title: impl Into<String>) -> Self {
+        Self {
+            level: ToastLevel::Error,
+            title: title.into(),
+            detail: None,
+            ttl: Self::DEFAULT_TTL,
+            elapsed: 0.0,
+        }
+    }
+
+    /// Add detail text to the toast.
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// Set custom TTL.
+    #[must_use]
+    pub const fn with_ttl(mut self, ttl: f32) -> Self {
+        self.ttl = ttl;
+        self
+    }
+
+    /// Check if this toast has expired.
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        self.elapsed >= self.ttl
+    }
+
+    /// Get the opacity for rendering (fades out at end of life).
+    #[must_use]
+    pub fn opacity(&self) -> f32 {
+        let remaining = self.ttl - self.elapsed;
+        if remaining <= Self::FADE_DURATION {
+            (remaining / Self::FADE_DURATION).max(0.0)
+        } else {
+            1.0
+        }
+    }
+}
+
+/// Manager for toast notifications.
+#[derive(Clone, Debug, Default)]
+pub struct ToastManager {
+    /// Stack of active toasts (newest at back).
+    toasts: VecDeque<Toast>,
+}
+
+impl ToastManager {
+    /// Maximum number of visible toasts.
+    pub const MAX_VISIBLE: usize = 5;
+
+    /// Spacing between toasts (rows).
+    pub const TOAST_GAP: u32 = 1;
+
+    /// Toast width (characters).
+    pub const TOAST_WIDTH: u32 = 40;
+
+    /// Create a new empty manager.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // VecDeque::new() is not const
+    pub fn new() -> Self {
+        Self {
+            toasts: VecDeque::new(),
+        }
+    }
+
+    /// Add a new toast to the stack.
+    pub fn push(&mut self, toast: Toast) {
+        self.toasts.push_back(toast);
+        // Limit stack size
+        while self.toasts.len() > Self::MAX_VISIBLE {
+            self.toasts.pop_front();
+        }
+    }
+
+    /// Update all toasts for a new frame.
+    ///
+    /// Returns the number of toasts that expired.
+    pub fn tick(&mut self, dt: f32) -> usize {
+        for toast in &mut self.toasts {
+            toast.elapsed += dt;
+        }
+        // Remove expired toasts
+        let before = self.toasts.len();
+        self.toasts.retain(|t: &Toast| !t.is_expired());
+        before - self.toasts.len()
+    }
+
+    /// Get iterator over visible toasts.
+    #[must_use]
+    #[allow(clippy::iter_without_into_iter)] // Simple internal iteration
+    pub fn iter(&self) -> std::collections::vec_deque::Iter<'_, Toast> {
+        self.toasts.iter()
+    }
+
+    /// Get the number of active toasts.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.toasts.len()
+    }
+
+    /// Check if there are no toasts.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.toasts.is_empty()
+    }
+
+    /// Clear all toasts.
+    pub fn clear(&mut self) {
+        self.toasts.clear();
+    }
+}
+
+// ============================================================================
 // Render Pass System
 // ============================================================================
 
@@ -1870,6 +2072,10 @@ pub struct App {
     pub target_fps: u32,
     /// Current computed metrics (updated each frame).
     pub metrics: content::Metrics,
+
+    // Toast state
+    /// Toast notification manager.
+    pub toasts: ToastManager,
 }
 
 impl Default for App {
@@ -1897,6 +2103,8 @@ impl Default for App {
             logs: demo_content.seed_logs.to_vec(),
             target_fps: demo_content.metric_params.target_fps,
             metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
+            // Toast state
+            toasts: ToastManager::new(),
         }
     }
 }
@@ -1987,6 +2195,26 @@ impl App {
     /// Add a log entry to the log stream.
     pub fn add_log(&mut self, entry: content::LogEntry) {
         self.logs.push(entry);
+    }
+
+    /// Show a toast notification.
+    pub fn show_toast(&mut self, toast: Toast) {
+        self.toasts.push(toast);
+    }
+
+    /// Show an info toast with the given message.
+    pub fn toast_info(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::info(message));
+    }
+
+    /// Show a warning toast with the given message.
+    pub fn toast_warn(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::warn(message));
+    }
+
+    /// Show an error toast with the given message.
+    pub fn toast_error(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::error(message));
     }
 
     /// Update metrics for the current frame.
@@ -2259,6 +2487,9 @@ impl App {
 
         // Update overlay animations with dt from clock
         self.overlays.tick(self.clock.dt);
+
+        // Update toast lifetimes
+        self.toasts.tick(self.clock.dt);
 
         // Tour mode: tick the tour runner and apply actions
         if self.mode == AppMode::Tour {
@@ -2625,41 +2856,101 @@ fn main() -> io::Result<()> {
 // Headless Smoke Test
 // ============================================================================
 
+/// Draw a frame directly to a buffer (headless version of `draw_frame`).
+///
+/// This exercises the same render passes as the interactive mode but
+/// without requiring a Renderer or terminal.
+fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
+    let (width, height) = (buffer.width(), buffer.height());
+    let panels = PanelLayout::compute(width, height);
+    let theme = app.ui_theme.tokens();
+
+    // === Pass 1: Background ===
+    draw_pass_background(buffer, &theme);
+
+    // Handle TooSmall mode (special case).
+    if panels.mode == LayoutMode::TooSmall {
+        draw_too_small_message(buffer, width, height, &theme);
+        return;
+    }
+
+    // === Pass 2: Chrome ===
+    draw_pass_chrome(buffer, &panels, &theme, app);
+
+    // === Pass 3: Panels ===
+    draw_pass_panels(buffer, &panels, &theme, app);
+
+    // === Pass 4: Overlays ===
+    draw_pass_overlays(buffer, &panels, &theme, app);
+
+    // === Pass 5: Toasts ===
+    draw_pass_toasts(buffer, &panels, &theme, app);
+}
+
 /// Run headless smoke test (no TTY required).
+///
+/// This exercises the full render pipeline:
+/// - Creates App with proper config
+/// - Runs N frames through all render passes
+/// - Computes `BufferDiff` between frames to verify diffing works
+/// - Outputs standard success format for CI
 fn run_headless_smoke(config: &Config) {
+    use opentui::renderer::BufferDiff;
+
     let (width, height) = config.headless_size;
+    let frame_count = config.max_frames.unwrap_or(10);
+
     eprintln!("Running headless smoke test ({width}x{height})...");
 
-    // Create buffer without terminal
-    let mut buffer = OptimizedBuffer::new(u32::from(width), u32::from(height));
+    // Create App with config
+    let demo_content = content::DemoContent::default();
+    let mut app = App::with_content(config, &demo_content);
 
-    // Run through some render operations
-    let bg = Rgba::from_hex("#1a1a2e").unwrap_or(Rgba::BLACK);
-    buffer.clear(bg);
+    // Create double buffers for diffing
+    let mut current_buffer = OptimizedBuffer::new(u32::from(width), u32::from(height));
+    let mut previous_buffer = OptimizedBuffer::new(u32::from(width), u32::from(height));
 
-    buffer.draw_text(2, 0, "OpenTUI Showcase", Style::fg(Rgba::WHITE).with_bold());
+    let mut last_dirty_cells: usize = 0;
+    let mut total_dirty_cells: usize = 0;
 
-    buffer.draw_text(
-        2,
-        u32::from(height) / 2,
-        "Headless smoke test",
-        Style::fg(Rgba::GREEN),
-    );
+    // Run frames through the render pipeline
+    for frame in 0..frame_count {
+        // Update app state
+        app.frame_count = frame;
+        app.clock.tick(false); // Advance time (not paused)
+        app.update_metrics();
 
-    buffer.draw_text(
-        2,
-        u32::from(height).saturating_sub(1),
-        "Test completed successfully",
-        Style::fg(Rgba::WHITE),
-    );
+        // Clear and render to current buffer
+        headless_draw_frame(&mut current_buffer, &app);
 
-    // Verify buffer is valid
-    assert_eq!(buffer.width(), u32::from(width));
-    assert_eq!(buffer.height(), u32::from(height));
+        // Compute diff between frames (except first frame)
+        if frame > 0 {
+            let diff = BufferDiff::compute(&previous_buffer, &current_buffer);
+            last_dirty_cells = diff.change_count;
+            total_dirty_cells += diff.change_count;
+        } else {
+            // First frame: all cells are "dirty"
+            last_dirty_cells = (width as usize) * (height as usize);
+            total_dirty_cells += last_dirty_cells;
+        }
 
+        // Swap buffers (copy current to previous for next diff)
+        std::mem::swap(&mut current_buffer, &mut previous_buffer);
+    }
+
+    // Verify buffers are valid
+    assert_eq!(previous_buffer.width(), u32::from(width));
+    assert_eq!(previous_buffer.height(), u32::from(height));
+
+    // Output success in standard format
     eprintln!("Headless smoke test PASSED");
-    eprintln!("  Buffer size: {}x{}", buffer.width(), buffer.height());
+    eprintln!("  Buffer size: {width}x{height}");
+    eprintln!("  Frames rendered: {frame_count}");
+    eprintln!("  Total dirty cells: {total_dirty_cells}");
     eprintln!("  Seed: {}", config.seed);
+
+    // Standard parseable output for CI
+    println!("HEADLESS_SMOKE_OK frames={frame_count} last_dirty_cells={last_dirty_cells}");
 }
 
 // ============================================================================
@@ -2787,8 +3078,8 @@ fn draw_frame(renderer: &mut Renderer, app: &App) {
     // === Pass 4: Overlays ===
     draw_pass_overlays(buffer, &panels, &theme, app);
 
-    // === Pass 5: Toasts (placeholder) ===
-    // Will be implemented when toast system is added.
+    // === Pass 5: Toasts ===
+    draw_pass_toasts(buffer, &panels, &theme, app);
 
     // === Pass 6: Debug (placeholder) ===
     // Will show FPS, frame time, etc.
@@ -2999,6 +3290,118 @@ fn draw_pass_overlays(
     }
 
     buffer.pop_opacity();
+}
+
+/// Pass 5: Draw toast notifications.
+///
+/// Toasts stack in the bottom-right corner, above the status bar.
+/// Each toast has a severity color, title, optional detail, and fade animation.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &Theme, app: &App) {
+    if app.toasts.is_empty() {
+        return;
+    }
+
+    // Position toasts in bottom-right, above status bar
+    let toast_w = ToastManager::TOAST_WIDTH;
+    let toast_x = panels.screen.w.saturating_sub(toast_w + 2);
+    let mut toast_y = panels.status_bar.y.saturating_sub(1) as u32;
+
+    for toast in app.toasts.iter().rev() {
+        let opacity = toast.opacity();
+        if opacity <= 0.0 {
+            continue;
+        }
+
+        // Calculate toast height (title + optional detail)
+        let has_detail = toast.detail.is_some();
+        let toast_h = if has_detail { 4_u32 } else { 3_u32 };
+
+        // Check if we have space
+        if toast_y < toast_h + 2 {
+            break;
+        }
+        toast_y = toast_y.saturating_sub(toast_h + ToastManager::TOAST_GAP);
+
+        // Get level-specific colors
+        let (accent_color, icon) = match toast.level {
+            ToastLevel::Info => (theme.accent_primary, toast.level.icon()),
+            ToastLevel::Warn => (Rgba::from_hex("#ffcc00").unwrap_or(theme.accent_warning), toast.level.icon()),
+            ToastLevel::Error => (Rgba::from_hex("#ff4444").unwrap_or(theme.accent_error), toast.level.icon()),
+        };
+
+        // Apply opacity to colors
+        let bg_color = Rgba::new(theme.bg1.r, theme.bg1.g, theme.bg1.b, 0.9 * opacity);
+        let fg_color = Rgba::new(theme.fg0.r, theme.fg0.g, theme.fg0.b, opacity);
+        let accent_with_alpha = Rgba::new(accent_color.r, accent_color.g, accent_color.b, opacity);
+
+        // Draw toast background
+        for row in toast_y..toast_y + toast_h {
+            for col in toast_x..toast_x + toast_w {
+                if let Some(cell) = buffer.get(col, row) {
+                    let mut new_cell = *cell;
+                    new_cell.bg = bg_color.blend_over(cell.bg);
+                    buffer.set(col, row, new_cell);
+                }
+            }
+        }
+
+        // Draw left accent bar
+        for row in toast_y..toast_y + toast_h {
+            buffer.draw_text(toast_x, row, "▌", Style::fg(accent_with_alpha).with_bg(bg_color));
+        }
+
+        // Draw icon and title on first content row
+        let content_x = toast_x + 2;
+        let title_y = toast_y + 1;
+        buffer.draw_text(content_x, title_y, icon, Style::fg(accent_with_alpha).with_bold());
+
+        // Draw title (truncate if needed)
+        let title_start = content_x + 2;
+        let max_title_len = (toast_w - 5) as usize;
+        let title = if toast.title.len() > max_title_len {
+            format!("{}…", &toast.title[..max_title_len - 1])
+        } else {
+            toast.title.clone()
+        };
+        buffer.draw_text(title_start, title_y, &title, Style::fg(fg_color).with_bold());
+
+        // Draw detail if present
+        if let Some(detail) = &toast.detail {
+            let detail_y = title_y + 1;
+            let max_detail_len = (toast_w - 4) as usize;
+            let detail_text = if detail.len() > max_detail_len {
+                format!("{}…", &detail[..max_detail_len - 1])
+            } else {
+                detail.clone()
+            };
+            let detail_color = Rgba::new(theme.fg2.r, theme.fg2.g, theme.fg2.b, opacity);
+            buffer.draw_text(content_x, detail_y, &detail_text, Style::fg(detail_color));
+        }
+
+        // Draw border
+        let border_color = Rgba::new(theme.bg2.r, theme.bg2.g, theme.bg2.b, opacity * 0.5);
+        let border_style = Style::fg(border_color);
+
+        // Top border
+        buffer.draw_text(toast_x, toast_y, "╭", border_style);
+        for col in toast_x + 1..toast_x + toast_w - 1 {
+            buffer.draw_text(col, toast_y, "─", border_style);
+        }
+        buffer.draw_text(toast_x + toast_w - 1, toast_y, "╮", border_style);
+
+        // Bottom border
+        buffer.draw_text(toast_x, toast_y + toast_h - 1, "╰", border_style);
+        for col in toast_x + 1..toast_x + toast_w - 1 {
+            buffer.draw_text(col, toast_y + toast_h - 1, "─", border_style);
+        }
+        buffer.draw_text(toast_x + toast_w - 1, toast_y + toast_h - 1, "╯", border_style);
+
+        // Side borders
+        for row in toast_y + 1..toast_y + toast_h - 1 {
+            buffer.draw_text(toast_x + toast_w - 1, row, "│", border_style);
+        }
+    }
 }
 
 /// Draw the Help overlay panel.
