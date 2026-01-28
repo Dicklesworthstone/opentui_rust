@@ -91,10 +91,11 @@ impl Capabilities {
 
         let color = Self::detect_color(&term, &colorterm);
         let unicode = Self::detect_unicode();
-        let hyperlinks = Self::detect_hyperlinks(&term_program);
-        let sync_output = Self::detect_sync(&term_program);
-        let kitty_keyboard = kitty_window_id.is_some();
-        let kitty_graphics = kitty_window_id.is_some();
+        let kitty_present = kitty_window_id.is_some();
+        let hyperlinks = Self::detect_hyperlinks(&term, &term_program, kitty_present);
+        let sync_output = Self::detect_sync(&term, &term_program, kitty_present);
+        let kitty_keyboard = kitty_present;
+        let kitty_graphics = kitty_present;
 
         Self {
             color,
@@ -194,9 +195,20 @@ impl Capabilities {
             || lc_ctype.to_lowercase().contains("utf")
     }
 
-    fn detect_hyperlinks(term_program: &str) -> bool {
-        // Known terminals with hyperlink support
-        let supported = [
+    /// Detect hyperlink support from multiple signals.
+    ///
+    /// Considers:
+    /// - `TERM_PROGRAM`: WezTerm, Alacritty, kitty, ghostty, iTerm.app, Apple_Terminal, Hyper
+    /// - `TERM`: kitty, ghostty, wezterm, alacritty, xterm-kitty
+    /// - `KITTY_WINDOW_ID` presence
+    fn detect_hyperlinks(term: &str, term_program: &str, kitty_present: bool) -> bool {
+        // KITTY_WINDOW_ID present -> kitty features supported
+        if kitty_present {
+            return true;
+        }
+
+        // Known terminals with hyperlink support via TERM_PROGRAM
+        let supported_programs = [
             "iTerm.app",
             "Apple_Terminal",
             "WezTerm",
@@ -205,13 +217,44 @@ impl Capabilities {
             "kitty",
             "ghostty",
         ];
-        supported.iter().any(|t| term_program.contains(t))
+        if supported_programs
+            .iter()
+            .any(|t| term_program.eq_ignore_ascii_case(t) || term_program.contains(t))
+        {
+            return true;
+        }
+
+        // Known terminals via TERM value
+        let term_lower = term.to_lowercase();
+        let supported_terms = ["kitty", "ghostty", "wezterm", "alacritty"];
+        supported_terms.iter().any(|t| term_lower.contains(t))
     }
 
-    fn detect_sync(term_program: &str) -> bool {
-        // Terminals known to support synchronized output
-        let supported = ["kitty", "Alacritty", "WezTerm", "ghostty"];
-        supported.iter().any(|t| term_program.contains(t))
+    /// Detect synchronized output support from multiple signals.
+    ///
+    /// Considers:
+    /// - `TERM_PROGRAM`: kitty, Alacritty, WezTerm, ghostty
+    /// - `TERM`: kitty, ghostty, wezterm, alacritty
+    /// - `KITTY_WINDOW_ID` presence
+    fn detect_sync(term: &str, term_program: &str, kitty_present: bool) -> bool {
+        // KITTY_WINDOW_ID present -> kitty features supported
+        if kitty_present {
+            return true;
+        }
+
+        // Terminals known to support synchronized output via TERM_PROGRAM
+        let supported_programs = ["kitty", "Alacritty", "WezTerm", "ghostty"];
+        if supported_programs
+            .iter()
+            .any(|t| term_program.eq_ignore_ascii_case(t) || term_program.contains(t))
+        {
+            return true;
+        }
+
+        // Known terminals via TERM value
+        let term_lower = term.to_lowercase();
+        let supported_terms = ["kitty", "ghostty", "wezterm", "alacritty"];
+        supported_terms.iter().any(|t| term_lower.contains(t))
     }
 
     /// Check if true color is supported.
@@ -277,5 +320,111 @@ mod tests {
         let caps = Capabilities::default();
         assert_eq!(caps.color, ColorSupport::TrueColor);
         assert!(caps.unicode);
+    }
+
+    // === Hyperlink detection tests ===
+
+    #[test]
+    fn test_hyperlinks_via_term_program() {
+        // WezTerm
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "WezTerm", false));
+        // Alacritty
+        assert!(Capabilities::detect_hyperlinks("alacritty", "Alacritty", false));
+        // kitty
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "kitty", false));
+        // ghostty
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "ghostty", false));
+        // iTerm
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "iTerm.app", false));
+        // Apple Terminal
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "Apple_Terminal", false));
+        // Hyper
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "Hyper", false));
+    }
+
+    #[test]
+    fn test_hyperlinks_via_term() {
+        // kitty via TERM (common when TERM_PROGRAM is unset)
+        assert!(Capabilities::detect_hyperlinks("xterm-kitty", "", false));
+        assert!(Capabilities::detect_hyperlinks("kitty", "", false));
+        // ghostty via TERM
+        assert!(Capabilities::detect_hyperlinks("ghostty", "", false));
+        // wezterm via TERM
+        assert!(Capabilities::detect_hyperlinks("wezterm", "", false));
+        // alacritty via TERM
+        assert!(Capabilities::detect_hyperlinks("alacritty", "", false));
+    }
+
+    #[test]
+    fn test_hyperlinks_via_kitty_window_id() {
+        // KITTY_WINDOW_ID present should enable hyperlinks even with unknown term
+        assert!(Capabilities::detect_hyperlinks("xterm-256color", "", true));
+        assert!(Capabilities::detect_hyperlinks("linux", "", true));
+    }
+
+    #[test]
+    fn test_hyperlinks_false_for_unknown() {
+        // Unknown terminal with no special env vars
+        assert!(!Capabilities::detect_hyperlinks("xterm-256color", "", false));
+        assert!(!Capabilities::detect_hyperlinks("screen-256color", "", false));
+        assert!(!Capabilities::detect_hyperlinks("linux", "", false));
+        assert!(!Capabilities::detect_hyperlinks("vt100", "", false));
+        // Empty values
+        assert!(!Capabilities::detect_hyperlinks("", "", false));
+    }
+
+    // === Sync output detection tests ===
+
+    #[test]
+    fn test_sync_via_term_program() {
+        // kitty
+        assert!(Capabilities::detect_sync("xterm-256color", "kitty", false));
+        // Alacritty
+        assert!(Capabilities::detect_sync("xterm-256color", "Alacritty", false));
+        // WezTerm
+        assert!(Capabilities::detect_sync("xterm-256color", "WezTerm", false));
+        // ghostty
+        assert!(Capabilities::detect_sync("xterm-256color", "ghostty", false));
+    }
+
+    #[test]
+    fn test_sync_via_term() {
+        // kitty via TERM
+        assert!(Capabilities::detect_sync("xterm-kitty", "", false));
+        assert!(Capabilities::detect_sync("kitty", "", false));
+        // ghostty via TERM
+        assert!(Capabilities::detect_sync("ghostty", "", false));
+        // wezterm via TERM
+        assert!(Capabilities::detect_sync("wezterm", "", false));
+        // alacritty via TERM
+        assert!(Capabilities::detect_sync("alacritty", "", false));
+    }
+
+    #[test]
+    fn test_sync_via_kitty_window_id() {
+        // KITTY_WINDOW_ID present should enable sync even with unknown term
+        assert!(Capabilities::detect_sync("xterm-256color", "", true));
+        assert!(Capabilities::detect_sync("linux", "", true));
+    }
+
+    #[test]
+    fn test_sync_false_for_unknown() {
+        // Unknown terminal with no special env vars
+        assert!(!Capabilities::detect_sync("xterm-256color", "", false));
+        assert!(!Capabilities::detect_sync("screen-256color", "", false));
+        assert!(!Capabilities::detect_sync("tmux-256color", "", false));
+        assert!(!Capabilities::detect_sync("linux", "", false));
+        // Note: iTerm and Apple_Terminal don't support sync output
+        assert!(!Capabilities::detect_sync("xterm-256color", "iTerm.app", false));
+        assert!(!Capabilities::detect_sync("xterm-256color", "Apple_Terminal", false));
+    }
+
+    #[test]
+    fn test_case_insensitive_term_matching() {
+        // TERM values should match case-insensitively
+        assert!(Capabilities::detect_hyperlinks("KITTY", "", false));
+        assert!(Capabilities::detect_hyperlinks("Kitty", "", false));
+        assert!(Capabilities::detect_sync("ALACRITTY", "", false));
+        assert!(Capabilities::detect_sync("Alacritty", "", false));
     }
 }
