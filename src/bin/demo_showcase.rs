@@ -3446,9 +3446,13 @@ impl InputPump {
         }
 
         // Convert timeout to timeval.
+        // subsec_micros() is always < 1_000_000, fits in i32 (macOS) or i64 (Linux).
+        // Use `as` cast for cross-platform: From<u32> exists for i64 but not i32.
+        #[allow(clippy::cast_lossless)]
+        let tv_usec = timeout.subsec_micros() as libc::suseconds_t;
         let mut tv = libc::timeval {
             tv_sec: timeout.as_secs() as libc::time_t,
-            tv_usec: libc::suseconds_t::from(timeout.subsec_micros()),
+            tv_usec,
         };
 
         // SAFETY: select is safe with valid fd_set and timeval.
@@ -6864,8 +6868,9 @@ renderer.present()?;
             let target_fps_f = (target_fps.max(1)) as f32;
 
             // Simulate slight FPS variation (deterministic sine wave)
+            // Clamp float before cast to avoid undefined behavior with negative values
             let fps_variation = (frame_mod * 0.1).sin() * 2.0;
-            let fps = ((target_fps_f + fps_variation) as u32).clamp(1, 120);
+            let fps = (target_fps_f + fps_variation).clamp(1.0, 120.0) as u32;
 
             // Frame time derived from FPS (guard against division by zero)
             let frame_time_ms = 1000.0 / (fps as f32).max(1.0);
