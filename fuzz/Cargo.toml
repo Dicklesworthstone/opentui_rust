@@ -1,0 +1,42 @@
+[package]
+name = "opentui-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.opentui]
+path = ".."
+
+# Fuzz targets - each corresponds to a file in fuzz_targets/
+[[bin]]
+name = "fuzz_input_parser"
+path = "fuzz_targets/fuzz_input_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_color_hex"
+path = "fuzz_targets/fuzz_color_hex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_keyboard_parser"
+path = "fuzz_targets/fuzz_keyboard_parser.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+opt-level = 3
+debug = true
