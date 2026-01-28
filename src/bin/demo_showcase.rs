@@ -2604,8 +2604,11 @@ impl App {
     /// Convert a mouse hit ID to an action.
     ///
     /// This method maps hit test results to app actions for mouse interactions.
-    fn hit_to_action(&self, hit_id: u32, kind: MouseEventKind) -> Action {
-        use hit_ids::*;
+    fn hit_to_action(hit_id: u32, kind: MouseEventKind) -> Action {
+        use hit_ids::{
+            BTN_HELP, BTN_PALETTE, BTN_THEME, BTN_TOUR, OVERLAY_CLOSE, PALETTE_ITEM_BASE,
+            PANEL_EDITOR, PANEL_LOGS, PANEL_PREVIEW, PANEL_SIDEBAR, SIDEBAR_ROW_BASE,
+        };
 
         // Only respond to press events (not release/move)
         if kind != MouseEventKind::Press {
@@ -2626,17 +2629,13 @@ impl App {
             PANEL_LOGS => Action::SetFocus(Focus::Logs),
 
             // Sidebar rows (click to navigate section)
-            id if id >= SIDEBAR_ROW_BASE && id < SIDEBAR_ROW_BASE + 100 => {
+            id if (SIDEBAR_ROW_BASE..SIDEBAR_ROW_BASE + 100).contains(&id) => {
                 let idx = (id - SIDEBAR_ROW_BASE) as usize;
-                if let Some(section) = Section::from_index(idx) {
-                    Action::NavigateSection(section)
-                } else {
-                    Action::None
-                }
+                Section::from_index(idx).map_or(Action::None, Action::NavigateSection)
             }
 
             // Palette items (click to select and execute)
-            id if id >= PALETTE_ITEM_BASE && id < PALETTE_ITEM_BASE + 100 => {
+            id if (PALETTE_ITEM_BASE..PALETTE_ITEM_BASE + 100).contains(&id) => {
                 let idx = (id - PALETTE_ITEM_BASE) as usize;
                 Action::PaletteClick(idx)
             }
@@ -3559,6 +3558,81 @@ fn draw_frame(renderer: &mut Renderer, app: &App) {
 
     // === Pass 6: Debug (placeholder) ===
     // Will show FPS, frame time, etc.
+
+    // === Pass 7: Register hit areas ===
+    register_hit_areas(renderer, &panels, app);
+}
+
+/// Register hit areas for mouse interaction.
+#[allow(clippy::cast_sign_loss)] // Panel coordinates are always positive
+fn register_hit_areas(renderer: &mut Renderer, panels: &PanelLayout, app: &App) {
+    use hit_ids::*;
+
+    // Register panel focus areas
+    if !panels.sidebar.is_empty() {
+        let r = &panels.sidebar;
+        renderer.register_hit_area(
+            r.x as u32,
+            r.y as u32,
+            r.w,
+            r.h,
+            PANEL_SIDEBAR,
+        );
+    }
+    {
+        let r = &panels.editor;
+        renderer.register_hit_area(r.x as u32, r.y as u32, r.w, r.h, PANEL_EDITOR);
+    }
+    if !panels.preview.is_empty() {
+        let r = &panels.preview;
+        renderer.register_hit_area(r.x as u32, r.y as u32, r.w, r.h, PANEL_PREVIEW);
+    }
+    {
+        let r = &panels.logs;
+        renderer.register_hit_area(r.x as u32, r.y as u32, r.w, r.h, PANEL_LOGS);
+    }
+
+    // Register sidebar rows (section navigation) - only in full/compact layout
+    if !panels.sidebar.is_empty() {
+        let sidebar = &panels.sidebar;
+        for (i, _section) in Section::ALL.iter().enumerate() {
+            // Each sidebar row is 2 lines high (title + desc), plus padding
+            let row_y = sidebar.y as u32 + 2 + (i as u32 * 2);
+            if row_y < (sidebar.y as u32 + sidebar.h - 2) {
+                renderer.register_hit_area(
+                    sidebar.x as u32,
+                    row_y,
+                    sidebar.w,
+                    2, // Row height
+                    SIDEBAR_ROW_BASE + i as u32,
+                );
+            }
+        }
+    }
+
+    // Register palette items when command palette is open
+    if let Some(Overlay::Palette(state)) = &app.overlays.active {
+        // Palette overlay is centered, need to calculate position
+        let overlay_w = (panels.screen.w * 50 / 100).clamp(40, 60);
+        let overlay_h = (state.filtered.len() as u32 + 4)
+            .min(panels.screen.h * 50 / 100)
+            .max(6);
+        let overlay_x = (panels.screen.w - overlay_w) / 2;
+        let overlay_y = panels.screen.h / 4;
+
+        // Register each palette item
+        let list_y = overlay_y + 4;
+        let max_items = (overlay_h - 5).min(state.filtered.len() as u32);
+        for i in 0..max_items as usize {
+            renderer.register_hit_area(
+                overlay_x,
+                list_y + i as u32,
+                overlay_w,
+                1, // One row per item
+                PALETTE_ITEM_BASE + i as u32,
+            );
+        }
+    }
 }
 
 /// Pass 1: Draw background fill.
