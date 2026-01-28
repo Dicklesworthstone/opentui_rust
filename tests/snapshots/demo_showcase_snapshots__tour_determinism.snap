@@ -1,0 +1,26 @@
+---
+source: tests/demo_showcase_snapshots.rs
+assertion_line: 271
+expression: snapshot
+---
+{
+  "config": {
+    "seed": 42
+  },
+  "final_step_idx": 11,
+  "step_transition_frames": [
+    240,
+    480,
+    691,
+    932,
+    1173,
+    1384,
+    1625,
+    1896,
+    2137,
+    2378,
+    2619
+  ],
+  "total_steps": 12,
+  "tour_completed": true
+}

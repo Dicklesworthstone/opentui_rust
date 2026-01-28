@@ -21,6 +21,10 @@ use opentui::GraphemePool;
 use opentui::buffer::{ClipRect, GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::event::{LogLevel as OpentuiLogLevel, set_log_callback};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
+#[allow(unused_imports)]
+use opentui::renderer::{HitGrid, ThreadedRenderer};
+#[allow(unused_imports)]
+use opentui::terminal::{Capabilities, CursorStyle};
 use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_size};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
@@ -2075,7 +2079,7 @@ impl PanelLayout {
 
     /// Get a panel rect by name (for tour spotlight targeting).
     ///
-    /// Supported names: "sidebar", "editor", "preview", "logs", "top_bar", "status_bar"
+    /// Supported names: "sidebar", "editor", "preview", "logs", "`top_bar`", "`status_bar`"
     #[must_use]
     pub fn get_panel_rect(&self, name: &str) -> Option<Rect> {
         match name {
@@ -3505,6 +3509,11 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
         return;
     }
 
+    // Apply global dim when paused (focus lost) via opacity stack
+    if app.paused {
+        buffer.push_opacity(0.5);
+    }
+
     // === Pass 2: Chrome ===
     draw_pass_chrome(buffer, &panels, &theme, app);
 
@@ -3516,6 +3525,11 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
 
     // === Pass 5: Toasts ===
     draw_pass_toasts(buffer, &panels, &theme, app);
+
+    // Pop dim opacity if paused
+    if app.paused {
+        buffer.pop_opacity();
+    }
 }
 
 /// Per-frame statistics for JSON output.
@@ -3588,8 +3602,14 @@ fn run_check_layout(width: u16, height: u16) -> String {
     let h = u32::from(height);
 
     let test_sizes: &[(u32, u32, &str)] = &[
-        (120, 40, "full"), (80, 24, "full"), (79, 24, "compact"), (60, 16, "compact"),
-        (59, 16, "minimal"), (40, 12, "minimal"), (39, 12, "too_small"), (20, 8, "too_small"),
+        (120, 40, "full"),
+        (80, 24, "full"),
+        (79, 24, "compact"),
+        (60, 16, "compact"),
+        (59, 16, "minimal"),
+        (40, 12, "minimal"),
+        (39, 12, "too_small"),
+        (20, 8, "too_small"),
     ];
     let mut results: Vec<String> = Vec::new();
 
@@ -3598,10 +3618,15 @@ fn run_check_layout(width: u16, height: u16) -> String {
         let actual_mode = format!("{:?}", layout.mode).to_lowercase();
         let mode_matches = actual_mode.contains(expected_mode);
         let valid_rects = [
-            ("screen", &layout.screen), ("top_bar", &layout.top_bar),
-            ("status_bar", &layout.status_bar), ("content", &layout.content),
-            ("sidebar", &layout.sidebar), ("main_area", &layout.main_area),
-            ("editor", &layout.editor), ("preview", &layout.preview), ("logs", &layout.logs),
+            ("screen", &layout.screen),
+            ("top_bar", &layout.top_bar),
+            ("status_bar", &layout.status_bar),
+            ("content", &layout.content),
+            ("sidebar", &layout.sidebar),
+            ("main_area", &layout.main_area),
+            ("editor", &layout.editor),
+            ("preview", &layout.preview),
+            ("logs", &layout.logs),
         ];
         let mut all_valid = true;
         let mut rect_info: Vec<String> = Vec::new();
@@ -3609,7 +3634,9 @@ fn run_check_layout(width: u16, height: u16) -> String {
             #[allow(clippy::cast_possible_wrap)]
             let in_bounds = rect.x.saturating_add(rect.w as i32) <= tw as i32
                 && rect.y.saturating_add(rect.h as i32) <= th as i32;
-            if !in_bounds && rect.w > 0 && rect.h > 0 { all_valid = false; }
+            if !in_bounds && rect.w > 0 && rect.h > 0 {
+                all_valid = false;
+            }
             rect_info.push(format!(
                 r#"{{"name":"{}","x":{},"y":{},"w":{},"h":{},"in_bounds":{}}}"#,
                 name, rect.x, rect.y, rect.w, rect.h, in_bounds
@@ -3624,35 +3651,63 @@ fn run_check_layout(width: u16, height: u16) -> String {
     let main_layout = PanelLayout::compute(w, h);
     format!(
         r#"{{"check":"layout","passed":true,"requested_size":[{},{}],"main_layout":{{"size":[{},{}],"mode":"{:?}"}},"test_results":[{}]}}"#,
-        width, height, w, h, main_layout.mode, results.join(",")
+        width,
+        height,
+        w,
+        h,
+        main_layout.mode,
+        results.join(",")
     )
 }
 
 /// Check CLI/config parsing.
-#[allow(clippy::too_many_lines, clippy::redundant_closure_for_method_calls, clippy::uninlined_format_args)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::redundant_closure_for_method_calls,
+    clippy::uninlined_format_args
+)]
 fn run_check_config(config: &Config) -> String {
     let test_cases: &[(&[&str], &str)] = &[
-        (&["demo_showcase"], "default"), (&["demo_showcase", "--fps", "30"], "fps_30"),
+        (&["demo_showcase"], "default"),
+        (&["demo_showcase", "--fps", "30"], "fps_30"),
         (&["demo_showcase", "--no-mouse"], "no_mouse"),
-        (&["demo_showcase", "--tour", "--exit-after-tour"], "tour_exit"),
-        (&["demo_showcase", "--cap-preset", "minimal"], "minimal_preset"),
+        (
+            &["demo_showcase", "--tour", "--exit-after-tour"],
+            "tour_exit",
+        ),
+        (
+            &["demo_showcase", "--cap-preset", "minimal"],
+            "minimal_preset",
+        ),
         (&["demo_showcase", "--seed", "42"], "seed_42"),
     ];
     let mut results: Vec<String> = Vec::new();
     for (args, label) in test_cases {
         let os_args: Vec<std::ffi::OsString> = args.iter().map(|s| s.into()).collect();
         let (parsed_ok, cfg_summary) = match Config::from_args(os_args) {
-            ParseResult::Config(cfg) => (true, format!(
-                r#"{{"fps_cap":{},"enable_mouse":{},"seed":{}}}"#, cfg.fps_cap, cfg.enable_mouse, cfg.seed
-            )),
+            ParseResult::Config(cfg) => (
+                true,
+                format!(
+                    r#"{{"fps_cap":{},"enable_mouse":{},"seed":{}}}"#,
+                    cfg.fps_cap, cfg.enable_mouse, cfg.seed
+                ),
+            ),
             ParseResult::Help => (true, r#"{"help":true}"#.to_string()),
-            ParseResult::Error(e) => (false, format!(r#"{{"error":"{}"}}"#, e.replace('"', "\\\""))),
+            ParseResult::Error(e) => (
+                false,
+                format!(r#"{{"error":"{}"}}"#, e.replace('"', "\\\"")),
+            ),
         };
-        results.push(format!(r#"{{"label":"{}","parsed_ok":{},"config":{}}}"#, label, parsed_ok, cfg_summary));
+        results.push(format!(
+            r#"{{"label":"{}","parsed_ok":{},"config":{}}}"#,
+            label, parsed_ok, cfg_summary
+        ));
     }
     format!(
         r#"{{"check":"config","passed":true,"current_config":{{"fps_cap":{},"seed":{}}},"test_results":[{}]}}"#,
-        config.fps_cap, config.seed, results.join(",")
+        config.fps_cap,
+        config.seed,
+        results.join(",")
     )
 }
 
@@ -3665,24 +3720,41 @@ fn run_check_palette() -> String {
     let total_commands = PaletteState::COMMANDS.len();
 
     let mut filter_results: Vec<String> = Vec::new();
-    for (query, label) in [("", "empty"), ("help", "help"), ("toggle", "toggle"), ("xyz", "no_match")] {
+    for (query, label) in [
+        ("", "empty"),
+        ("help", "help"),
+        ("toggle", "toggle"),
+        ("xyz", "no_match"),
+    ] {
         state.query = query.to_string();
         state.selected = 0;
         state.update_filter();
-        filter_results.push(format!(r#"{{"label":"{}","match_count":{}}}"#, label, state.filtered.len()));
+        filter_results.push(format!(
+            r#"{{"label":"{}","match_count":{}}}"#,
+            label,
+            state.filtered.len()
+        ));
     }
 
     state.query.clear();
     state.selected = 0;
     state.update_filter();
-    for _ in 0..3 { state.select_next(); }
+    for _ in 0..3 {
+        state.select_next();
+    }
     let after_next = state.selected;
-    for _ in 0..2 { state.select_prev(); }
+    for _ in 0..2 {
+        state.select_prev();
+    }
     let after_prev = state.selected;
 
     format!(
         r#"{{"check":"palette","passed":true,"total_commands":{},"all_shown_on_empty":{},"filter_tests":[{}],"nav_tests":{{"after_3_next":{},"after_2_prev":{}}}}}"#,
-        total_commands, all_count == total_commands, filter_results.join(","), after_next, after_prev
+        total_commands,
+        all_count == total_commands,
+        filter_results.join(","),
+        after_next,
+        after_prev
     )
 }
 
@@ -3690,20 +3762,33 @@ fn run_check_palette() -> String {
 #[allow(clippy::uninlined_format_args)]
 fn run_check_hitgrid() -> String {
     let id_tests = [
-        ("BTN_HELP", hit_ids::BTN_HELP, 1000), ("BTN_PALETTE", hit_ids::BTN_PALETTE, 1001),
-        ("BTN_TOUR", hit_ids::BTN_TOUR, 1002), ("BTN_THEME", hit_ids::BTN_THEME, 1003),
+        ("BTN_HELP", hit_ids::BTN_HELP, 1000),
+        ("BTN_PALETTE", hit_ids::BTN_PALETTE, 1001),
+        ("BTN_TOUR", hit_ids::BTN_TOUR, 1002),
+        ("BTN_THEME", hit_ids::BTN_THEME, 1003),
         ("SIDEBAR_ROW_BASE", hit_ids::SIDEBAR_ROW_BASE, 2000),
-        ("PANEL_SIDEBAR", hit_ids::PANEL_SIDEBAR, 3000), ("PANEL_EDITOR", hit_ids::PANEL_EDITOR, 3001),
-        ("OVERLAY_CLOSE", hit_ids::OVERLAY_CLOSE, 4000), ("PALETTE_ITEM_BASE", hit_ids::PALETTE_ITEM_BASE, 4100),
+        ("PANEL_SIDEBAR", hit_ids::PANEL_SIDEBAR, 3000),
+        ("PANEL_EDITOR", hit_ids::PANEL_EDITOR, 3001),
+        ("OVERLAY_CLOSE", hit_ids::OVERLAY_CLOSE, 4000),
+        ("PALETTE_ITEM_BASE", hit_ids::PALETTE_ITEM_BASE, 4100),
     ];
     let mut all_match = true;
     let mut results: Vec<String> = Vec::new();
     for (name, actual, expected) in id_tests {
         let m = actual == expected;
-        if !m { all_match = false; }
-        results.push(format!(r#"{{"name":"{}","actual":{},"expected":{},"matches":{}}}"#, name, actual, expected, m));
+        if !m {
+            all_match = false;
+        }
+        results.push(format!(
+            r#"{{"name":"{}","actual":{},"expected":{},"matches":{}}}"#,
+            name, actual, expected, m
+        ));
     }
-    format!(r#"{{"check":"hitgrid","passed":{},"id_tests":[{}]}}"#, all_match, results.join(","))
+    format!(
+        r#"{{"check":"hitgrid","passed":{},"id_tests":[{}]}}"#,
+        all_match,
+        results.join(",")
+    )
 }
 
 /// Check log model behavior.
@@ -3712,7 +3797,9 @@ fn run_check_logs() -> String {
     let max_entries = 100;
     let mut log_buffer: VecDeque<&str> = VecDeque::with_capacity(max_entries);
     for i in 0..150 {
-        if log_buffer.len() >= max_entries { log_buffer.pop_front(); }
+        if log_buffer.len() >= max_entries {
+            log_buffer.pop_front();
+        }
         log_buffer.push_back(if i % 2 == 0 { "INFO" } else { "DEBUG" });
     }
     let final_count = log_buffer.len();
@@ -3787,9 +3874,8 @@ fn run_headless_smoke(config: &Config) {
                 let title = TOUR_SCRIPT.get(after).map_or("unknown", |s| s.title);
                 tour_step_history.push((frame, after, title.to_string()));
             }
-        } else if step_before.is_none() && step_after.is_some() {
+        } else if let (None, Some(after)) = (step_before, step_after) {
             // Tour just started
-            let after = step_after.unwrap();
             let title = TOUR_SCRIPT.get(after).map_or("unknown", |s| s.title);
             tour_step_history.push((frame, after, title.to_string()));
         }
@@ -3853,15 +3939,9 @@ fn run_headless_smoke(config: &Config) {
 
         // Format tour state if tour was active
         let tour_state_json = if config.start_in_tour {
-            let final_step = app.tour_runner.as_ref().map(|r| r.step_idx).unwrap_or(0);
-            let final_title = TOUR_SCRIPT
-                .get(final_step)
-                .map_or("unknown", |s| s.title);
-            let completed = app
-                .tour_runner
-                .as_ref()
-                .map(|r| r.completed)
-                .unwrap_or(false);
+            let final_step = app.tour_runner.as_ref().map_or(0, |r| r.step_idx);
+            let final_title = TOUR_SCRIPT.get(final_step).map_or("unknown", |s| s.title);
+            let completed = app.tour_runner.as_ref().is_some_and(|r| r.completed);
             let steps_json: Vec<String> = tour_step_history
                 .iter()
                 .map(|(frame, idx, title)| {
@@ -4225,6 +4305,11 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
         return;
     }
 
+    // Apply global dim when paused (focus lost) via opacity stack
+    if app.paused {
+        buffer.push_opacity(0.5);
+    }
+
     // === Pass 2: Chrome ===
     draw_pass_chrome(buffer, &panels, &theme, app);
 
@@ -4242,6 +4327,11 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
         if let Some(data) = inspector {
             draw_pass_debug(buffer, &panels, &theme, data);
         }
+    }
+
+    // Pop dim opacity if paused
+    if app.paused {
+        buffer.pop_opacity();
     }
 
     // === Pass 7: Register hit areas ===
@@ -5019,9 +5109,19 @@ fn draw_palette_overlay(
     };
     buffer.draw_text(overlay_x + 4, overlay_y + 2, query_display, query_style);
 
-    // Draw filtered commands
+    // Draw filtered commands - use nested scissor for scroll region
     let list_y = overlay_y + 4;
-    let max_items = (overlay_h - 5).min(state.filtered.len() as u32);
+    let list_h = overlay_h.saturating_sub(5);
+    let max_items = list_h.min(state.filtered.len() as u32);
+
+    // Push nested scissor for command list scroll region
+    let list_clip = ClipRect::new(
+        (overlay_x + 1) as i32,
+        list_y as i32,
+        overlay_w.saturating_sub(2),
+        list_h,
+    );
+    buffer.push_scissor(list_clip);
 
     for (i, &cmd_idx) in state.filtered.iter().take(max_items as usize).enumerate() {
         let y = list_y + i as u32;
@@ -5049,6 +5149,8 @@ fn draw_palette_overlay(
             buffer.draw_text(desc_x, y, &desc_truncated, Style::fg(theme.fg2));
         }
     }
+
+    buffer.pop_scissor();
 }
 
 /// Draw the Tour overlay with spotlight effect.
@@ -5791,6 +5893,11 @@ fn draw_logs_panel(
     let content_y = y + 1;
     let content_h = rect.h.saturating_sub(1);
 
+    // Push scissor rect to clip log content to the panel bounds
+    #[allow(clippy::cast_possible_wrap)]
+    let clip = ClipRect::new(x as i32, content_y as i32, rect.w, content_h);
+    buffer.push_scissor(clip);
+
     // Draw log entries
     let visible_rows = content_h.min(u32::try_from(app.logs.len()).unwrap_or(0));
 
@@ -5855,6 +5962,8 @@ fn draw_logs_panel(
         let placeholder = "No log entries yet...";
         buffer.draw_text(x + 2, content_y, placeholder, Style::fg(theme.fg2));
     }
+
+    buffer.pop_scissor();
 }
 
 /// Draw a filled rectangle background.
@@ -5953,8 +6062,14 @@ fn draw_sidebar(
     app: &App,
 ) {
     let x = u32::try_from(sidebar.x).unwrap_or(0);
-    let mut y = u32::try_from(sidebar.y).unwrap_or(0) + 1;
+    let base_y = u32::try_from(sidebar.y).unwrap_or(0);
+    let mut y = base_y + 1;
     let is_focused = app.focus == Focus::Sidebar;
+
+    // Push scissor rect to clip sidebar content to the panel bounds
+    #[allow(clippy::cast_possible_wrap)]
+    let clip = ClipRect::new(sidebar.x, sidebar.y, sidebar.w, sidebar.h);
+    buffer.push_scissor(clip);
 
     // Draw focused panel border indicator on left edge if focused
     if is_focused && mode != LayoutMode::Minimal {
@@ -6026,6 +6141,8 @@ fn draw_sidebar(
             Style::fg(theme.fg2),
         );
     }
+
+    buffer.pop_scissor();
 }
 
 // ============================================================================

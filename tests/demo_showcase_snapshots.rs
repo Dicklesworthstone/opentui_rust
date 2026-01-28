@@ -215,3 +215,130 @@ fn test_cap_degradation_tiny_50x15() {
 
     insta::assert_json_snapshot!("cap_tiny_50x15", snapshot);
 }
+
+// ============================================================================
+// Tour Determinism Regression Tests (bd-bqd1)
+// ============================================================================
+//
+// These tests verify that the guided tour produces deterministic output
+// across runs, enabling snapshot-based regression testing.
+
+/// Extract tour state from headless JSON output.
+fn extract_tour_snapshot(json: &serde_json::Value) -> serde_json::Value {
+    // Extract step transition frame numbers only (not full transitions) for stable snapshots
+    let step_frames: Vec<u64> = json["tour_state"]["step_transitions"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|t| t["frame"].as_u64()).collect())
+        .unwrap_or_default();
+
+    serde_json::json!({
+        "config": {
+            "seed": json["config"]["seed"],
+        },
+        "tour_completed": json["tour_state"]["completed"],
+        "total_steps": json["tour_state"]["total_steps"],
+        "final_step_idx": json["tour_state"]["final_step_idx"],
+        "step_transition_frames": step_frames,
+    })
+}
+
+#[test]
+fn test_tour_determinism_snapshot() {
+    // Run tour with fixed seed and enough frames to complete
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3000"]);
+    let snapshot = extract_tour_snapshot(&json);
+
+    // Assert tour completed successfully
+    assert!(
+        json["tour_state"]["completed"].as_bool().unwrap_or(false),
+        "Tour should complete in headless mode with 3000 frames"
+    );
+
+    // Assert we have step transitions
+    let transitions = json["tour_state"]["step_transitions"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert!(
+        transitions > 0,
+        "Tour should have step transitions recorded"
+    );
+
+    insta::assert_json_snapshot!("tour_determinism", snapshot);
+}
+
+#[test]
+fn test_tour_step_titles_present() {
+    // Run tour with enough frames to see some transitions
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3000"]);
+
+    // Verify tour_state contains expected fields
+    let tour_state = &json["tour_state"];
+    assert!(
+        !tour_state.is_null(),
+        "tour_state should be present in JSON output"
+    );
+    assert!(
+        tour_state["total_steps"].as_u64().unwrap_or(0) > 0,
+        "Tour should have steps defined"
+    );
+    assert!(
+        tour_state["step_transitions"].is_array(),
+        "step_transitions should be present in tour_state"
+    );
+
+    let step_transitions = tour_state["step_transitions"].as_array().unwrap();
+    assert!(
+        !step_transitions.is_empty(),
+        "Tour should have step transitions recorded"
+    );
+
+    // Verify each transition has a title
+    for transition in step_transitions {
+        assert!(
+            transition["title"].as_str().is_some_and(|s| !s.is_empty()),
+            "Each step transition should have a non-empty title"
+        );
+    }
+}
+
+#[test]
+fn test_tour_deterministic_across_runs() {
+    // Run tour twice with identical seeds and enough frames to complete
+    let json1 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3000"]);
+    let json2 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3000"]);
+
+    // Step transitions should be identical
+    assert_eq!(
+        json1["tour_state"]["step_transitions"], json2["tour_state"]["step_transitions"],
+        "Tour step transitions should be deterministic with same seed"
+    );
+    assert_eq!(
+        json1["tour_state"]["final_step_idx"], json2["tour_state"]["final_step_idx"],
+        "Tour final step should be deterministic with same seed"
+    );
+    assert_eq!(
+        json1["frames_rendered"], json2["frames_rendered"],
+        "Frame count should be deterministic with same seed"
+    );
+}
+
+#[test]
+fn test_tour_exits_cleanly() {
+    // This test verifies clean exit by checking the process succeeds
+    // (run_headless_json already asserts success, but we verify tour-specific output)
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3000"]);
+
+    // Verify tour completed (not just started)
+    assert!(
+        json["tour_state"]["completed"].as_bool().unwrap_or(false),
+        "Tour should complete and exit cleanly"
+    );
+
+    // Verify we reached the expected final step
+    let final_step = json["tour_state"]["final_step_idx"].as_u64().unwrap_or(0);
+    let total_steps = json["tour_state"]["total_steps"].as_u64().unwrap_or(0);
+    assert!(
+        final_step >= total_steps - 1,
+        "Tour should reach the final step before exiting"
+    );
+}
