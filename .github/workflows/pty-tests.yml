@@ -1,0 +1,166 @@
+name: PTY E2E Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# This workflow runs PTY tests separately from main CI to avoid blocking.
+# PTY tests are inherently flaky due to timing sensitivities and are not
+# required to pass for PRs to merge.
+
+concurrency:
+  group: pty-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  TERM: xterm-256color
+
+jobs:
+  pty-tests:
+    name: PTY E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Continue on error - these tests are informational, not blocking
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run twice to check for flakiness
+        run: [1]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: pty-tests
+
+      - name: Build demo_showcase binary
+        run: cargo build --bin demo_showcase
+
+      - name: Create artifacts directory
+        run: mkdir -p target/pty-test-logs
+
+      - name: Run PTY E2E tests (with retry)
+        id: pty_test
+        run: |
+          # Attempt 1
+          echo "=== Attempt 1 ===" | tee -a target/pty-test-logs/run.log
+          if script -q -c "cargo test --test pty_e2e -- --ignored --nocapture --test-threads=1" /dev/null 2>&1 | tee -a target/pty-test-logs/run.log; then
+            echo "PTY tests passed on attempt 1"
+            echo "result=pass" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Attempt 1 failed, retrying..." | tee -a target/pty-test-logs/run.log
+          sleep 2
+
+          # Attempt 2 (retry)
+          echo "=== Attempt 2 ===" | tee -a target/pty-test-logs/run.log
+          if script -q -c "cargo test --test pty_e2e -- --ignored --nocapture --test-threads=1" /dev/null 2>&1 | tee -a target/pty-test-logs/run.log; then
+            echo "PTY tests passed on attempt 2 (after retry)"
+            echo "result=pass_retry" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "PTY tests failed after 2 attempts" | tee -a target/pty-test-logs/run.log
+          echo "result=fail" >> $GITHUB_OUTPUT
+          exit 1
+        env:
+          TERM: xterm-256color
+          HARNESS_ARTIFACTS: 1
+          HARNESS_ARTIFACTS_DIR: target/e2e-artifacts
+          HARNESS_LOG_LEVEL: debug
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## PTY E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          RESULT="${{ steps.pty_test.outputs.result }}"
+          case "$RESULT" in
+            pass)
+              echo "Result: **PASSED** on first attempt" >> $GITHUB_STEP_SUMMARY
+              ;;
+            pass_retry)
+              echo "Result: **PASSED** (after retry)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "> Note: Test required retry, may indicate flakiness" >> $GITHUB_STEP_SUMMARY
+              ;;
+            fail)
+              echo "Result: **FAILED** after 2 attempts" >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "Result: **UNKNOWN**" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "target/e2e-artifacts" ]; then
+            echo "E2E artifacts captured:" >> $GITHUB_STEP_SUMMARY
+            find target/e2e-artifacts -type f -name "*.json" -o -name "*.txt" | head -10 | while read f; do
+              echo "- \`$(basename $f)\`" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+
+          if [ -f "target/pty-test-logs/run.log" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Test Output (last 30 lines)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -30 target/pty-test-logs/run.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload PTY test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pty-test-logs-${{ matrix.run }}
+          path: |
+            target/pty-test-logs/
+          retention-days: 7
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pty-e2e-artifacts-${{ matrix.run }}
+          path: |
+            target/e2e-artifacts/
+          retention-days: 7
+
+  # Summary job for overall status
+  pty-summary:
+    name: PTY Test Summary
+    needs: [pty-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          echo "## PTY Test Suite Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Note: PTY tests are informational, not blocking
+          if [[ "${{ needs.pty-tests.result }}" == "success" ]]; then
+            echo "All PTY tests passed." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "PTY tests had failures (non-blocking)." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> These tests are informational and do not block merges." >> $GITHUB_STEP_SUMMARY
+          fi
