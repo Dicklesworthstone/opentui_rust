@@ -1690,63 +1690,113 @@ fn draw_pass_background(buffer: &mut OptimizedBuffer, theme: &Theme) {
 }
 
 /// Pass 2: Draw chrome (top bar and status bar).
+#[allow(clippy::cast_precision_loss)] // Precision loss acceptable for gradient
 fn draw_pass_chrome(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &Theme, app: &App) {
-    // --- Top bar ---
-    draw_rect_bg(buffer, &panels.top_bar, theme.bg1);
+    // --- Top bar with gradient ---
+    // Subtle gradient from bg1 to slightly lighter for polish
+    let gradient_end = Theme::lerp(theme.bg1, theme.bg2, 0.3);
+    draw_gradient_bar(buffer, &panels.top_bar, theme.bg1, gradient_end);
+
+    let top_y = u32::try_from(panels.top_bar.y).unwrap_or(0);
+    let top_x = u32::try_from(panels.top_bar.x).unwrap_or(0);
+
+    // Left: Brand name
     buffer.draw_text(
-        u32::try_from(panels.top_bar.x).unwrap_or(0) + 2,
-        u32::try_from(panels.top_bar.y).unwrap_or(0),
-        "OpenTUI Showcase",
+        top_x + 2,
+        top_y,
+        "OpenTUI",
         Style::fg(theme.accent_primary).with_bold(),
     );
-
-    // Show mode and layout info
-    let mode_text = format!(
-        "Mode: {}  Focus: {}  [{}]",
-        app.mode_name(),
-        app.focus_name(),
-        layout_mode_name(panels.mode)
+    buffer.draw_text(
+        top_x + 10,
+        top_y,
+        "Showcase",
+        Style::fg(theme.fg1),
     );
-    let mode_len = i32::try_from(mode_text.len()).unwrap_or(0);
-    let mode_x = panels.top_bar.right() - mode_len - 2;
+
+    // Center: Current section (if there's enough space)
+    if panels.top_bar.w > 60 {
+        let section_text = app.section.name();
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        let section_len = section_text.len() as i32;
+        #[allow(clippy::cast_possible_wrap)]
+        let center_x = (panels.top_bar.w as i32 / 2) - (section_len / 2);
+        #[allow(clippy::cast_possible_wrap)]
+        let draw_x = top_x as i32 + center_x;
+        buffer.draw_text(
+            u32::try_from(draw_x).unwrap_or(0),
+            top_y,
+            section_text,
+            Style::fg(theme.fg0),
+        );
+    }
+
+    // Right: Mode badge + Focus indicator
+    let mode_badge = format!("[{}]", app.mode_name());
+    let focus_text = format!(" {} ", app.focus_name());
+
+    // Calculate positions from right edge
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    let focus_len = focus_text.len() as i32;
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    let mode_len = mode_badge.len() as i32;
+
+    // Draw focus indicator first (rightmost)
+    let focus_x = panels.top_bar.right() - focus_len - 1;
+    buffer.draw_text(
+        u32::try_from(focus_x).unwrap_or(0),
+        top_y,
+        &focus_text,
+        Style::fg(theme.bg0).with_bg(theme.accent_primary),
+    );
+
+    // Draw mode badge
+    let mode_x = focus_x - mode_len - 2;
+    let mode_color = match app.mode {
+        AppMode::Normal => theme.fg2,
+        AppMode::Help => theme.accent_primary,
+        AppMode::CommandPalette => theme.accent_secondary,
+        AppMode::Tour => theme.accent_success,
+    };
     buffer.draw_text(
         u32::try_from(mode_x).unwrap_or(0),
-        u32::try_from(panels.top_bar.y).unwrap_or(0),
-        &mode_text,
-        Style::fg(theme.accent_success),
+        top_y,
+        &mode_badge,
+        Style::fg(mode_color),
     );
 
     // --- Status bar ---
-    draw_rect_bg(buffer, &panels.status_bar, theme.bg1);
+    draw_rect_bg(buffer, &panels.status_bar, theme.bg2);
     let status_y = u32::try_from(panels.status_bar.y).unwrap_or(0);
 
-    // Context-sensitive hints
+    // Left: Context-sensitive hints with styled keys
     let hints = match app.mode {
-        AppMode::Normal => "Ctrl+Q Quit  |  F1 Help  |  Ctrl+N Theme  |  Tab Focus",
-        AppMode::Help => "Esc Close  |  Up/Down Scroll",
-        AppMode::CommandPalette => "Esc Close  |  Up/Down Navigate  |  Enter Select",
+        AppMode::Normal => "Ctrl+Q Quit │ F1 Help │ Ctrl+N Theme │ Tab Focus",
+        AppMode::Help => "Esc Close │ ↑/↓ Scroll │ PgUp/PgDn Page",
+        AppMode::CommandPalette => "Esc Close │ ↑/↓ Navigate │ Enter Select",
         AppMode::Tour => {
             if app.tour_step < app.tour_total.saturating_sub(1) {
-                "Enter Next  |  Backspace Prev  |  Esc Exit"
+                "Enter Next │ Backspace Prev │ Esc Exit"
             } else {
-                "Tour Complete!  |  Esc Exit"
+                "✓ Tour Complete! │ Esc Exit"
             }
         }
     };
 
     // Add paused indicator if needed
     let status_left = if app.paused {
-        format!("[PAUSED] {hints}")
+        format!("⏸ PAUSED │ {hints}")
     } else {
         hints.to_string()
     };
     buffer.draw_text(2, status_y, &status_left, Style::fg(theme.fg2));
 
-    // Right side: theme, section, frame counter
+    // Right: Theme + FPS + Frame counter
+    let fps_estimate = 60; // Placeholder until we track actual FPS
     let stats = format!(
-        "{} | {} | Frame: {}",
+        "{} │ {}fps │ F:{}",
         app.ui_theme.name(),
-        app.section.name(),
+        fps_estimate,
         app.frame_count
     );
     let stats_len = i32::try_from(stats.len()).unwrap_or(0);
@@ -1755,7 +1805,7 @@ fn draw_pass_chrome(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
         u32::try_from(stats_x).unwrap_or(0),
         status_y,
         &stats,
-        Style::fg(theme.fg2),
+        Style::fg(theme.fg1),
     );
 }
 
@@ -1831,7 +1881,31 @@ fn draw_rect_bg(buffer: &mut OptimizedBuffer, rect: &Rect, color: Rgba) {
     );
 }
 
+/// Draw a horizontal gradient bar.
+/// Draw a horizontal gradient bar.
+#[allow(clippy::cast_precision_loss)] // Precision loss acceptable for gradient
+fn draw_gradient_bar(buffer: &mut OptimizedBuffer, rect: &Rect, start: Rgba, end: Rgba) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = u32::try_from(rect.x).unwrap_or(0);
+    let y = u32::try_from(rect.y).unwrap_or(0);
+
+    // Draw each column with interpolated color using fill_rect (1-column wide)
+    for col in 0..rect.w {
+        let t = if rect.w > 1 {
+            col as f32 / (rect.w - 1) as f32
+        } else {
+            0.0
+        };
+        let color = Theme::lerp(start, end, t);
+        buffer.fill_rect(x + col, y, 1, rect.h, color);
+    }
+}
+
 /// Get a display name for the layout mode.
+#[allow(dead_code)] // Will be used by debug overlay
 const fn layout_mode_name(mode: LayoutMode) -> &'static str {
     match mode {
         LayoutMode::Full => "Full",
