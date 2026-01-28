@@ -394,33 +394,48 @@ impl SequenceAnalysis {
     fn analyze_csi(&mut self, output: &[u8], offset: usize) {
         let remaining = &output[offset..];
 
-        // Private mode set/reset
+        // Private mode set/reset (starts_with is correct for prefix matching)
         if remaining.starts_with(b"\x1b[?") {
             self.analyze_private_mode(remaining, offset);
+            return;
         }
-        // Cursor position
-        else if remaining.len() > 3 && remaining.ends_with(b"H") {
-            self.sequence_summary.cursor_position += 1;
-            self.cursor_ops.push(format!("CUP at offset {offset}"));
-        }
-        // SGR (Select Graphic Rendition)
-        else if remaining.contains(&b'm') {
-            if remaining.starts_with(b"\x1b[0m") || remaining.starts_with(b"\x1b[m") {
-                self.sequence_summary.sgr_reset += 1;
+
+        // Find the final byte of this CSI sequence.
+        // CSI format: ESC [ <params 0x30-0x3F>* <intermediates 0x20-0x2F>* <final 0x40-0x7E>
+        // Skip ESC and '[' (first 2 bytes), then find the first byte in the final range.
+        let Some(&final_byte) = remaining
+            .iter()
+            .skip(2)
+            .find(|&&b| (0x40..=0x7E).contains(&b))
+        else {
+            return; // Incomplete or malformed CSI sequence
+        };
+
+        match final_byte {
+            b'H' | b'f' => {
+                self.sequence_summary.cursor_position += 1;
+                self.cursor_ops.push(format!("CUP at offset {offset}"));
             }
-            // Count color/attribute sequences
-            if remaining.contains(&b';') {
-                self.color_ops += 1;
+            b'm' => {
+                if remaining.starts_with(b"\x1b[0m") || remaining.starts_with(b"\x1b[m") {
+                    self.sequence_summary.sgr_reset += 1;
+                }
+                // Count color/attribute sequences by checking params for semicolons.
+                // Params are between ESC[ (pos 2) and the final 'm' byte.
+                if let Some(m_pos) = remaining.iter().position(|&b| b == b'm') {
+                    if remaining[2..m_pos].contains(&b';') {
+                        self.color_ops += 1;
+                    }
+                }
+                self.text_attrs += 1;
             }
-            self.text_attrs += 1;
-        }
-        // Erase in Display
-        else if remaining.contains(&b'J') {
-            self.sequence_summary.erase_display += 1;
-        }
-        // Erase in Line
-        else if remaining.contains(&b'K') {
-            self.sequence_summary.erase_line += 1;
+            b'J' => {
+                self.sequence_summary.erase_display += 1;
+            }
+            b'K' => {
+                self.sequence_summary.erase_line += 1;
+            }
+            _ => {}
         }
     }
 
