@@ -18,6 +18,7 @@
 #![allow(unsafe_code)]
 
 use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
+use opentui::GraphemePool;
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size, MouseButton, MouseEventKind};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
@@ -3235,6 +3236,9 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
     // No hyperlinks in headless mode (no terminal to handle OSC 8)
     let links = PreallocatedLinks::default();
 
+    // Grapheme pool for Unicode rendering (headless uses standalone pool)
+    let mut pool = GraphemePool::new();
+
     // === Pass 1: Background ===
     draw_pass_background(buffer, &theme);
 
@@ -3248,7 +3252,7 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
     draw_pass_chrome(buffer, &panels, &theme, app);
 
     // === Pass 3: Panels ===
-    draw_pass_panels(buffer, &panels, &theme, app, &links);
+    draw_pass_panels(buffer, &mut pool, &panels, &theme, app, &links);
 
     // === Pass 4: Overlays ===
     draw_pass_overlays(buffer, &panels, &theme, app, &links);
@@ -3678,7 +3682,7 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
     draw_pass_chrome(buffer, &panels, &theme, app);
 
     // === Pass 3: Panels ===
-    draw_pass_panels(buffer, &panels, &theme, app, &links);
+    draw_pass_panels(buffer, pool, &panels, &theme, app, &links);
 
     // === Pass 4: Overlays ===
     draw_pass_overlays(buffer, &panels, &theme, app, &links);
@@ -3895,6 +3899,7 @@ fn draw_pass_chrome(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 /// Pass 3: Draw main panels (sidebar, editor, preview).
 fn draw_pass_panels(
     buffer: &mut OptimizedBuffer,
+    pool: &mut GraphemePool,
     panels: &PanelLayout,
     theme: &Theme,
     app: &App,
@@ -3908,7 +3913,12 @@ fn draw_pass_panels(
 
     // --- Editor panel ---
     if !panels.editor.is_empty() {
-        draw_editor_panel(buffer, &panels.editor, theme, app);
+        // Unicode section gets special rendering with grapheme pool
+        if app.section == Section::Unicode {
+            draw_unicode_showcase(buffer, pool, &panels.editor, theme);
+        } else {
+            draw_editor_panel(buffer, &panels.editor, theme, app);
+        }
     }
 
     // --- Preview panel ---
@@ -4555,6 +4565,129 @@ fn draw_overlay_border(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme)
     buffer.draw_text(x + w - 1, y, "╗", border_style);
     buffer.draw_text(x, y + h - 1, "╚", border_style);
     buffer.draw_text(x + w - 1, y + h - 1, "╝", border_style);
+}
+
+/// Draw the Unicode showcase panel demonstrating grapheme pool functionality.
+///
+/// This panel showcases:
+/// - CJK wide characters (width 2)
+/// - Single and multi-codepoint emoji
+/// - ZWJ (Zero Width Joiner) emoji sequences
+/// - Combining marks (diacritics)
+/// - Width ruler for alignment verification
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn draw_unicode_showcase(
+    buffer: &mut OptimizedBuffer,
+    pool: &mut GraphemePool,
+    rect: &Rect,
+    theme: &Theme,
+) {
+    use content::unicode;
+
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let w = rect.w;
+    let h = rect.h;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Unicode & Grapheme Pool Showcase", header_style);
+
+    // Divider line
+    let divider: String = "─".repeat(w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let content_style = Style::fg(theme.fg0);
+    let dim_style = Style::fg(theme.fg2);
+
+    let mut row = y + 4;
+
+    // Section 1: Width ruler (reference)
+    buffer.draw_text(x + 2, row, "Width Ruler:", label_style);
+    row += 1;
+    let ruler = "0         1         2         3         4";
+    buffer.draw_text(x + 4, row, ruler, dim_style);
+    row += 1;
+    let ruler_marks = "0123456789012345678901234567890123456789012";
+    buffer.draw_text(x + 4, row, ruler_marks, dim_style);
+    row += 2;
+
+    // Section 2: CJK Wide Characters
+    if row + 2 < y + h {
+        buffer.draw_text(x + 2, row, "CJK Wide (width 2 each):", label_style);
+        row += 1;
+        buffer.draw_text_with_pool(pool, x + 4, row, unicode::CJK_WIDE, content_style);
+        row += 2;
+    }
+
+    // Section 3: Single-codepoint Emoji
+    if row + 2 < y + h {
+        buffer.draw_text(x + 2, row, "Single Emoji (width 2 each):", label_style);
+        row += 1;
+        buffer.draw_text_with_pool(pool, x + 4, row, unicode::EMOJI_SINGLE, content_style);
+        row += 2;
+    }
+
+    // Section 4: ZWJ Emoji Sequences (requires grapheme pool)
+    if row + 2 < y + h {
+        buffer.draw_text(x + 2, row, "ZWJ Emoji Sequences (multi-codepoint):", label_style);
+        row += 1;
+        buffer.draw_text_with_pool(pool, x + 4, row, unicode::EMOJI_ZWJ, content_style);
+        row += 2;
+    }
+
+    // Section 5: Combining Marks
+    if row + 3 < y + h {
+        buffer.draw_text(x + 2, row, "Combining Marks (base + diacritic):", label_style);
+        row += 1;
+        buffer.draw_text(x + 4, row, "Input:   ", dim_style);
+        buffer.draw_text_with_pool(pool, x + 13, row, unicode::COMBINING_MARKS, content_style);
+        row += 1;
+        buffer.draw_text(x + 4, row, "Display: ", dim_style);
+        buffer.draw_text_with_pool(pool, x + 13, row, unicode::COMBINING_DISPLAY, content_style);
+        row += 2;
+    }
+
+    // Section 6: Mixed Content
+    if row + 2 < y + h {
+        buffer.draw_text(x + 2, row, "Mixed Content Line:", label_style);
+        row += 1;
+        buffer.draw_text_with_pool(pool, x + 4, row, unicode::MIXED_LINE, content_style);
+        row += 2;
+    }
+
+    // Section 7: Width Test Cases
+    if row + 6 < y + h {
+        buffer.draw_text(x + 2, row, "Width Test Cases:", label_style);
+        row += 1;
+        for &(name, text, expected_width) in unicode::WIDTH_TEST_CASES {
+            if row >= y + h - 1 {
+                break;
+            }
+            let line = format!("{name:10} \"{text}\" → width {expected_width}");
+            buffer.draw_text_with_pool(pool, x + 4, row, &line, content_style);
+            row += 1;
+        }
+    }
+
+    // Footer note
+    if h > 20 {
+        let footer_y = y + h - 2;
+        buffer.draw_text(
+            x + 2,
+            footer_y,
+            "Note: Proper rendering requires terminal with Unicode support",
+            dim_style,
+        );
+    }
 }
 
 /// Draw the editor panel content with file name, line numbers, and syntax coloring.
