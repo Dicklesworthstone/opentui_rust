@@ -164,13 +164,16 @@ pub fn find_wrap_position(text: &str, max_columns: u32, tab_width: u8) -> Option
         return None;
     }
 
+    // Ensure tab_width is at least 1 to prevent division by zero.
+    let tab_width = u32::from(tab_width).max(1);
+
     let mut col = 0u32;
     let mut last_break = None;
     let mut last_break_col = 0u32;
 
     for (byte_idx, grapheme) in text.grapheme_indices(true) {
         let width = if grapheme == "\t" {
-            u32::from(tab_width) - (col % u32::from(tab_width))
+            tab_width - (col % tab_width)
         } else {
             unicode_width::UnicodeWidthStr::width(grapheme) as u32
         };
@@ -220,11 +223,14 @@ pub fn find_position_by_width(text: &str, target_column: u32, tab_width: u8) -> 
         return 0;
     }
 
+    // Ensure tab_width is at least 1 to prevent division by zero.
+    let tab_width = u32::from(tab_width).max(1);
+
     let mut col = 0u32;
 
     for (byte_idx, grapheme) in text.grapheme_indices(true) {
         let width = if grapheme == "\t" {
-            u32::from(tab_width) - (col % u32::from(tab_width))
+            tab_width - (col % tab_width)
         } else {
             unicode_width::UnicodeWidthStr::width(grapheme) as u32
         };
@@ -256,6 +262,9 @@ pub fn get_prev_grapheme_start(
         return None;
     }
 
+    // Ensure tab_width is at least 1 to prevent division by zero.
+    let tab_width = u32::from(tab_width).max(1);
+
     let prefix = &text[..byte_offset.min(text.len())];
     let graphemes: Vec<_> = prefix.grapheme_indices(true).collect();
 
@@ -269,12 +278,12 @@ pub fn get_prev_grapheme_start(
         let mut col = 0u32;
         for (_, g) in &graphemes[..graphemes.len() - 1] {
             if *g == "\t" {
-                col += u32::from(tab_width) - (col % u32::from(tab_width));
+                col += tab_width - (col % tab_width);
             } else {
                 col += unicode_width::UnicodeWidthStr::width(*g) as u32;
             }
         }
-        u32::from(tab_width) - (col % u32::from(tab_width))
+        tab_width - (col % tab_width)
     } else {
         unicode_width::UnicodeWidthStr::width(*grapheme) as u32
     };
@@ -291,11 +300,14 @@ pub fn calculate_text_width(text: &str, tab_width: u8) -> u32 {
         return 0;
     }
 
+    // Ensure tab_width is at least 1 to prevent division by zero.
+    let tab_width = u32::from(tab_width).max(1);
+
     let mut col = 0u32;
 
     for grapheme in text.graphemes(true) {
         if grapheme == "\t" {
-            col += u32::from(tab_width) - (col % u32::from(tab_width));
+            col += tab_width - (col % tab_width);
         } else {
             col += unicode_width::UnicodeWidthStr::width(grapheme) as u32;
         }
@@ -404,5 +416,15 @@ mod tests {
     fn test_calculate_text_width_wide_chars() {
         // CJK characters are typically 2 columns wide
         assert_eq!(calculate_text_width("漢字", 4), 4); // 2 chars × 2 width
+    }
+
+    #[test]
+    fn test_tab_width_zero_does_not_panic() {
+        // tab_width=0 should be treated as 1 to avoid division by zero.
+        // These should not panic and should produce reasonable results.
+        assert_eq!(calculate_text_width("a\tb", 0), 3); // 'a' + tab(1) + 'b'
+        assert_eq!(find_position_by_width("a\tb", 2, 0), 2);
+        assert!(find_wrap_position("a\tb", 10, 0).is_none()); // Fits
+        assert!(get_prev_grapheme_start("a\tb", 2, 0).is_some());
     }
 }

@@ -2580,8 +2580,8 @@ pub struct App {
     // Content state (wired from DemoContent)
     /// Index of current file in editor (into content.files).
     pub current_file_idx: usize,
-    /// Log entries (starts with `seed_logs`, can grow).
-    pub logs: Vec<content::LogEntry>,
+    /// Log entries (starts with `seed_logs`, bounded to `MAX_LOGS`).
+    pub logs: VecDeque<content::LogEntry>,
     /// Target FPS for metrics computation.
     pub target_fps: u32,
     /// Current computed metrics (updated each frame).
@@ -2620,7 +2620,7 @@ impl Default for App {
             clock: AnimationClock::new(),
             // Content state (from default DemoContent)
             current_file_idx: 0,
-            logs: demo_content.seed_logs.to_vec(),
+            logs: VecDeque::from(demo_content.seed_logs.to_vec()),
             target_fps: demo_content.metric_params.target_fps,
             metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
             // Toast state
@@ -2677,7 +2677,7 @@ impl App {
             tour_runner,
             // Content wiring
             current_file_idx: 0,
-            logs: demo_content.seed_logs.to_vec(),
+            logs: VecDeque::from(demo_content.seed_logs.to_vec()),
             target_fps: demo_content.metric_params.target_fps,
             metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
             // Capability preset from config (effective caps computed after renderer init)
@@ -2728,9 +2728,17 @@ impl App {
         }
     }
 
+    /// Maximum number of log entries to retain.
+    pub const MAX_LOGS: usize = 1000;
+
     /// Add a log entry to the log stream.
+    ///
+    /// Maintains bounded size by removing oldest entries when at capacity.
     pub fn add_log(&mut self, entry: content::LogEntry) {
-        self.logs.push(entry);
+        self.logs.push_back(entry);
+        while self.logs.len() > Self::MAX_LOGS {
+            self.logs.pop_front();
+        }
     }
 
     /// Show a toast notification.
@@ -3601,6 +3609,12 @@ fn restore_cooked_mode() {
 /// Maximum entries in the log queue before oldest entries are dropped.
 const LOG_QUEUE_CAPACITY: usize = 500;
 
+/// Counter for dropped log entries (thread-safe).
+fn dropped_log_count() -> &'static std::sync::atomic::AtomicUsize {
+    static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    &COUNT
+}
+
 /// Thread-safe log queue for routing `OpenTUI` events to the demo logs panel.
 fn log_queue() -> &'static Arc<Mutex<VecDeque<content::LogEntry>>> {
     static QUEUE: OnceLock<Arc<Mutex<VecDeque<content::LogEntry>>>> = OnceLock::new();
@@ -3812,7 +3826,9 @@ struct FrameStats {
 /// Extract a row of text from the buffer as a string.
 fn extract_buffer_row(buffer: &OptimizedBuffer, y: u32, start_x: u32, max_len: u32) -> String {
     let mut result = String::new();
-    for x in start_x..start_x + max_len {
+    // Use saturating_add to prevent integer overflow when computing end position
+    let end_x = start_x.saturating_add(max_len);
+    for x in start_x..end_x {
         if let Some(cell) = buffer.get(x, y) {
             match &cell.content {
                 CellContent::Char(c) => result.push(*c),
@@ -5099,7 +5115,7 @@ fn draw_pass_debug(
 
     // Title
     let title = " Inspector ";
-    let title_x = panel_x + (panel_w - title.len() as u32) / 2;
+    let title_x = panel_x + panel_w.saturating_sub(title.len() as u32) / 2;
     buffer.draw_text(
         title_x,
         panel_y,
@@ -5250,17 +5266,11 @@ fn draw_help_overlay(
 
     let mut line_idx = 0;
     for (section_name, items) in HelpState::SECTIONS {
-        // Skip lines before scroll offset
-        if line_idx < state.scroll {
-            line_idx += 1 + items.len();
-            continue;
-        }
-
         if content_y >= content_max_y {
             break;
         }
 
-        // Section header
+        // Section header - only draw if past scroll offset
         if line_idx >= state.scroll {
             buffer.draw_text(
                 content_x,
@@ -5274,12 +5284,13 @@ fn draw_help_overlay(
 
         // Section items
         for item in *items {
+            if content_y >= content_max_y {
+                break;
+            }
+            // Skip items before scroll offset
             if line_idx < state.scroll {
                 line_idx += 1;
                 continue;
-            }
-            if content_y >= content_max_y {
-                break;
             }
 
             // Apply hyperlinks to the Links section
@@ -5381,7 +5392,14 @@ fn draw_palette_overlay(
     // Draw filtered commands - use nested scissor for scroll region
     let list_y = overlay_y + 4;
     let list_h = overlay_h.saturating_sub(5);
-    let max_items = list_h.min(state.filtered.len() as u32);
+    let max_visible = list_h.min(state.filtered.len() as u32) as usize;
+
+    // Calculate scroll offset to keep selected item visible
+    let scroll_offset = if state.selected >= max_visible {
+        state.selected - max_visible + 1
+    } else {
+        0
+    };
 
     // Push nested scissor for command list scroll region
     let list_clip = ClipRect::new(
@@ -5392,11 +5410,21 @@ fn draw_palette_overlay(
     );
     buffer.push_scissor(list_clip);
 
-    for (i, &cmd_idx) in state.filtered.iter().take(max_items as usize).enumerate() {
+    for (i, &cmd_idx) in state
+        .filtered
+        .iter()
+        .skip(scroll_offset)
+        .take(max_visible)
+        .enumerate()
+    {
         let y = list_y + i as u32;
-        let (name, desc) = PaletteState::COMMANDS[cmd_idx];
+        // Use bounds-checked access to prevent panic on invalid index
+        let Some(&(name, desc)) = PaletteState::COMMANDS.get(cmd_idx) else {
+            continue;
+        };
 
-        let is_selected = i == state.selected;
+        // Compare with actual index in filtered list, not display position
+        let is_selected = (i + scroll_offset) == state.selected;
         let style = if is_selected {
             Style::fg(theme.bg0).with_bg(theme.accent_primary)
         } else {

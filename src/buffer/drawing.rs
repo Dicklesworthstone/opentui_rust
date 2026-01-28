@@ -428,13 +428,11 @@ pub fn draw_box_with_options(
                     TitleAlign::Right => start_x + box_width - padding - title_width,
                 };
 
+                // Clamp title position to respect padding on both sides.
+                // min_x ensures left padding, max_x ensures right padding.
                 let min_x = start_x + padding;
-                let max_x = end_x - title_width;
-                if title_x < min_x {
-                    title_x = min_x;
-                } else if title_x > max_x {
-                    title_x = max_x;
-                }
+                let max_x = end_x - padding - title_width + 1;
+                title_x = title_x.clamp(min_x, max_x);
 
                 buffer.draw_text(title_x as u32, y, &title, style);
             }
