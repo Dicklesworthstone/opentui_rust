@@ -6886,7 +6886,7 @@ renderer.present()?;
             let cells_changed = if frame == 0 {
                 1920 // Full screen
             } else {
-                (50 + ((frame_f * 0.5).sin().abs() * 150.0) as u32).min(500)
+                (50 + ((frame_mod * 0.5).sin().abs() * 150.0) as u32).min(500)
             };
 
             // Bytes written: roughly proportional to cells changed

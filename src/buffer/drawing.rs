@@ -239,7 +239,11 @@ pub fn draw_text_with_pool(
             (CellContent::Char(ch), w)
         } else if grapheme.chars().count() == 1 {
             // Single non-ASCII codepoint - store directly as Char
-            let ch = grapheme.chars().next().unwrap();
+            // SAFETY: chars().count() == 1 guarantees next() returns Some
+            let ch = grapheme
+                .chars()
+                .next()
+                .expect("chars().count() == 1 but next() returned None");
             let w = crate::unicode::display_width_char(ch);
             (CellContent::Char(ch), w)
         } else {
@@ -289,7 +293,11 @@ pub fn draw_char_with_pool(
         let w = usize::from((' '..='~').contains(&ch));
         (CellContent::Char(ch), w)
     } else if grapheme.chars().count() == 1 {
-        let ch = grapheme.chars().next().unwrap();
+        // SAFETY: chars().count() == 1 guarantees next() returns Some
+        let ch = grapheme
+            .chars()
+            .next()
+            .expect("chars().count() == 1 but next() returned None");
         let w = crate::unicode::display_width_char(ch);
         (CellContent::Char(ch), w)
     } else {
