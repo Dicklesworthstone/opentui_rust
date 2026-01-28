@@ -17,7 +17,7 @@
 // Required for libc FFI (fcntl for non-blocking stdin).
 #![allow(unsafe_code)]
 
-use opentui::buffer::OptimizedBuffer;
+use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
@@ -3445,22 +3445,204 @@ fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Sty
     }
 }
 
-/// Draw the preview panel with border.
+/// Convert HSV to RGB color.
+///
+/// H: 0.0-360.0, S: 0.0-1.0, V: 0.0-1.0
+#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Rgba {
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+
+    let (r, g, b) = match h as u32 {
+        0..=59 => (c, x, 0.0),
+        60..=119 => (x, c, 0.0),
+        120..=179 => (0.0, c, x),
+        180..=239 => (0.0, x, c),
+        240..=299 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+
+    Rgba::new(r + m, g + m, b + m, 1.0)
+}
+
+/// Draw the preview panel with animated graphics demos.
+///
+/// Features demonstrated:
+/// - `PixelBuffer` for high-resolution animated gradient orb
+/// - `GrayscaleBuffer` for sparkline chart
+/// - Alpha blending overlay (glass effect)
+/// - Focus highlighting
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops,
+    clippy::too_many_lines
+)]
 fn draw_preview_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() || rect.w < 10 || rect.h < 6 {
+        return;
+    }
+
     let px = u32::try_from(rect.x).unwrap_or(0);
     let py = u32::try_from(rect.y).unwrap_or(0);
+    let is_focused = app.focus == Focus::Preview;
 
-    // Draw left border of preview panel.
-    let border_color = Rgba::from_hex("#333366").unwrap_or(theme.bg2);
+    // Draw left border of preview panel
+    let border_color = if is_focused {
+        theme.focus_border
+    } else {
+        Rgba::from_hex("#333366").unwrap_or(theme.bg2)
+    };
     for row in py..py + rect.h {
         buffer.draw_text(px, row, "│", Style::fg(border_color));
     }
 
-    // Draw "Preview" label.
-    buffer.draw_text(px + 2, py + 1, "Preview", Style::fg(theme.fg2));
+    // Draw "Preview" label with focus styling
+    let label = " Preview ";
+    let label_style = if is_focused {
+        Style::fg(theme.accent_primary).with_bold()
+    } else {
+        Style::fg(theme.fg2)
+    };
+    buffer.draw_text(px + 1, py, label, label_style);
 
+    // Content area (inset from border)
+    let content_x = px + 2;
+    let content_y = py + 2;
+    let content_w = rect.w.saturating_sub(4);
+    let content_h = rect.h.saturating_sub(4);
+
+    if content_w < 8 || content_h < 4 {
+        return;
+    }
+
+    // === Section 1: Animated Gradient Orb using PixelBuffer ===
+    let orb_size = content_w.min(content_h * 2).min(24); // Each cell is ~2x1 pixels
+    let orb_pixel_w = orb_size * 2; // 2 pixels per cell width
+    let orb_pixel_h = orb_size;     // 1 pixel per cell height (quadrant blocks)
+
+    let mut orb_buf = PixelBuffer::new(orb_pixel_w, orb_pixel_h);
+
+    // Animated hue rotation based on time
+    let t = app.clock.t;
+    let base_hue = (t * 60.0) % 360.0; // Full rotation every 6 seconds
+
+    // Draw radial gradient orb
+    let cx = orb_pixel_w as f32 / 2.0;
+    let cy = orb_pixel_h as f32 / 2.0;
+    let radius = cx.min(cy) * 0.9;
+
+    for y in 0..orb_pixel_h {
+        for x in 0..orb_pixel_w {
+            let dx = x as f32 - cx;
+            let dy = (y as f32 - cy) * 2.0; // Compensate for cell aspect ratio
+            let dist = dx.hypot(dy);
+
+            if dist < radius {
+                // Radial hue shift
+                let angle = dy.atan2(dx);
+                let hue = (base_hue + angle.to_degrees() + 360.0) % 360.0;
+                let sat = 0.7 + 0.3 * (1.0 - dist / radius);
+                let val = 0.9 - 0.3 * (dist / radius);
+                let color = hsv_to_rgb(hue, sat, val);
+                orb_buf.set(x, y, color);
+            } else {
+                orb_buf.set(x, y, Rgba::TRANSPARENT);
+            }
+        }
+    }
+
+    // Render orb using supersampling (quadrant block characters)
+    buffer.draw_supersample_buffer(content_x, content_y, &orb_buf, 0.5);
+
+    // === Section 2: Sparkline Chart using GrayscaleBuffer ===
+    let chart_y = content_y + (orb_size / 2) + 2;
+    let chart_w = content_w.min(32);
+    let chart_h = 4_u32;
+
+    if chart_y + chart_h < py + rect.h {
+        let mut chart_buf = GrayscaleBuffer::new(chart_w, chart_h);
+
+        // Generate sparkline data from metrics
+        let fps = app.metrics.fps as f32;
+        let target = app.target_fps as f32;
+
+        // Simulated FPS history (oscillating around current fps)
+        for x in 0..chart_w {
+            let phase = (x as f32 / chart_w as f32) * std::f32::consts::PI * 4.0 + t * 2.0;
+            let value = fps + (phase.sin() * 5.0);
+            let normalized = (value / target).clamp(0.0, 1.0);
+            let bar_height = (normalized * chart_h as f32) as u32;
+
+            // Draw vertical bar
+            for y in 0..chart_h {
+                let intensity = if y >= chart_h - bar_height {
+                    0.8 + 0.2 * (1.0 - y as f32 / chart_h as f32)
+                } else {
+                    0.1
+                };
+                chart_buf.set(x, y, intensity);
+            }
+        }
+
+        // Render sparkline using Unicode shade characters
+        buffer.draw_grayscale_buffer_unicode(content_x, chart_y, &chart_buf, theme.accent_primary, theme.bg0);
+
+        // Chart label
+        let fps_label = format!("{fps:.0} FPS");
+        buffer.draw_text(
+            content_x + chart_w + 1,
+            chart_y + chart_h / 2,
+            &fps_label,
+            Style::fg(theme.fg1),
+        );
+    }
+
+    // === Section 3: Alpha Blending Overlay (Glass Effect) ===
+    let overlay_y = chart_y.saturating_add(chart_h + 2);
+    let overlay_h = 3_u32;
+    let overlay_w = content_w.min(28);
+
+    if overlay_y + overlay_h < py + rect.h {
+        // Semi-transparent glass panel
+        let glass_bg = Rgba::new(0.1, 0.1, 0.2, 0.7);
+
+        for row in overlay_y..overlay_y + overlay_h {
+            for col in content_x..content_x + overlay_w {
+                if let Some(cell) = buffer.get(col, row) {
+                    let mut new_cell = *cell;
+                    // Blend glass background over existing content
+                    new_cell.bg = glass_bg.blend_over(cell.bg);
+                    buffer.set(col, row, new_cell);
+                }
+            }
+        }
+
+        // Overlay content
+        let mem_mb = app.metrics.memory_bytes as f64 / (1024.0 * 1024.0);
+        let mem_text = format!("Mem: {mem_mb:.1} MB");
+        let cpu_text = format!("CPU: {}%", app.metrics.cpu_percent);
+
+        buffer.draw_text(
+            content_x + 1,
+            overlay_y + 1,
+            &mem_text,
+            Style::fg(theme.fg0),
+        );
+        buffer.draw_text(
+            content_x + 14,
+            overlay_y + 1,
+            &cpu_text,
+            Style::fg(theme.fg0),
+        );
+    }
+
+    // Frame counter at bottom
+    let frame_y = py + rect.h - 2;
     let frame_info = format!("Frame {}", app.frame_count);
-    buffer.draw_text(px + 2, py + 3, &frame_info, Style::fg(theme.fg2));
+    buffer.draw_text(content_x, frame_y, &frame_info, Style::fg(theme.fg2));
 }
 
 /// Draw the logs panel showing event stream with hyperlink support.
