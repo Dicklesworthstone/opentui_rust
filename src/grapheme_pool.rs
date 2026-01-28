@@ -150,7 +150,11 @@ impl GraphemePool {
         } else {
             // Allocate new slot
             let id = self.slots.len() as u32;
-            assert!(id <= MAX_POOL_ID, "GraphemePool exceeded 16M entry limit");
+            // SAFETY: Use explicit check instead of assert!() which is removed in release builds.
+            // Exceeding 24-bit pool ID limit would cause ID collisions and use-after-free bugs.
+            if id > MAX_POOL_ID {
+                panic!("GraphemePool exceeded 16M entry limit (id={})", id);
+            }
             self.slots.push(slot);
             id
         };
@@ -284,6 +288,25 @@ impl GraphemePool {
     #[must_use]
     pub fn free_count(&self) -> usize {
         self.free_list.len()
+    }
+
+    /// Check if the pool is at capacity (16M entries).
+    ///
+    /// When full, new allocations will panic. Use `free_count()` to check
+    /// if slots can be reused instead of allocating new ones.
+    #[must_use]
+    pub fn is_full(&self) -> bool {
+        self.free_list.is_empty() && self.slots.len() > MAX_POOL_ID as usize
+    }
+
+    /// Get the remaining capacity for new slot allocations.
+    ///
+    /// This counts both reusable free slots and slots that can still be allocated.
+    #[must_use]
+    pub fn capacity_remaining(&self) -> usize {
+        let free_slots = self.free_list.len();
+        let allocatable = (MAX_POOL_ID as usize + 1).saturating_sub(self.slots.len());
+        free_slots + allocatable
     }
 
     /// Clear all graphemes from the pool.
@@ -501,5 +524,28 @@ mod tests {
 
         // Pool ID is 1 (first allocation after reserved 0)
         assert_eq!(id.pool_id(), 1);
+    }
+
+    #[test]
+    fn test_capacity_remaining() {
+        let mut pool = GraphemePool::new();
+
+        // Initially all capacity is available
+        let initial_capacity = pool.capacity_remaining();
+        assert_eq!(initial_capacity, MAX_POOL_ID as usize);
+
+        // After allocation, capacity decreases
+        let _id = pool.alloc("test");
+        assert_eq!(pool.capacity_remaining(), initial_capacity - 1);
+
+        // Free slot adds to capacity
+        pool.decref(_id);
+        assert_eq!(pool.capacity_remaining(), initial_capacity);
+    }
+
+    #[test]
+    fn test_is_full_empty_pool() {
+        let pool = GraphemePool::new();
+        assert!(!pool.is_full(), "empty pool should not be full");
     }
 }
