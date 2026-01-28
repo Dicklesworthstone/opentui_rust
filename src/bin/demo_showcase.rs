@@ -2072,6 +2072,24 @@ impl PanelLayout {
             logs,
         }
     }
+
+    /// Get a panel rect by name (for tour spotlight targeting).
+    ///
+    /// Supported names: "sidebar", "editor", "preview", "logs", "top_bar", "status_bar"
+    #[must_use]
+    pub fn get_panel_rect(&self, name: &str) -> Option<Rect> {
+        match name {
+            "sidebar" => Some(self.sidebar),
+            "editor" => Some(self.editor),
+            "preview" => Some(self.preview),
+            "logs" => Some(self.logs),
+            "top_bar" => Some(self.top_bar),
+            "status_bar" => Some(self.status_bar),
+            "content" => Some(self.content),
+            "main_area" => Some(self.main_area),
+            _ => None,
+        }
+    }
 }
 
 // ============================================================================
@@ -3611,7 +3629,7 @@ fn run_check_layout(width: u16, height: u16) -> String {
 }
 
 /// Check CLI/config parsing.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::redundant_closure_for_method_calls, clippy::uninlined_format_args)]
 fn run_check_config(config: &Config) -> String {
     let test_cases: &[(&[&str], &str)] = &[
         (&["demo_showcase"], "default"), (&["demo_showcase", "--fps", "30"], "fps_30"),
@@ -3639,6 +3657,7 @@ fn run_check_config(config: &Config) -> String {
 }
 
 /// Check command palette scoring and selection.
+#[allow(clippy::uninlined_format_args)]
 fn run_check_palette() -> String {
     let mut state = PaletteState::default();
     state.update_filter();
@@ -3668,6 +3687,7 @@ fn run_check_palette() -> String {
 }
 
 /// Check hit ID mapping invariants.
+#[allow(clippy::uninlined_format_args)]
 fn run_check_hitgrid() -> String {
     let id_tests = [
         ("BTN_HELP", hit_ids::BTN_HELP, 1000), ("BTN_PALETTE", hit_ids::BTN_PALETTE, 1001),
@@ -3687,6 +3707,7 @@ fn run_check_hitgrid() -> String {
 }
 
 /// Check log model behavior.
+#[allow(clippy::uninlined_format_args)]
 fn run_check_logs() -> String {
     let max_entries = 100;
     let mut log_buffer: VecDeque<&str> = VecDeque::with_capacity(max_entries);
@@ -4959,7 +4980,10 @@ fn draw_palette_overlay(
     }
 }
 
-/// Draw the Tour overlay.
+/// Draw the Tour overlay with spotlight effect.
+///
+/// The spotlight effect dims the entire screen except for the target panel,
+/// creating a "punch-out" effect that draws the viewer's attention.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -4973,8 +4997,17 @@ fn draw_tour_overlay(
     state: &TourState,
     _opacity: f32,
 ) {
-    let (title, desc, _spotlight) = state.current();
+    let (title, desc, spotlight_target) = state.current();
 
+    // === Spotlight Effect ===
+    // If there's a spotlight target, dim the screen and highlight the target.
+    if let Some(target_name) = spotlight_target {
+        if let Some(target_rect) = panels.get_panel_rect(target_name) {
+            draw_spotlight_effect(buffer, panels, theme, &target_rect);
+        }
+    }
+
+    // === Tour HUD Panel ===
     // Tour panel at bottom of screen (like a HUD)
     let overlay_w = (panels.screen.w * 70 / 100).clamp(50, 80);
     let overlay_h = 8_u32;
@@ -6586,6 +6619,23 @@ mod tests {
             panic!("Expected Config")
         };
         assert_eq!(config.headless_size, (120, 40));
+    }
+
+    #[test]
+    fn test_headless_check_valid() {
+        for check in ["layout", "config", "palette", "hitgrid", "logs"] {
+            let result = Config::from_args(args(&["demo_showcase", "--headless-check", check]));
+            let ParseResult::Config(config) = result else {
+                panic!("Expected Config for check: {check}")
+            };
+            assert_eq!(config.headless_check, Some(check.to_string()));
+        }
+    }
+
+    #[test]
+    fn test_headless_check_invalid() {
+        let result = Config::from_args(args(&["demo_showcase", "--headless-check", "invalid"]));
+        assert!(matches!(result, ParseResult::Error(_)));
     }
 
     #[test]
