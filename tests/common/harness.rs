@@ -988,7 +988,11 @@ impl ExtendedLogger {
             start_time,
             &test_name,
             EventType::TestEnd,
-            if passed { LogLevel::Info } else { LogLevel::Error },
+            if passed {
+                LogLevel::Info
+            } else {
+                LogLevel::Error
+            },
             phase,
             seq,
             format!("Test {}", if passed { "PASSED" } else { "FAILED" }),
@@ -1072,7 +1076,11 @@ impl ExtendedLogger {
             start_time,
             &test_name,
             EventType::Assertion,
-            if passed { LogLevel::Debug } else { LogLevel::Error },
+            if passed {
+                LogLevel::Debug
+            } else {
+                LogLevel::Error
+            },
             phase,
             seq,
             message,
@@ -1174,7 +1182,12 @@ impl ExtendedLogger {
     /// Helper to get common entry fields, avoiding borrow checker issues.
     fn entry_context(&mut self) -> (Instant, String, TestPhase, u32) {
         let seq = self.next_sequence();
-        (self.start_time, self.test_name.clone(), self.current_phase, seq)
+        (
+            self.start_time,
+            self.test_name.clone(),
+            self.current_phase,
+            seq,
+        )
     }
 
     fn log(&mut self, entry: ExtendedLogEntry) {
@@ -1268,7 +1281,11 @@ macro_rules! e2e_assert {
             &format!("{:?}", $actual),
             $msg,
         );
-        assert!(passed, "{}: expected {:?}, got {:?}", $msg, $expected, $actual);
+        assert!(
+            passed,
+            "{}: expected {:?}, got {:?}",
+            $msg, $expected, $actual
+        );
     }};
 }
 
@@ -1319,7 +1336,13 @@ impl E2EHarness {
     pub fn create_extended_logger(&self) -> ExtendedLogger {
         let log_path = self.artifact_logger.artifact_dir.join("extended.jsonl");
         if self.artifact_logger.config.enabled {
-            ExtendedLogger::new(&log_path, &format!("{}::{}", self.artifact_logger.suite, self.artifact_logger.test))
+            ExtendedLogger::new(
+                &log_path,
+                &format!(
+                    "{}::{}",
+                    self.artifact_logger.suite, self.artifact_logger.test
+                ),
+            )
         } else {
             ExtendedLogger::disabled()
         }

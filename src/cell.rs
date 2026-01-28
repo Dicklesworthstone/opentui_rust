@@ -615,7 +615,10 @@ mod tests {
 
     #[test]
     fn test_cell_with_style() {
-        let style = Style::fg(Rgba::RED).with_bg(Rgba::BLUE).with_bold().with_italic();
+        let style = Style::fg(Rgba::RED)
+            .with_bg(Rgba::BLUE)
+            .with_bold()
+            .with_italic();
         let cell = Cell::new('X', style);
         assert_eq!(cell.fg, Rgba::RED);
         assert_eq!(cell.bg, Rgba::BLUE);

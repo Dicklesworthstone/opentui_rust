@@ -381,6 +381,53 @@ jobs:
             target/test-artifacts/
           retention-days: 7
 
+  pty-tests:
+    name: PTY Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build demo_showcase binary
+        run: cargo build --bin demo_showcase
+
+      - name: Run PTY E2E tests
+        run: cargo test --test pty_e2e --features pty-tests -- --nocapture --test-threads=1
+        env:
+          TERM: xterm-256color
+          HARNESS_ARTIFACTS: 1
+          HARNESS_LOG_LEVEL: debug
+          RUST_BACKTRACE: 1
+        continue-on-error: true
+
+      - name: Show PTY test summary
+        if: always()
+        run: |
+          echo "## PTY Tests" >> $GITHUB_STEP_SUMMARY
+          if [ -d "target/test-artifacts" ]; then
+            echo "Test artifacts generated." >> $GITHUB_STEP_SUMMARY
+            find target/test-artifacts -name "*.txt" -o -name "*.json" | head -20 | while read f; do
+              echo "- $(basename $f)" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "No test artifacts found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload PTY test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pty-test-artifacts
+          path: |
+            target/test-artifacts/
+          retention-days: 7
+
   # Summary job that other workflows can depend on
   ci-success:
     name: CI Success

@@ -54,7 +54,10 @@ fn ensure_demo_showcase_built() -> bool {
 /// - Mouse enable sequences (button + SGR)
 /// - Synchronized output (if supported)
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_tour_mode_terminal_lifecycle() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -119,7 +122,10 @@ fn test_tour_mode_terminal_lifecycle() {
 
 /// Test: Tour mode emits OSC 8 hyperlinks (default behavior).
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_tour_mode_has_hyperlinks() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -155,7 +161,10 @@ fn test_tour_mode_has_hyperlinks() {
 
 /// Test: --no-alt-screen flag disables alternate screen buffer.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_no_alt_screen_flag() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -200,7 +209,10 @@ fn test_no_alt_screen_flag() {
 
 /// Test: --no-mouse flag disables mouse tracking.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_no_mouse_flag() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -245,7 +257,10 @@ fn test_no_mouse_flag() {
 
 /// Test: `--cap-preset no_hyperlinks` disables OSC 8 hyperlinks.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_no_hyperlinks_preset() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -280,7 +295,10 @@ fn test_no_hyperlinks_preset() {
 
 /// Test: --threaded mode has same terminal lifecycle as default.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_threaded_mode_parity() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -323,7 +341,10 @@ fn test_threaded_mode_parity() {
 
 /// Test: Minimal size terminal (40x12) still runs successfully.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_minimal_terminal_size() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -353,7 +374,10 @@ fn test_minimal_terminal_size() {
 
 /// Test: Too-small terminal (30x10) exits gracefully.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_too_small_terminal() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -387,7 +411,10 @@ fn test_too_small_terminal() {
 
 /// Test: Synchronized output is enabled when TERM suggests support.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_synchronized_output_enabled() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -421,7 +448,10 @@ fn test_synchronized_output_enabled() {
 
 /// Test: Focus events are enabled.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_focus_events_enabled() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");
@@ -450,7 +480,10 @@ fn test_focus_events_enabled() {
 
 /// Test: Large terminal size (200x60) works correctly.
 #[test]
-#[ignore = "PTY tests require interactive terminal and are slow"]
+#[cfg_attr(
+    not(feature = "pty-tests"),
+    ignore = "PTY tests require --features pty-tests"
+)]
 fn test_large_terminal_size() {
     if !ensure_demo_showcase_built() {
         eprintln!("Skipping test: demo_showcase not available");

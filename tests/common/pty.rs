@@ -430,8 +430,10 @@ pub mod sequences {
     pub const OSC8_PREFIX: &[u8] = b"\x1b]8;";
 }
 
-/// Log PTY result to artifacts.
+/// Log PTY result to artifacts using the new artifact system.
 pub fn log_pty_result(result: &PtyResult, test_name: &str) {
+    use super::artifacts::{ArtifactManager, SequenceAnalysis, output_to_readable};
+
     eprintln!("=== PTY Test: {test_name} ===");
     eprintln!("Command: {:?}", result.command);
     eprintln!("Exit code: {:?}", result.exit_code);
@@ -446,25 +448,27 @@ pub fn log_pty_result(result: &PtyResult, test_name: &str) {
         }
     }
 
-    // If artifacts enabled, write files
-    if std::env::var("HARNESS_ARTIFACTS").is_ok_and(|v| v == "1") {
-        let base_dir = std::env::var("HARNESS_ARTIFACTS_DIR")
-            .unwrap_or_else(|_| "target/test-artifacts".to_string());
-        let artifact_dir = std::path::PathBuf::from(base_dir)
-            .join("pty")
-            .join(test_name);
-        std::fs::create_dir_all(&artifact_dir).ok();
+    // Use artifact manager for structured artifact storage
+    let artifacts = ArtifactManager::new(test_name);
 
-        // Write raw output
-        std::fs::write(artifact_dir.join("output.bin"), &result.output).ok();
+    if artifacts.is_enabled() {
+        eprintln!(
+            "Artifacts directory: {}",
+            artifacts.artifact_dir().display()
+        );
 
-        // Write hex dump
-        std::fs::write(artifact_dir.join("output.hex"), result.output_hex()).ok();
+        // Save raw output
+        artifacts.save_raw_output(&result.output);
 
-        // Write readable format
-        std::fs::write(artifact_dir.join("output.txt"), result.output_readable()).ok();
+        // Save decoded/readable output
+        let readable = output_to_readable(&result.output);
+        artifacts.save_decoded_output(&readable);
 
-        // Write command and env info
+        // Save sequence analysis
+        let analysis = SequenceAnalysis::from_output(&result.output);
+        artifacts.save_sequence_analysis(&analysis);
+
+        // Save test info
         let info = format!(
             "Command: {:?}\nExit code: {:?}\nDuration: {:?}\nOutput bytes: {}\n\nEnvironment:\n{}",
             result.command,
@@ -478,8 +482,9 @@ pub fn log_pty_result(result: &PtyResult, test_name: &str) {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
-        std::fs::write(artifact_dir.join("info.txt"), info).ok();
+        artifacts.save_text("info.txt", &info);
 
-        eprintln!("Artifacts written to: {}", artifact_dir.display());
+        // Also save hex dump for detailed analysis
+        artifacts.save_text("output.hex", &result.output_hex());
     }
 }

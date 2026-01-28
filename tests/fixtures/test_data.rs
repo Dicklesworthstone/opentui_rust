@@ -104,7 +104,8 @@ pub mod sample_text {
     pub const SHORT_ASCII: &str = "Hello, World!";
 
     /// Longer ASCII text for wrapping tests.
-    pub const LONG_ASCII: &str = "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.";
+    pub const LONG_ASCII: &str =
+        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.";
 
     /// Multi-line text.
     pub const MULTILINE: &str = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
@@ -140,7 +141,8 @@ pub mod sample_text {
     pub const JSON_SAMPLE: &str = r#"{"name": "test", "value": 123, "active": true}"#;
 
     /// Markdown sample.
-    pub const MARKDOWN_SAMPLE: &str = "# Heading\n\n**Bold** and *italic* text.\n\n- List item 1\n- List item 2";
+    pub const MARKDOWN_SAMPLE: &str =
+        "# Heading\n\n**Bold** and *italic* text.\n\n- List item 1\n- List item 2";
 }
 
 /// Common color palettes for testing.

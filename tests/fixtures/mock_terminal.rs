@@ -97,9 +97,7 @@ impl MockTerminal {
     /// Check if a specific ANSI sequence is present in output.
     pub fn contains_sequence(&self, seq: &[u8]) -> bool {
         let output = self.output();
-        output
-            .windows(seq.len())
-            .any(|window| window == seq)
+        output.windows(seq.len()).any(|window| window == seq)
     }
 
     /// Count occurrences of a specific ANSI sequence.

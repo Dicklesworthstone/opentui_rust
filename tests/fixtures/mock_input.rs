@@ -4,7 +4,9 @@
 //! for controlled test scenarios. Supports keyboard events, mouse events,
 //! and raw byte sequences.
 
-use opentui::input::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PasteEvent};
+use opentui::input::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PasteEvent,
+};
 use std::collections::VecDeque;
 
 /// A mock input provider that delivers scripted input events.
@@ -58,10 +60,8 @@ impl MockInput {
 
     /// Queue a key press with modifiers.
     pub fn queue_key_with_modifiers(&mut self, c: char, modifiers: KeyModifiers) {
-        self.events.push_back(Event::Key(KeyEvent::new(
-            KeyCode::Char(c),
-            modifiers,
-        )));
+        self.events
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char(c), modifiers)));
     }
 
     /// Queue a special key press (Enter, Esc, etc.).
@@ -144,7 +144,8 @@ impl MockInput {
 
     /// Queue a paste event.
     pub fn queue_paste(&mut self, text: impl Into<String>) {
-        self.events.push_back(Event::Paste(PasteEvent::new(text.into())));
+        self.events
+            .push_back(Event::Paste(PasteEvent::new(text.into())));
     }
 
     /// Queue a string as individual key events.
@@ -313,8 +314,7 @@ impl InputSequenceBuilder {
 
     /// Add Ctrl+key combination.
     pub fn ctrl(mut self, c: char) -> Self {
-        self.input
-            .queue_key_with_modifiers(c, KeyModifiers::CTRL);
+        self.input.queue_key_with_modifiers(c, KeyModifiers::CTRL);
         self
     }
 
@@ -344,10 +344,12 @@ impl InputSequenceBuilder {
 
     /// Add mouse drag from one point to another (press, move, release).
     pub fn drag(mut self, from: (u32, u32), to: (u32, u32)) -> Self {
-        self.input.queue_mouse_click(from.0, from.1, MouseButton::Left);
+        self.input
+            .queue_mouse_click(from.0, from.1, MouseButton::Left);
         // Simulate drag with move events
         self.input.queue_mouse_move(to.0, to.1);
-        self.input.queue_mouse_release(to.0, to.1, MouseButton::Left);
+        self.input
+            .queue_mouse_release(to.0, to.1, MouseButton::Left);
         self
     }
 

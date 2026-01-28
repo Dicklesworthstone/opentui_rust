@@ -749,3 +749,321 @@ mod proptests {
         }
     }
 }
+
+/// Explicit unit tests for Porter-Duff alpha blending.
+/// These supplement the property-based tests above with specific,
+/// documented test cases per bd-2fv0.
+#[cfg(test)]
+mod porter_duff_tests {
+    use super::*;
+
+    // =========================================================================
+    // Basic Blending Tests
+    // Porter-Duff "over" operator: result = fg + bg × (1 - fg.alpha)
+    // =========================================================================
+
+    #[test]
+    fn test_blend_opaque_over_opaque() {
+        // When fg.a = 1.0 and bg.a = 1.0, result should be fg completely
+        // Porter-Duff: result = fg × 1.0 + bg × (1 - 1.0) = fg
+        let fg = Rgba::new(1.0, 0.0, 0.0, 1.0); // Opaque red
+        let bg = Rgba::new(0.0, 1.0, 0.0, 1.0); // Opaque green
+
+        let result = fg.blend_over(bg);
+
+        assert!((result.r - 1.0).abs() < 1e-6, "Red channel should be 1.0");
+        assert!(result.g.abs() < 1e-6, "Green channel should be 0.0");
+        assert!(result.b.abs() < 1e-6, "Blue channel should be 0.0");
+        assert!((result.a - 1.0).abs() < 1e-6, "Alpha should be 1.0");
+    }
+
+    #[test]
+    fn test_blend_transparent_over_opaque() {
+        // When fg.a = 0.0, result should be bg completely
+        // Porter-Duff: result = fg × 0.0 + bg × (1 - 0.0) = bg
+        let fg = Rgba::TRANSPARENT;
+        let bg = Rgba::new(0.3, 0.6, 0.9, 1.0); // Opaque custom color
+
+        let result = fg.blend_over(bg);
+
+        assert!((result.r - bg.r).abs() < 1e-6, "R should match background");
+        assert!((result.g - bg.g).abs() < 1e-6, "G should match background");
+        assert!((result.b - bg.b).abs() < 1e-6, "B should match background");
+        assert!((result.a - bg.a).abs() < 1e-6, "A should match background");
+    }
+
+    #[test]
+    fn test_blend_opaque_over_transparent() {
+        // When bg.a = 0.0 and fg is opaque, result should be fg
+        let fg = Rgba::new(0.7, 0.2, 0.5, 1.0); // Opaque custom color
+        let bg = Rgba::TRANSPARENT;
+
+        let result = fg.blend_over(bg);
+
+        assert!((result.r - fg.r).abs() < 1e-6, "R should match foreground");
+        assert!((result.g - fg.g).abs() < 1e-6, "G should match foreground");
+        assert!((result.b - fg.b).abs() < 1e-6, "B should match foreground");
+        assert!((result.a - 1.0).abs() < 1e-6, "A should be 1.0");
+    }
+
+    #[test]
+    fn test_blend_both_transparent() {
+        // When both fg.a = 0.0 and bg.a = 0.0, result is fully transparent
+        let fg = Rgba::TRANSPARENT;
+        let bg = Rgba::TRANSPARENT;
+
+        let result = fg.blend_over(bg);
+
+        assert_eq!(result.a, 0.0, "Result alpha should be 0.0");
+        // RGB values are undefined when a=0, but should not be NaN
+        assert!(!result.r.is_nan(), "R should not be NaN");
+        assert!(!result.g.is_nan(), "G should not be NaN");
+        assert!(!result.b.is_nan(), "B should not be NaN");
+    }
+
+    #[test]
+    fn test_blend_semi_transparent_over_opaque() {
+        // 50% transparent red over opaque blue
+        // fg.a = 0.5, bg.a = 1.0
+        // out_a = 0.5 + 1.0 × (1 - 0.5) = 0.5 + 0.5 = 1.0
+        // out_r = (1.0×0.5 + 0.0×1.0×0.5) / 1.0 = 0.5
+        // out_b = (0.0×0.5 + 1.0×1.0×0.5) / 1.0 = 0.5
+        let fg = Rgba::RED.with_alpha(0.5);
+        let bg = Rgba::BLUE;
+
+        let result = fg.blend_over(bg);
+
+        assert!(
+            (result.r - 0.5).abs() < 0.01,
+            "Red should be ~0.5, got {}",
+            result.r
+        );
+        assert!(result.g.abs() < 0.01, "Green should be ~0.0");
+        assert!(
+            (result.b - 0.5).abs() < 0.01,
+            "Blue should be ~0.5, got {}",
+            result.b
+        );
+        assert!((result.a - 1.0).abs() < 1e-6, "Alpha should be 1.0");
+    }
+
+    #[test]
+    fn test_blend_semi_transparent_over_semi_transparent() {
+        // 50% red over 50% blue
+        // fg.a = 0.5, bg.a = 0.5
+        // out_a = 0.5 + 0.5 × (1 - 0.5) = 0.5 + 0.25 = 0.75
+        let fg = Rgba::RED.with_alpha(0.5);
+        let bg = Rgba::BLUE.with_alpha(0.5);
+
+        let result = fg.blend_over(bg);
+
+        assert!(
+            (result.a - 0.75).abs() < 0.01,
+            "Alpha should be ~0.75, got {}",
+            result.a
+        );
+        // RGB values depend on formula: (fg_r×fg_a + bg_r×bg_a×(1-fg_a)) / out_a
+        // out_r = (1.0×0.5 + 0.0×0.5×0.5) / 0.75 = 0.5/0.75 ≈ 0.667
+        assert!(result.r > 0.5, "Red should be > 0.5");
+    }
+
+    // =========================================================================
+    // Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn test_blend_channel_clamping() {
+        // Verify RGB channels stay in [0, 1] range after blending
+        // Use extreme values to test potential overflow
+        let bright = Rgba::new(1.0, 1.0, 1.0, 1.0);
+        let also_bright = Rgba::new(1.0, 1.0, 1.0, 0.9);
+
+        let result = also_bright.blend_over(bright);
+
+        assert!(result.r <= 1.0, "R should not exceed 1.0");
+        assert!(result.g <= 1.0, "G should not exceed 1.0");
+        assert!(result.b <= 1.0, "B should not exceed 1.0");
+        assert!(result.r >= 0.0, "R should not be negative");
+        assert!(result.g >= 0.0, "G should not be negative");
+        assert!(result.b >= 0.0, "B should not be negative");
+    }
+
+    #[test]
+    fn test_blend_preserves_rgb_when_opaque() {
+        // Opaque foreground should preserve its exact RGB values
+        let fg = Rgba::new(0.123_456_7, 0.987_654_3, 0.555_555_5, 1.0);
+        let bg = Rgba::new(0.999, 0.001, 0.500, 1.0);
+
+        let result = fg.blend_over(bg);
+
+        // Use exact comparison since opaque fg should pass through unchanged
+        assert!(
+            (result.r - fg.r).abs() < 1e-6,
+            "R should be preserved exactly"
+        );
+        assert!(
+            (result.g - fg.g).abs() < 1e-6,
+            "G should be preserved exactly"
+        );
+        assert!(
+            (result.b - fg.b).abs() < 1e-6,
+            "B should be preserved exactly"
+        );
+    }
+
+    #[test]
+    fn test_blend_not_commutative() {
+        // Verify that blend(a, b) ≠ blend(b, a) in general
+        // This is fundamental to the "over" operator
+        let red_semi = Rgba::RED.with_alpha(0.7);
+        let blue_semi = Rgba::BLUE.with_alpha(0.7);
+
+        let red_over_blue = red_semi.blend_over(blue_semi);
+        let blue_over_red = blue_semi.blend_over(red_semi);
+
+        // Both should have same alpha (symmetric calculation)
+        assert!(
+            (red_over_blue.a - blue_over_red.a).abs() < 1e-6,
+            "Alpha should be same"
+        );
+
+        // But RGB values should differ
+        let r_diff = (red_over_blue.r - blue_over_red.r).abs();
+        let b_diff = (red_over_blue.b - blue_over_red.b).abs();
+
+        assert!(
+            r_diff > 0.1 || b_diff > 0.1,
+            "Blending should not be commutative: red_over_blue={:?}, blue_over_red={:?}",
+            red_over_blue,
+            blue_over_red
+        );
+    }
+
+    // =========================================================================
+    // Numerical Stability
+    // =========================================================================
+
+    #[test]
+    fn test_blend_rounding_consistency() {
+        // Verify consistent results across similar inputs
+        let fg1 = Rgba::new(0.333_333_3, 0.666_666_7, 0.5, 0.8);
+        let fg2 = Rgba::new(0.333_333_3, 0.666_666_7, 0.5, 0.8);
+        let bg = Rgba::new(0.1, 0.2, 0.3, 0.9);
+
+        let result1 = fg1.blend_over(bg);
+        let result2 = fg2.blend_over(bg);
+
+        // Identical inputs should produce identical outputs
+        assert_eq!(result1.r, result2.r, "R should be deterministic");
+        assert_eq!(result1.g, result2.g, "G should be deterministic");
+        assert_eq!(result1.b, result2.b, "B should be deterministic");
+        assert_eq!(result1.a, result2.a, "A should be deterministic");
+    }
+
+    #[test]
+    fn test_blend_chain_multiple() {
+        // Test blending multiple layers: a over (b over c)
+        // This simulates layered UI rendering
+        let top = Rgba::RED.with_alpha(0.3);
+        let middle = Rgba::GREEN.with_alpha(0.5);
+        let bottom = Rgba::BLUE.with_alpha(1.0);
+
+        // Blend bottom-up: middle over bottom, then top over result
+        let mid_over_bot = middle.blend_over(bottom);
+        let final_result = top.blend_over(mid_over_bot);
+
+        // Result should be valid
+        assert!(final_result.r >= 0.0 && final_result.r <= 1.0);
+        assert!(final_result.g >= 0.0 && final_result.g <= 1.0);
+        assert!(final_result.b >= 0.0 && final_result.b <= 1.0);
+        assert!(final_result.a >= 0.0 && final_result.a <= 1.0);
+
+        // Result should have all color contributions
+        assert!(final_result.r > 0.0, "Should have some red from top layer");
+        assert!(
+            final_result.g > 0.0,
+            "Should have some green from middle layer"
+        );
+        assert!(
+            final_result.b > 0.0,
+            "Should have some blue from bottom layer"
+        );
+    }
+
+    #[test]
+    fn test_blend_near_zero_alpha() {
+        // Test very small alpha values for numerical stability
+        let tiny_alpha = Rgba::WHITE.with_alpha(1e-7);
+        let bg = Rgba::BLACK;
+
+        let result = tiny_alpha.blend_over(bg);
+
+        // Should not produce NaN or Inf
+        assert!(!result.r.is_nan(), "R should not be NaN");
+        assert!(!result.g.is_nan(), "G should not be NaN");
+        assert!(!result.b.is_nan(), "B should not be NaN");
+        assert!(!result.a.is_nan(), "A should not be NaN");
+        assert!(!result.r.is_infinite(), "R should not be infinite");
+
+        // Result should be very close to background
+        assert!((result.r - bg.r).abs() < 0.001);
+        assert!((result.g - bg.g).abs() < 0.001);
+        assert!((result.b - bg.b).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_blend_near_one_alpha() {
+        // Test alpha very close to 1.0
+        let nearly_opaque = Rgba::WHITE.with_alpha(0.999_999);
+        let bg = Rgba::BLACK;
+
+        let result = nearly_opaque.blend_over(bg);
+
+        // Should be very close to white
+        assert!((result.r - 1.0).abs() < 0.001);
+        assert!((result.g - 1.0).abs() < 0.001);
+        assert!((result.b - 1.0).abs() < 0.001);
+    }
+
+    // =========================================================================
+    // Porter-Duff Formula Verification
+    // =========================================================================
+
+    #[test]
+    fn test_blend_formula_verification() {
+        // Manually verify the Porter-Duff formula with known values
+        // Formula: out_a = fg_a + bg_a × (1 - fg_a)
+        //          out_rgb = (fg_rgb × fg_a + bg_rgb × bg_a × (1 - fg_a)) / out_a
+
+        let fg = Rgba::new(1.0, 0.0, 0.0, 0.6); // 60% red
+        let bg = Rgba::new(0.0, 0.0, 1.0, 0.8); // 80% blue
+
+        let result = fg.blend_over(bg);
+
+        // Calculate expected values manually
+        let expected_a = 0.6 + 0.8 * (1.0 - 0.6); // 0.6 + 0.8*0.4 = 0.6 + 0.32 = 0.92
+        let expected_r = (1.0 * 0.6 + 0.0 * 0.8 * 0.4) / expected_a; // 0.6 / 0.92 ≈ 0.652
+        let expected_b = (0.0 * 0.6 + 1.0 * 0.8 * 0.4) / expected_a; // 0.32 / 0.92 ≈ 0.348
+
+        assert!(
+            (result.a - expected_a).abs() < 1e-5,
+            "Alpha: expected {expected_a}, got {}",
+            result.a
+        );
+        assert!(
+            (result.r - expected_r).abs() < 1e-5,
+            "Red: expected {expected_r}, got {}",
+            result.r
+        );
+        assert!(
+            (result.b - expected_b).abs() < 1e-5,
+            "Blue: expected {expected_b}, got {}",
+            result.b
+        );
+        assert!(
+            result.g.abs() < 1e-5,
+            "Green should be ~0, got {}",
+            result.g
+        );
+    }
+}

@@ -451,7 +451,8 @@ fn test_cell_write_content_with_pool_lookup() {
         } else {
             None
         }
-    }).unwrap();
+    })
+    .unwrap();
 
     assert_eq!(String::from_utf8(buf).unwrap(), "🎯");
 }

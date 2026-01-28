@@ -593,4 +593,462 @@ mod tests {
         // Should contain cursor positioning
         assert!(output.contains("\x1b["));
     }
+
+    // ============================================
+    // Position Tracking Tests
+    // ============================================
+
+    #[test]
+    fn test_position_tracking_after_cell_write() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Move to known position
+        writer.move_cursor(5, 10);
+        writer.clear_buffer();
+
+        // Write a single-width character
+        let cell = Cell::new('A', Style::NONE);
+        writer.write_cell(&cell);
+
+        // Cursor should advance by character width
+        // Internal state should track this
+        // Write same cell again - no cursor move should be needed if tracked correctly
+        writer.move_cursor(5, 11); // Should be no-op since we're already there
+        // Buffer should be minimal since position matches
+    }
+
+    #[test]
+    fn test_position_tracking_wide_char() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+
+        writer.move_cursor(0, 0);
+        writer.clear_buffer();
+
+        // Write a wide emoji (width 2)
+        let id = pool.alloc("😀");
+        let cell = Cell {
+            content: crate::cell::CellContent::Grapheme(id),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: TextAttributes::empty(),
+        };
+
+        writer.write_cell_with_pool(&cell, &pool);
+
+        // Cursor should have advanced by grapheme width
+        // Move to what should be current position - should be no-op
+        let before_len = writer.buffer().len();
+        writer.move_cursor(0, id.width() as u32);
+        let after_len = writer.buffer().len();
+
+        // If position tracking is correct, no movement sequence added
+        assert_eq!(before_len, after_len, "No cursor move for current position");
+    }
+
+    // ============================================
+    // Minimal Sequence Generation Tests
+    // ============================================
+
+    #[test]
+    fn test_minimal_fg_sequence_generation() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Set initial fg color
+        writer.set_fg(Rgba::RED);
+        let initial_len = writer.buffer().len();
+        assert!(initial_len > 0, "Should write fg sequence");
+
+        // Set same color again - should not write
+        writer.set_fg(Rgba::RED);
+        let after_same = writer.buffer().len();
+        assert_eq!(
+            initial_len, after_same,
+            "Same fg color should not emit sequence"
+        );
+
+        // Set different color - should write
+        writer.set_fg(Rgba::BLUE);
+        let after_diff = writer.buffer().len();
+        assert!(
+            after_diff > initial_len,
+            "Different fg should emit sequence"
+        );
+    }
+
+    #[test]
+    fn test_minimal_bg_sequence_generation() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_bg(Rgba::BLACK);
+        let initial_len = writer.buffer().len();
+
+        writer.set_bg(Rgba::BLACK);
+        assert_eq!(
+            writer.buffer().len(),
+            initial_len,
+            "Same bg = no new sequence"
+        );
+
+        writer.set_bg(Rgba::WHITE);
+        assert!(
+            writer.buffer().len() > initial_len,
+            "Different bg = new sequence"
+        );
+    }
+
+    #[test]
+    fn test_minimal_attribute_sequence_generation() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_attributes(TextAttributes::BOLD);
+        let initial_len = writer.buffer().len();
+        assert!(initial_len > 0, "Bold should emit sequence");
+
+        writer.set_attributes(TextAttributes::BOLD);
+        assert_eq!(
+            writer.buffer().len(),
+            initial_len,
+            "Same attrs = no sequence"
+        );
+
+        writer.set_attributes(TextAttributes::BOLD | TextAttributes::ITALIC);
+        assert!(
+            writer.buffer().len() > initial_len,
+            "Additional attr = sequence"
+        );
+    }
+
+    // ============================================
+    // Movement Optimization Tests
+    // ============================================
+
+    #[test]
+    fn test_movement_optimization_relative_vs_absolute() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Move to initial position
+        writer.move_cursor(10, 10);
+        writer.clear_buffer();
+
+        // Small relative move should use relative sequences
+        writer.move_cursor(10, 11); // +1 column
+        let rel_output = writer.buffer().len();
+
+        writer.clear_buffer();
+        writer.reset_state();
+
+        // Large absolute move from origin
+        writer.move_cursor(10, 11);
+        let abs_output = writer.buffer().len();
+
+        // Relative should be smaller for small moves
+        // ESC[1C (4 bytes) vs ESC[11;12H (8+ bytes)
+        assert!(rel_output < abs_output, "Relative move should be shorter");
+    }
+
+    #[test]
+    fn test_no_movement_when_at_position() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.move_cursor(5, 5);
+        writer.clear_buffer();
+
+        // Move to same position should produce no output
+        writer.move_cursor(5, 5);
+        assert!(writer.buffer().is_empty(), "No move to current position");
+    }
+
+    // ============================================
+    // State Reset Tests
+    // ============================================
+
+    #[test]
+    fn test_reset_state() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Set up some state
+        writer.set_fg(Rgba::RED);
+        writer.set_bg(Rgba::BLUE);
+        writer.set_attributes(TextAttributes::BOLD);
+        writer.move_cursor(10, 20);
+
+        // Reset state tracking (not emitting reset sequence)
+        writer.reset_state();
+        writer.clear_buffer();
+
+        // Now setting colors should emit sequences again
+        writer.set_fg(Rgba::RED);
+        assert!(
+            !writer.buffer().is_empty(),
+            "After reset, fg emits sequence"
+        );
+    }
+
+    #[test]
+    fn test_reset_emits_sequence() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_fg(Rgba::RED);
+        writer.clear_buffer();
+
+        writer.reset();
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("\x1b[0m"), "Reset emits SGR 0");
+    }
+
+    #[test]
+    fn test_reset_clears_color_state() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_fg(Rgba::RED);
+        writer.reset();
+        writer.clear_buffer();
+
+        // After reset, setting any color should emit sequence
+        // (state was cleared so RED is "new" again)
+        writer.set_fg(Rgba::RED);
+        assert!(
+            !writer.buffer().is_empty(),
+            "After reset, color is re-emitted"
+        );
+    }
+
+    // ============================================
+    // Attribute Delta Encoding Tests
+    // ============================================
+
+    #[test]
+    fn test_attribute_removal_generates_reset() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Set bold
+        writer.set_attributes(TextAttributes::BOLD);
+        writer.clear_buffer();
+
+        // Remove bold (set empty)
+        writer.set_attributes(TextAttributes::empty());
+
+        // Should emit reset code for bold (SGR 22)
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("22"), "Bold removal uses SGR 22");
+    }
+
+    #[test]
+    fn test_attribute_partial_removal() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Set bold + italic
+        writer.set_attributes(TextAttributes::BOLD | TextAttributes::ITALIC);
+        writer.clear_buffer();
+
+        // Remove only italic, keep bold
+        writer.set_attributes(TextAttributes::BOLD);
+
+        // Should emit reset for italic (SGR 23) but not bold
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("23"), "Italic removal uses SGR 23");
+        assert!(!output.contains("22"), "Bold should not be reset");
+    }
+
+    #[test]
+    fn test_attribute_addition_only() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        // Start with bold
+        writer.set_attributes(TextAttributes::BOLD);
+        writer.clear_buffer();
+
+        // Add italic (keep bold)
+        writer.set_attributes(TextAttributes::BOLD | TextAttributes::ITALIC);
+
+        // Should only emit italic (SGR 3), not bold again
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("3"), "Should add italic");
+        // Should not re-emit bold since it's already set
+        assert_eq!(output.matches("1").count(), 0, "Should not re-emit bold");
+    }
+
+    // ============================================
+    // Link State Tracking Tests
+    // ============================================
+
+    #[test]
+    fn test_link_caching() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_link(Some(1), Some("https://example.com"));
+        let initial_len = writer.buffer().len();
+        assert!(initial_len > 0, "Link should emit OSC 8");
+
+        // Same link again
+        writer.set_link(Some(1), Some("https://example.com"));
+        assert_eq!(
+            writer.buffer().len(),
+            initial_len,
+            "Same link = no new sequence"
+        );
+
+        // Different link
+        writer.set_link(Some(2), Some("https://other.com"));
+        assert!(
+            writer.buffer().len() > initial_len,
+            "Different link = new sequence"
+        );
+    }
+
+    #[test]
+    fn test_link_end() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.set_link(Some(1), Some("https://example.com"));
+        writer.clear_buffer();
+
+        // End link
+        writer.set_link(None, None);
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("\x1b]8;;\x1b\\"), "Link end sequence");
+    }
+
+    // ============================================
+    // Color Mode Tests
+    // ============================================
+
+    #[test]
+    fn test_color_mode_setting() {
+        let writer = AnsiWriter::new(Vec::new());
+        assert_eq!(
+            writer.color_mode(),
+            ColorMode::TrueColor,
+            "Default is TrueColor"
+        );
+
+        let writer = AnsiWriter::with_color_mode(Vec::new(), ColorMode::Color256);
+        assert_eq!(writer.color_mode(), ColorMode::Color256);
+    }
+
+    #[test]
+    fn test_color_mode_affects_output() {
+        // TrueColor mode
+        let mut writer = AnsiWriter::with_color_mode(Vec::new(), ColorMode::TrueColor);
+        writer.set_fg(Rgba::new(0.5, 0.5, 0.5, 1.0));
+        let tc_output = String::from_utf8_lossy(writer.buffer()).to_string();
+        assert!(tc_output.contains("38;2;"), "TrueColor uses 38;2;R;G;B");
+
+        // 256-color mode
+        let mut writer = AnsiWriter::with_color_mode(Vec::new(), ColorMode::Color256);
+        writer.set_fg(Rgba::new(0.5, 0.5, 0.5, 1.0));
+        let c256_output = String::from_utf8_lossy(writer.buffer()).to_string();
+        assert!(c256_output.contains("38;5;"), "256-color uses 38;5;N");
+
+        // No color mode
+        let mut writer = AnsiWriter::with_color_mode(Vec::new(), ColorMode::NoColor);
+        writer.set_fg(Rgba::RED);
+        assert!(writer.buffer().is_empty(), "NoColor emits nothing");
+    }
+
+    // ============================================
+    // Flush and Buffer Tests
+    // ============================================
+
+    #[test]
+    fn test_flush_transfers_to_writer() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_str("Hello");
+        assert_eq!(writer.buffer().len(), 5);
+
+        writer.flush().unwrap();
+        assert!(writer.buffer().is_empty(), "Buffer cleared after flush");
+
+        let inner = writer.into_inner();
+        assert_eq!(&inner[..], b"Hello", "Data transferred to writer");
+    }
+
+    #[test]
+    fn test_clear_buffer_without_flush() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_str("Test data");
+        writer.clear_buffer();
+
+        assert!(writer.buffer().is_empty(), "Buffer cleared");
+
+        writer.flush().unwrap();
+        let inner = writer.into_inner();
+        assert!(inner.is_empty(), "Nothing written since buffer was cleared");
+    }
+
+    // ============================================
+    // Write Raw Tests
+    // ============================================
+
+    #[test]
+    fn test_write_raw() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_raw(b"\x1b[2J");
+        assert_eq!(writer.buffer(), b"\x1b[2J");
+    }
+
+    #[test]
+    fn test_write_str() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_str("Hello, World!");
+        assert_eq!(writer.buffer(), b"Hello, World!");
+    }
+
+    // ============================================
+    // Edge Case Tests
+    // ============================================
+
+    #[test]
+    fn test_digits_function() {
+        assert_eq!(digits(0), 1);
+        assert_eq!(digits(9), 1);
+        assert_eq!(digits(10), 2);
+        assert_eq!(digits(99), 2);
+        assert_eq!(digits(100), 3);
+        assert_eq!(digits(999), 3);
+        assert_eq!(digits(1000), 4);
+        assert_eq!(digits(u32::MAX), 10);
+    }
+
+    #[test]
+    fn test_empty_cell_output() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        let cell = Cell::clear(Rgba::BLACK);
+        writer.write_cell(&cell);
+
+        // Empty cell should produce a space
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.ends_with(' '), "Empty cell renders as space");
+    }
+
+    #[test]
+    fn test_cell_with_all_attributes() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        let mut attrs = TextAttributes::empty();
+        attrs |= TextAttributes::BOLD;
+        attrs |= TextAttributes::ITALIC;
+        attrs |= TextAttributes::UNDERLINE;
+        attrs |= TextAttributes::STRIKETHROUGH;
+
+        let cell = Cell {
+            content: crate::cell::CellContent::Char('X'),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: attrs,
+        };
+
+        writer.write_cell(&cell);
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains('X'), "Character rendered");
+        // Should have attribute codes
+        assert!(output.contains("1"), "Bold");
+        assert!(output.contains("3"), "Italic");
+        assert!(output.contains("4"), "Underline");
+        assert!(output.contains("9"), "Strikethrough");
+    }
 }

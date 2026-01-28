@@ -390,6 +390,7 @@ dependencies = [
  "ropey",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",

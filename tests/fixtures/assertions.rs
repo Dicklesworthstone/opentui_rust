@@ -178,10 +178,7 @@ pub fn assert_cell_char(buffer: &OptimizedBuffer, x: u32, y: u32, expected: char
     match cell.content {
         CellContent::Char(c) => {
             if c != expected {
-                panic!(
-                    "Cell ({}, {}) expected '{}', got '{}'",
-                    x, y, expected, c
-                );
+                panic!("Cell ({}, {}) expected '{}', got '{}'", x, y, expected, c);
             }
         }
         other => {
@@ -200,12 +197,7 @@ pub fn assert_cell_empty(buffer: &OptimizedBuffer, x: u32, y: u32) {
         .unwrap_or_else(|| panic!("No cell at ({}, {})", x, y));
 
     if !matches!(cell.content, CellContent::Empty) {
-        panic!(
-            "Cell ({}, {}) expected Empty, got {:?}",
-            x,
-            y,
-            cell.content
-        );
+        panic!("Cell ({}, {}) expected Empty, got {:?}", x, y, cell.content);
     }
 }
 

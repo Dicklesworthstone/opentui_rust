@@ -525,16 +525,372 @@ impl Drop for Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cell::Cell;
 
-    // Note: Most renderer tests require a real terminal,
-    // so we just test basic buffer operations here.
+    // ============================================
+    // RendererOptions Tests
+    // ============================================
+
+    #[test]
+    fn test_renderer_options_default() {
+        let opts = RendererOptions::default();
+        assert!(opts.use_alt_screen);
+        assert!(opts.hide_cursor);
+        assert!(opts.enable_mouse);
+        assert!(opts.query_capabilities);
+    }
+
+    #[test]
+    fn test_renderer_options_custom() {
+        let opts = RendererOptions {
+            use_alt_screen: false,
+            hide_cursor: false,
+            enable_mouse: false,
+            query_capabilities: false,
+        };
+        assert!(!opts.use_alt_screen);
+        assert!(!opts.hide_cursor);
+        assert!(!opts.enable_mouse);
+        assert!(!opts.query_capabilities);
+    }
+
+    #[test]
+    fn test_renderer_options_copy() {
+        let opts = RendererOptions::default();
+        let copy = opts;
+        assert_eq!(opts.use_alt_screen, copy.use_alt_screen);
+    }
+
+    // ============================================
+    // RenderStats Tests
+    // ============================================
+
+    #[test]
+    fn test_render_stats_default() {
+        let stats = RenderStats::default();
+        assert_eq!(stats.frames, 0);
+        assert_eq!(stats.last_frame_cells, 0);
+        assert_eq!(stats.fps, 0.0);
+        assert_eq!(stats.buffer_bytes, 0);
+        assert_eq!(stats.hitgrid_bytes, 0);
+        assert_eq!(stats.total_bytes, 0);
+    }
+
+    #[test]
+    fn test_render_stats_clone() {
+        let stats = RenderStats {
+            frames: 100,
+            last_frame_time: Duration::from_millis(16),
+            last_frame_cells: 1920,
+            fps: 60.0,
+            buffer_bytes: 10000,
+            hitgrid_bytes: 5000,
+            total_bytes: 15000,
+        };
+        let cloned = stats.clone();
+        assert_eq!(cloned.frames, 100);
+        assert_eq!(cloned.fps, 60.0);
+    }
+
+    // ============================================
+    // Buffer Composition Tests (without terminal)
+    // ============================================
 
     #[test]
     fn test_buffer_access() {
-        // Can't test with real terminal in unit tests
-        // Just verify the types compile correctly
+        // Basic test that buffers can be created and compared
         let front = OptimizedBuffer::new(80, 24);
         let back = OptimizedBuffer::new(80, 24);
         assert_eq!(front.size(), back.size());
+    }
+
+    #[test]
+    fn test_buffer_composition_double_buffer() {
+        // Test that two buffers can be used for double buffering
+        let mut front = OptimizedBuffer::new(80, 24);
+        let mut back = OptimizedBuffer::new(80, 24);
+
+        // Draw to back buffer
+        back.set(10, 5, Cell::new('X', crate::style::Style::NONE));
+
+        // Swap (simulate present)
+        std::mem::swap(&mut front, &mut back);
+
+        // Now front has the cell
+        assert!(front.get(10, 5).is_some());
+        let cell = front.get(10, 5).unwrap();
+        assert!(matches!(cell.content, crate::cell::CellContent::Char('X')));
+    }
+
+    #[test]
+    fn test_buffer_composition_resize() {
+        let mut buf = OptimizedBuffer::new(80, 24);
+        assert_eq!(buf.size(), (80, 24));
+
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+        buf.resize_with_pool(&mut pool, 100, 50);
+        assert_eq!(buf.size(), (100, 50));
+    }
+
+    #[test]
+    fn test_buffer_composition_clear() {
+        let mut buf = OptimizedBuffer::new(80, 24);
+        buf.set(0, 0, Cell::clear(Rgba::RED));
+
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+        buf.clear_with_pool(&mut pool, Rgba::BLACK);
+
+        let cell = buf.get(0, 0).unwrap();
+        assert_eq!(cell.bg, Rgba::BLACK);
+    }
+
+    // ============================================
+    // BufferDiff Integration Tests
+    // ============================================
+
+    #[test]
+    fn test_buffer_diff_integration() {
+        let front = OptimizedBuffer::new(80, 24);
+        let mut back = OptimizedBuffer::new(80, 24);
+
+        back.set(40, 12, Cell::new('A', crate::style::Style::fg(Rgba::RED)));
+
+        let diff = BufferDiff::compute(&front, &back);
+        assert!(!diff.is_empty());
+        assert!(diff.changed_cells.contains(&(40, 12)));
+    }
+
+    #[test]
+    fn test_buffer_diff_no_changes() {
+        let front = OptimizedBuffer::new(80, 24);
+        let back = OptimizedBuffer::new(80, 24);
+
+        let diff = BufferDiff::compute(&front, &back);
+        assert!(diff.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_diff_full_redraw_threshold() {
+        let front = OptimizedBuffer::new(10, 10);
+        let mut back = OptimizedBuffer::new(10, 10);
+
+        // Change more than 50% of cells
+        for y in 0..10 {
+            for x in 0..6 {
+                back.set(x, y, Cell::clear(Rgba::RED));
+            }
+        }
+
+        let diff = BufferDiff::compute(&front, &back);
+        let total_cells = 100;
+        assert!(diff.should_full_redraw(total_cells));
+    }
+
+    // ============================================
+    // HitGrid Integration Tests
+    // ============================================
+
+    #[test]
+    fn test_hit_grid_integration() {
+        let mut grid = HitGrid::new(80, 24);
+
+        // Register a button region
+        grid.register(10, 5, 20, 3, 1);
+
+        // Test hit detection
+        assert_eq!(grid.hit_test(15, 6), Some(1));
+        assert_eq!(grid.hit_test(5, 6), None);
+    }
+
+    #[test]
+    fn test_hit_grid_clear_integration() {
+        let mut grid = HitGrid::new(80, 24);
+        grid.register(0, 0, 80, 24, 1);
+        assert_eq!(grid.hit_test(40, 12), Some(1));
+
+        grid.clear();
+        assert_eq!(grid.hit_test(40, 12), None);
+    }
+
+    // ============================================
+    // ScissorStack Tests
+    // ============================================
+
+    #[test]
+    fn test_scissor_stack_hit_clipping() {
+        let mut scissor = ScissorStack::new();
+
+        // Initial scissor covers everything
+        let full = scissor.current();
+        assert!(full.contains(0, 0));
+
+        // Push a restrictive scissor
+        scissor.push(ClipRect::new(10, 10, 20, 20));
+        let clipped = scissor.current();
+        assert!(!clipped.contains(5, 5));
+        assert!(clipped.contains(15, 15));
+
+        // Pop returns to full
+        scissor.pop();
+        let restored = scissor.current();
+        assert!(restored.contains(5, 5));
+    }
+
+    // ============================================
+    // LinkPool Integration Tests
+    // ============================================
+
+    #[test]
+    fn test_link_pool_allocation() {
+        let mut pool = LinkPool::new();
+        let id1 = pool.alloc("https://example.com");
+        let id2 = pool.alloc("https://other.com");
+
+        assert!(id1 != id2);
+        assert_eq!(pool.get(id1), Some("https://example.com"));
+        assert_eq!(pool.get(id2), Some("https://other.com"));
+    }
+
+    #[test]
+    fn test_link_pool_refcounting() {
+        let mut pool = LinkPool::new();
+        let id = pool.alloc("https://example.com");
+
+        pool.incref(id);
+        pool.decref(id);
+
+        // Should still exist (one ref remaining)
+        assert!(pool.get(id).is_some());
+
+        pool.decref(id);
+        // Now freed
+        assert!(pool.get(id).is_none());
+    }
+
+    // ============================================
+    // GraphemePool Integration Tests
+    // ============================================
+
+    #[test]
+    fn test_grapheme_pool_allocation() {
+        let mut pool = crate::grapheme_pool::GraphemePool::new();
+        let id = pool.alloc("👨‍👩‍👧");
+
+        assert!(pool.get(id).is_some());
+        assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
+    }
+
+    // ============================================
+    // Edge Case Tests
+    // ============================================
+
+    #[test]
+    fn test_zero_size_buffer() {
+        // Zero size buffer should not panic
+        let buf = OptimizedBuffer::new(0, 0);
+        assert_eq!(buf.size(), (0, 0));
+    }
+
+    #[test]
+    fn test_single_cell_buffer() {
+        let mut buf = OptimizedBuffer::new(1, 1);
+        buf.set(0, 0, Cell::new('X', crate::style::Style::NONE));
+        assert!(buf.get(0, 0).is_some());
+    }
+
+    #[test]
+    fn test_large_buffer() {
+        // Large buffer allocation should work
+        let buf = OptimizedBuffer::new(500, 200);
+        assert_eq!(buf.size(), (500, 200));
+    }
+
+    #[test]
+    fn test_buffer_out_of_bounds() {
+        let buf = OptimizedBuffer::new(80, 24);
+        assert!(buf.get(80, 24).is_none());
+        assert!(buf.get(100, 100).is_none());
+    }
+
+    // ============================================
+    // DirtyRegion Tests
+    // ============================================
+
+    #[test]
+    fn test_dirty_region_creation() {
+        let region = diff::DirtyRegion::new(10, 20, 30, 40);
+        assert_eq!(region.x, 10);
+        assert_eq!(region.y, 20);
+        assert_eq!(region.width, 30);
+        assert_eq!(region.height, 40);
+    }
+
+    #[test]
+    fn test_dirty_region_cell() {
+        let region = diff::DirtyRegion::cell(5, 10);
+        assert_eq!(region.x, 5);
+        assert_eq!(region.y, 10);
+        assert_eq!(region.width, 1);
+        assert_eq!(region.height, 1);
+    }
+
+    // ============================================
+    // Buffer State Preservation Tests
+    // ============================================
+
+    #[test]
+    fn test_buffer_preserves_content_on_same_set() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+        let cell = Cell::new('A', crate::style::Style::fg(Rgba::RED));
+        buf.set(5, 5, cell.clone());
+        buf.set(5, 5, cell);
+
+        let stored = buf.get(5, 5).unwrap();
+        assert!(matches!(
+            stored.content,
+            crate::cell::CellContent::Char('A')
+        ));
+    }
+
+    #[test]
+    fn test_buffer_multiple_sets_same_cell() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+        buf.set(5, 5, Cell::new('A', crate::style::Style::NONE));
+        buf.set(5, 5, Cell::new('B', crate::style::Style::NONE));
+        buf.set(5, 5, Cell::new('C', crate::style::Style::NONE));
+
+        let stored = buf.get(5, 5).unwrap();
+        assert!(matches!(
+            stored.content,
+            crate::cell::CellContent::Char('C')
+        ));
+    }
+
+    // ============================================
+    // Stats Calculation Tests
+    // ============================================
+
+    #[test]
+    fn test_stats_byte_size_calculation() {
+        let buf = OptimizedBuffer::new(80, 24);
+        let byte_size = buf.byte_size();
+        // Should be at least cells * size_of(Cell)
+        assert!(byte_size > 0);
+    }
+
+    #[test]
+    fn test_hit_grid_byte_size() {
+        let grid = HitGrid::new(80, 24);
+        let byte_size = grid.byte_size();
+        // Should be width * height * size_of(Option<u32>)
+        let expected = 80 * 24 * std::mem::size_of::<Option<u32>>();
+        assert_eq!(byte_size, expected);
+    }
+
+    impl HitGrid {
+        // Helper for testing
+        fn hit_test(&self, x: u32, y: u32) -> Option<u32> {
+            self.test(x, y)
+        }
     }
 }

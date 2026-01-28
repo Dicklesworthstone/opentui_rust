@@ -418,9 +418,15 @@ impl<'a> AnsiSequenceParser<'a> {
                 Some(AnsiSequence::CursorPosition { row, col })
             }
             b'A' => Some(AnsiSequence::CursorUp(params.first().copied().unwrap_or(1))),
-            b'B' => Some(AnsiSequence::CursorDown(params.first().copied().unwrap_or(1))),
-            b'C' => Some(AnsiSequence::CursorForward(params.first().copied().unwrap_or(1))),
-            b'D' => Some(AnsiSequence::CursorBack(params.first().copied().unwrap_or(1))),
+            b'B' => Some(AnsiSequence::CursorDown(
+                params.first().copied().unwrap_or(1),
+            )),
+            b'C' => Some(AnsiSequence::CursorForward(
+                params.first().copied().unwrap_or(1),
+            )),
+            b'D' => Some(AnsiSequence::CursorBack(
+                params.first().copied().unwrap_or(1),
+            )),
             b'J' => {
                 if params.first().copied().unwrap_or(0) == 2 {
                     Some(AnsiSequence::ClearScreen)
@@ -668,9 +674,21 @@ mod tests {
         let sequences = AnsiSequenceParser::parse_all(data);
 
         assert!(sequences.iter().any(|s| *s == AnsiSequence::HideCursor));
-        assert!(sequences.iter().any(|s| matches!(s, AnsiSequence::Text(t) if t == "Hello")));
-        assert!(sequences.iter().any(|s| matches!(s, AnsiSequence::Text(t) if t == "World")));
-        assert!(sequences.iter().any(|s| *s == AnsiSequence::SetFgColor(Rgba::RED)));
+        assert!(
+            sequences
+                .iter()
+                .any(|s| matches!(s, AnsiSequence::Text(t) if t == "Hello"))
+        );
+        assert!(
+            sequences
+                .iter()
+                .any(|s| matches!(s, AnsiSequence::Text(t) if t == "World"))
+        );
+        assert!(
+            sequences
+                .iter()
+                .any(|s| *s == AnsiSequence::SetFgColor(Rgba::RED))
+        );
         assert!(sequences.iter().any(|s| *s == AnsiSequence::Reset));
     }
 

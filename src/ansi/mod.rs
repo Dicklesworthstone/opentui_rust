@@ -718,4 +718,445 @@ mod tests {
             "OSC (U+009D) must be escaped"
         );
     }
+
+    // ============================================
+    // Cursor Control Tests (4 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_cursor_move_to_absolute() {
+        // Test absolute cursor positioning ESC[row;colH
+        let seq = cursor_position(0, 0);
+        assert_eq!(seq, "\x1b[1;1H", "Origin should be 1,1 (1-indexed)");
+
+        let seq = cursor_position(5, 10);
+        assert_eq!(seq, "\x1b[6;11H", "Position 5,10 -> 6,11 (1-indexed)");
+
+        let seq = cursor_position(99, 199);
+        assert_eq!(seq, "\x1b[100;200H", "Large position check");
+    }
+
+    #[test]
+    fn test_cursor_move_relative() {
+        // Test relative cursor movements: up (A), down (B), forward (C), back (D)
+        let up = cursor_move(0, -3);
+        assert!(up.contains("3A"), "Up 3 should use ESC[3A");
+
+        let down = cursor_move(0, 3);
+        assert!(down.contains("3B"), "Down 3 should use ESC[3B");
+
+        let right = cursor_move(5, 0);
+        assert!(right.contains("5C"), "Right 5 should use ESC[5C");
+
+        let left = cursor_move(-5, 0);
+        assert!(left.contains("5D"), "Left 5 should use ESC[5D");
+    }
+
+    #[test]
+    fn test_cursor_hide_show() {
+        // Test cursor visibility control sequences
+        use super::sequences::{CURSOR_HIDE, CURSOR_SHOW};
+
+        assert_eq!(CURSOR_HIDE, "\x1b[?25l", "Hide cursor sequence");
+        assert_eq!(CURSOR_SHOW, "\x1b[?25h", "Show cursor sequence");
+    }
+
+    #[test]
+    fn test_cursor_save_restore() {
+        // Test DEC cursor save/restore
+        use super::sequences::{CURSOR_RESTORE, CURSOR_SAVE};
+
+        assert_eq!(CURSOR_SAVE, "\x1b7", "DEC save cursor position");
+        assert_eq!(CURSOR_RESTORE, "\x1b8", "DEC restore cursor position");
+    }
+
+    // ============================================
+    // Screen Control Tests (4 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_clear_screen() {
+        // Test clear screen sequences
+        use super::sequences::{CLEAR_SCREEN, CLEAR_SCREEN_ABOVE, CLEAR_SCREEN_BELOW};
+
+        assert_eq!(CLEAR_SCREEN, "\x1b[2J", "Clear entire screen");
+        assert_eq!(CLEAR_SCREEN_BELOW, "\x1b[J", "Clear from cursor down");
+        assert_eq!(CLEAR_SCREEN_ABOVE, "\x1b[1J", "Clear from cursor up");
+    }
+
+    #[test]
+    fn test_clear_line() {
+        // Test clear line variants: 0=right, 1=left, 2=all
+        use super::sequences::{CLEAR_LINE, CLEAR_LINE_LEFT, CLEAR_LINE_RIGHT};
+
+        assert_eq!(
+            CLEAR_LINE_RIGHT, "\x1b[K",
+            "Clear to end of line (default 0)"
+        );
+        assert_eq!(CLEAR_LINE_LEFT, "\x1b[1K", "Clear to beginning of line");
+        assert_eq!(CLEAR_LINE, "\x1b[2K", "Clear entire line");
+    }
+
+    #[test]
+    fn test_alt_screen_enter_leave() {
+        // Test alternate screen buffer sequences
+        use super::sequences::{ALT_SCREEN_OFF, ALT_SCREEN_ON};
+
+        assert_eq!(ALT_SCREEN_ON, "\x1b[?1049h", "Enter alternate screen");
+        assert_eq!(ALT_SCREEN_OFF, "\x1b[?1049l", "Leave alternate screen");
+    }
+
+    #[test]
+    fn test_cursor_home() {
+        // Test cursor home position
+        use super::sequences::CURSOR_HOME;
+
+        assert_eq!(CURSOR_HOME, "\x1b[H", "Cursor home (no params = 1,1)");
+    }
+
+    // ============================================
+    // Color Output Tests (8 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_sgr_colors_16_mapping() {
+        // Test 16-color mapping for basic ANSI colors
+        // Normal colors: 30-37, bright: 90-97
+        let black = fg_color_with_mode(Rgba::BLACK, ColorMode::Color16);
+        assert!(black.contains("\x1b["), "Should have CSI prefix");
+        assert!(black.ends_with("m"), "Should end with m");
+
+        let white = fg_color_with_mode(Rgba::WHITE, ColorMode::Color16);
+        // White maps to bright white (97)
+        let code: u8 = white
+            .trim_start_matches("\x1b[")
+            .trim_end_matches("m")
+            .parse()
+            .unwrap_or(0);
+        assert!(
+            code >= 30 && code <= 97,
+            "16-color code should be in valid range"
+        );
+    }
+
+    #[test]
+    fn test_sgr_colors_256_format() {
+        // Test 256-color format: ESC[38;5;Nm
+        let color = fg_color_with_mode(Rgba::new(0.5, 0.5, 0.5, 1.0), ColorMode::Color256);
+        assert!(color.starts_with("\x1b[38;5;"), "256-color fg format");
+        assert!(color.ends_with("m"), "Should end with m");
+
+        let bg = bg_color_with_mode(Rgba::RED, ColorMode::Color256);
+        assert!(bg.starts_with("\x1b[48;5;"), "256-color bg format");
+    }
+
+    #[test]
+    fn test_sgr_colors_rgb_format() {
+        // Test 24-bit true color format: ESC[38;2;R;G;Bm
+        let color = fg_color_with_mode(Rgba::new(0.5, 0.25, 0.75, 1.0), ColorMode::TrueColor);
+        assert!(color.starts_with("\x1b[38;2;"), "True color fg format");
+
+        // Parse out the RGB values
+        let parts: Vec<&str> = color
+            .trim_start_matches("\x1b[38;2;")
+            .trim_end_matches("m")
+            .split(';')
+            .collect();
+        assert_eq!(parts.len(), 3, "Should have 3 color components");
+
+        // Verify RGB values parse correctly (0-255 range implicit in u8)
+        for part in parts {
+            let _val: u8 = part.parse().expect("Should be valid u8");
+            // Parsing succeeded - value is valid u8 (0-255)
+        }
+    }
+
+    #[test]
+    fn test_color_foreground_vs_background() {
+        // Test that fg uses 38 and bg uses 48
+        let fg = fg_color_with_mode(Rgba::RED, ColorMode::TrueColor);
+        let bg = bg_color_with_mode(Rgba::RED, ColorMode::TrueColor);
+
+        assert!(fg.contains("38;2;"), "Foreground uses SGR 38");
+        assert!(bg.contains("48;2;"), "Background uses SGR 48");
+    }
+
+    #[test]
+    fn test_color_reset() {
+        // Test color reset sequences
+        use super::sequences::{RESET, color};
+
+        assert_eq!(RESET, "\x1b[0m", "Full reset sequence");
+        assert_eq!(color::FG_DEFAULT, "\x1b[39m", "Foreground default");
+        assert_eq!(color::BG_DEFAULT, "\x1b[49m", "Background default");
+    }
+
+    #[test]
+    fn test_color_no_color_mode() {
+        // In NoColor mode, no escape sequences should be emitted
+        let fg = fg_color_with_mode(Rgba::RED, ColorMode::NoColor);
+        let bg = bg_color_with_mode(Rgba::BLUE, ColorMode::NoColor);
+
+        assert!(fg.is_empty(), "NoColor fg should be empty");
+        assert!(bg.is_empty(), "NoColor bg should be empty");
+    }
+
+    #[test]
+    fn test_color_mode_from_support() {
+        // Test ColorMode::from(ColorSupport)
+        use crate::terminal::ColorSupport;
+
+        assert_eq!(
+            ColorMode::from(ColorSupport::TrueColor),
+            ColorMode::TrueColor
+        );
+        assert_eq!(ColorMode::from(ColorSupport::Extended), ColorMode::Color256);
+        assert_eq!(ColorMode::from(ColorSupport::Basic), ColorMode::Color16);
+        assert_eq!(ColorMode::from(ColorSupport::None), ColorMode::NoColor);
+    }
+
+    #[test]
+    fn test_color_boundary_values() {
+        // Test boundary RGB values
+        let min = Rgba::new(0.0, 0.0, 0.0, 1.0);
+        let max = Rgba::new(1.0, 1.0, 1.0, 1.0);
+
+        let min_seq = fg_color_with_mode(min, ColorMode::TrueColor);
+        assert!(
+            min_seq.contains(";0;0;0m") || min_seq.ends_with("0m"),
+            "Min RGB"
+        );
+
+        let max_seq = fg_color_with_mode(max, ColorMode::TrueColor);
+        assert!(max_seq.contains(";255;255;255m"), "Max RGB");
+    }
+
+    // ============================================
+    // Text Attributes Tests (7 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_sgr_bold() {
+        let seq = attributes(TextAttributes::BOLD);
+        assert_eq!(seq, "\x1b[1m", "Bold is SGR 1");
+    }
+
+    #[test]
+    fn test_sgr_italic() {
+        let seq = attributes(TextAttributes::ITALIC);
+        assert_eq!(seq, "\x1b[3m", "Italic is SGR 3");
+    }
+
+    #[test]
+    fn test_sgr_underline() {
+        let seq = attributes(TextAttributes::UNDERLINE);
+        assert_eq!(seq, "\x1b[4m", "Underline is SGR 4");
+    }
+
+    #[test]
+    fn test_sgr_strikethrough() {
+        let seq = attributes(TextAttributes::STRIKETHROUGH);
+        assert_eq!(seq, "\x1b[9m", "Strikethrough is SGR 9");
+    }
+
+    #[test]
+    fn test_sgr_multiple_attributes() {
+        // Multiple attributes should be combined with semicolons
+        let seq = attributes(TextAttributes::BOLD | TextAttributes::ITALIC);
+        assert!(seq.starts_with("\x1b["), "CSI prefix");
+        assert!(seq.contains("1"), "Has bold");
+        assert!(seq.contains("3"), "Has italic");
+        assert!(seq.contains(";"), "Semicolon separator");
+        assert!(seq.ends_with("m"), "SGR terminator");
+    }
+
+    #[test]
+    fn test_sgr_reset_full() {
+        use super::sequences::RESET;
+        assert_eq!(RESET, "\x1b[0m", "Full SGR reset");
+    }
+
+    #[test]
+    fn test_attribute_empty() {
+        let seq = attributes(TextAttributes::empty());
+        assert!(seq.is_empty(), "Empty attributes produce no sequence");
+    }
+
+    // ============================================
+    // Mouse & Extended Tests (4 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_mouse_enable_disable() {
+        use super::sequences::{MOUSE_OFF, MOUSE_ON};
+
+        // Mouse tracking modes: 1003 = all, 1006 = SGR extended
+        assert!(MOUSE_ON.contains("1003h"), "Enable all mouse events");
+        assert!(MOUSE_ON.contains("1006h"), "Enable SGR mouse format");
+        assert!(MOUSE_OFF.contains("1003l"), "Disable all mouse events");
+        assert!(MOUSE_OFF.contains("1006l"), "Disable SGR mouse format");
+    }
+
+    #[test]
+    fn test_bracketed_paste_mode() {
+        use super::sequences::{BRACKETED_PASTE_OFF, BRACKETED_PASTE_ON};
+
+        assert_eq!(BRACKETED_PASTE_ON, "\x1b[?2004h", "Enable bracketed paste");
+        assert_eq!(
+            BRACKETED_PASTE_OFF, "\x1b[?2004l",
+            "Disable bracketed paste"
+        );
+    }
+
+    #[test]
+    fn test_focus_events() {
+        use super::sequences::{FOCUS_OFF, FOCUS_ON};
+
+        assert_eq!(FOCUS_ON, "\x1b[?1004h", "Enable focus tracking");
+        assert_eq!(FOCUS_OFF, "\x1b[?1004l", "Disable focus tracking");
+    }
+
+    #[test]
+    fn test_sync_output() {
+        use super::sequences::sync;
+
+        assert_eq!(sync::BEGIN, "\x1b[?2026h", "Begin synchronized output");
+        assert_eq!(sync::END, "\x1b[?2026l", "End synchronized output");
+    }
+
+    // ============================================
+    // OSC Sequences Tests (2 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_osc8_hyperlink_structure() {
+        // OSC 8 format: ESC]8;params;URLESC\
+        let link = hyperlink_start(42, "https://example.com");
+        assert!(link.starts_with("\x1b]8;"), "OSC 8 prefix");
+        assert!(link.contains("id=42"), "Contains link ID");
+        assert!(link.contains("https://example.com"), "Contains URL");
+        assert!(link.ends_with("\x1b\\"), "String terminator");
+
+        // End hyperlink
+        assert_eq!(HYPERLINK_END, "\x1b]8;;\x1b\\", "Hyperlink end sequence");
+    }
+
+    #[test]
+    fn test_osc_title() {
+        use super::sequences::{TITLE_PREFIX, TITLE_SUFFIX};
+
+        // Window title: OSC 0;titleST
+        assert_eq!(TITLE_PREFIX, "\x1b]0;", "Title OSC prefix");
+        assert_eq!(TITLE_SUFFIX, "\x1b\\", "String terminator");
+
+        // Full title sequence would be: TITLE_PREFIX + "My Title" + TITLE_SUFFIX
+        let full_title = format!("{TITLE_PREFIX}Test Window{TITLE_SUFFIX}");
+        assert_eq!(full_title, "\x1b]0;Test Window\x1b\\");
+    }
+
+    // ============================================
+    // State Tracking Tests (4 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_write_u8_decimal() {
+        // Test the internal decimal writer
+        fn verify_u8(n: u8) -> String {
+            let mut buf = Vec::new();
+            write_u8_decimal(&mut buf, n).unwrap();
+            String::from_utf8(buf).unwrap()
+        }
+
+        assert_eq!(verify_u8(0), "0");
+        assert_eq!(verify_u8(9), "9");
+        assert_eq!(verify_u8(10), "10");
+        assert_eq!(verify_u8(99), "99");
+        assert_eq!(verify_u8(100), "100");
+        assert_eq!(verify_u8(255), "255");
+    }
+
+    #[test]
+    fn test_write_u32_decimal() {
+        // Test the internal u32 decimal writer
+        fn verify_u32(n: u32) -> String {
+            let mut buf = Vec::new();
+            write_u32_decimal(&mut buf, n).unwrap();
+            String::from_utf8(buf).unwrap()
+        }
+
+        assert_eq!(verify_u32(0), "0");
+        assert_eq!(verify_u32(9), "9");
+        assert_eq!(verify_u32(10), "10");
+        assert_eq!(verify_u32(99), "99");
+        assert_eq!(verify_u32(100), "100");
+        assert_eq!(verify_u32(999), "999");
+        assert_eq!(verify_u32(1000), "1000");
+        assert_eq!(verify_u32(u32::MAX), "4294967295");
+    }
+
+    #[test]
+    fn test_cursor_position_1_indexed() {
+        // Cursor positions are converted from 0-indexed to 1-indexed
+        let seq = cursor_position(0, 0);
+        assert!(seq.contains("1;1"), "0,0 becomes 1;1");
+
+        let seq = cursor_position(9, 19);
+        assert!(seq.contains("10;20"), "9,19 becomes 10;20");
+    }
+
+    #[test]
+    fn test_cursor_move_zero_no_output() {
+        // Zero movement should produce minimal output
+        let seq = cursor_move(0, 0);
+        assert!(seq.is_empty(), "No movement = no sequence");
+    }
+
+    // ============================================
+    // Edge Cases Tests (4 tests per spec)
+    // ============================================
+
+    #[test]
+    fn test_large_coordinate_values() {
+        // Test handling of large coordinate values
+        let large = cursor_position(u32::MAX - 1, u32::MAX - 1);
+        assert!(large.contains("H"), "Still produces valid sequence");
+
+        // Verify it contains the large numbers
+        let expected_row = u32::MAX.to_string();
+        let expected_col = u32::MAX.to_string();
+        assert!(large.contains(&expected_row), "Contains large row");
+        assert!(large.contains(&expected_col), "Contains large col");
+    }
+
+    #[test]
+    fn test_cursor_move_large_values() {
+        // Test large relative movements
+        let large_up = cursor_move(0, -10000);
+        assert!(large_up.contains("10000A"), "Large up movement");
+
+        let large_right = cursor_move(50000, 0);
+        assert!(large_right.contains("50000C"), "Large right movement");
+    }
+
+    #[test]
+    fn test_combined_cursor_move() {
+        // Combined movements produce multiple sequences
+        let combined = cursor_move(5, -3);
+        assert!(combined.contains("3A"), "Up component");
+        assert!(combined.contains("5C"), "Right component");
+    }
+
+    #[test]
+    fn test_cursor_style_sequences() {
+        // Test cursor style sequences
+        use super::sequences::cursor_style;
+
+        assert_eq!(cursor_style::BLOCK_BLINK, "\x1b[1 q");
+        assert_eq!(cursor_style::BLOCK_STEADY, "\x1b[2 q");
+        assert_eq!(cursor_style::UNDERLINE_BLINK, "\x1b[3 q");
+        assert_eq!(cursor_style::UNDERLINE_STEADY, "\x1b[4 q");
+        assert_eq!(cursor_style::BAR_BLINK, "\x1b[5 q");
+        assert_eq!(cursor_style::BAR_STEADY, "\x1b[6 q");
+        assert_eq!(cursor_style::DEFAULT, "\x1b[0 q");
+    }
 }

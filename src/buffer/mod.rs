@@ -938,9 +938,18 @@ mod tests {
         buf.set(5, 5, Cell::new('M', Style::NONE));
 
         // Verify
-        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
-        assert!(matches!(buf.get(9, 9).unwrap().content, CellContent::Char('Z')));
-        assert!(matches!(buf.get(5, 5).unwrap().content, CellContent::Char('M')));
+        assert!(matches!(
+            buf.get(0, 0).unwrap().content,
+            CellContent::Char('A')
+        ));
+        assert!(matches!(
+            buf.get(9, 9).unwrap().content,
+            CellContent::Char('Z')
+        ));
+        assert!(matches!(
+            buf.get(5, 5).unwrap().content,
+            CellContent::Char('M')
+        ));
     }
 
     #[test]
@@ -1017,27 +1026,42 @@ mod tests {
         // Initially all visible
         buf.set(0, 0, Cell::new('A', Style::NONE));
         buf.set(19, 19, Cell::new('B', Style::NONE));
-        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
-        assert!(matches!(buf.get(19, 19).unwrap().content, CellContent::Char('B')));
+        assert!(matches!(
+            buf.get(0, 0).unwrap().content,
+            CellContent::Char('A')
+        ));
+        assert!(matches!(
+            buf.get(19, 19).unwrap().content,
+            CellContent::Char('B')
+        ));
 
         // Push scissor to restrict to center region
         buf.push_scissor(ClipRect::new(5, 5, 10, 10));
 
         // Set inside scissor should work
         buf.set(10, 10, Cell::new('C', Style::NONE));
-        assert!(matches!(buf.get(10, 10).unwrap().content, CellContent::Char('C')));
+        assert!(matches!(
+            buf.get(10, 10).unwrap().content,
+            CellContent::Char('C')
+        ));
 
         // Set outside scissor should be ignored
         buf.set(0, 0, Cell::new('X', Style::NONE));
         // Should still be 'A' from before
-        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
+        assert!(matches!(
+            buf.get(0, 0).unwrap().content,
+            CellContent::Char('A')
+        ));
 
         // Pop scissor
         buf.pop_scissor();
 
         // Now (0, 0) should be writable again
         buf.set(0, 0, Cell::new('Y', Style::NONE));
-        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('Y')));
+        assert!(matches!(
+            buf.get(0, 0).unwrap().content,
+            CellContent::Char('Y')
+        ));
     }
 
     #[test]
@@ -1052,7 +1076,10 @@ mod tests {
 
         // Set inside inner scissor should work
         buf.set(15, 15, Cell::new('I', Style::NONE));
-        assert!(matches!(buf.get(15, 15).unwrap().content, CellContent::Char('I')));
+        assert!(matches!(
+            buf.get(15, 15).unwrap().content,
+            CellContent::Char('I')
+        ));
 
         // Set outside inner but inside outer should be ignored
         buf.set(7, 7, Cell::new('O', Style::NONE));
@@ -1064,7 +1091,10 @@ mod tests {
 
         // Now (7, 7) should be writable
         buf.set(7, 7, Cell::new('O', Style::NONE));
-        assert!(matches!(buf.get(7, 7).unwrap().content, CellContent::Char('O')));
+        assert!(matches!(
+            buf.get(7, 7).unwrap().content,
+            CellContent::Char('O')
+        ));
     }
 
     #[test]
@@ -1082,7 +1112,10 @@ mod tests {
 
         // Now set should work
         buf.set(5, 5, Cell::new('Y', Style::NONE));
-        assert!(matches!(buf.get(5, 5).unwrap().content, CellContent::Char('Y')));
+        assert!(matches!(
+            buf.get(5, 5).unwrap().content,
+            CellContent::Char('Y')
+        ));
     }
 
     #[test]
@@ -1115,7 +1148,10 @@ mod tests {
 
         // Now entire buffer should be visible
         buf.set(0, 0, Cell::new('X', Style::NONE));
-        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('X')));
+        assert!(matches!(
+            buf.get(0, 0).unwrap().content,
+            CellContent::Char('X')
+        ));
     }
 
     // =========================================================================
