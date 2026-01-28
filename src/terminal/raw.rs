@@ -175,8 +175,7 @@ mod tests {
     #[test]
     fn test_is_tty_file_returns_false() {
         // Create a temp file - not a TTY
-        let file =
-            tempfile::tempfile().expect("Failed to create temp file");
+        let file = tempfile::tempfile().expect("Failed to create temp file");
         assert!(!is_tty(&file), "Regular file should not be TTY");
     }
 
@@ -234,8 +233,7 @@ mod tests {
     #[test]
     fn test_termios_local_flags_disabled() {
         // Local flags that should be disabled
-        let local_flags_to_disable =
-            libc::ECHO | libc::ICANON | libc::IEXTEN | libc::ISIG;
+        let local_flags_to_disable = libc::ECHO | libc::ICANON | libc::IEXTEN | libc::ISIG;
 
         assert_ne!(local_flags_to_disable & libc::ECHO, 0);
         assert_ne!(local_flags_to_disable & libc::ICANON, 0);
