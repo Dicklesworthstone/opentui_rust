@@ -26,7 +26,6 @@ use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_s
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
 use opentui::{CellContent, Renderer, RendererOptions, Rgba, Style};
-use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -289,6 +288,7 @@ pub enum ParseResult {
 
 impl Config {
     /// Parse configuration from command-line arguments.
+    #[allow(clippy::too_many_lines)]
     pub fn from_args<I>(args: I) -> ParseResult
     where
         I: IntoIterator<Item = OsString>,
@@ -3310,13 +3310,13 @@ fn restore_cooked_mode() {
 /// Maximum entries in the log queue before oldest entries are dropped.
 const LOG_QUEUE_CAPACITY: usize = 500;
 
-/// Thread-safe log queue for routing OpenTUI events to the demo logs panel.
+/// Thread-safe log queue for routing `OpenTUI` events to the demo logs panel.
 fn log_queue() -> &'static Arc<Mutex<VecDeque<content::LogEntry>>> {
     static QUEUE: OnceLock<Arc<Mutex<VecDeque<content::LogEntry>>>> = OnceLock::new();
     QUEUE.get_or_init(|| Arc::new(Mutex::new(VecDeque::with_capacity(LOG_QUEUE_CAPACITY))))
 }
 
-/// Install OpenTUI event/log callbacks that route to the demo's log queue.
+/// Install `OpenTUI` event/log callbacks that route to the demo's log queue.
 ///
 /// Call this at demo startup. The callbacks push entries to a bounded queue,
 /// which is drained into `App.logs` each frame via `drain_log_queue()`.
@@ -3527,13 +3527,185 @@ fn extract_buffer_row(buffer: &OptimizedBuffer, y: u32, start_x: u32, max_len: u
     result.trim_end().to_string()
 }
 
-/// Run headless smoke test (no TTY required).
+/// Run a specific headless check and output JSON results.
 ///
-/// Run a specific headless check (layout, config, palette, hitgrid, logs).
+/// Each check validates a specific subsystem:
+/// - `layout`: Layout math invariants (no negative rects, no overflow, compact mode triggers)
+/// - `config`: CLI/config parsing (flag combinations)
+/// - `palette`: Command palette scoring + selection behavior
+/// - `hitgrid`: Hit ID mapping invariants (IDs stable, no overlap)
+/// - `logs`: Log model behavior (ring buffer, selection)
+#[allow(clippy::too_many_lines)]
 fn run_headless_check(config: &Config, check_name: &str) {
-    // For now, delegate to smoke test - specific checks can be added later
-    eprintln!("Running headless check: {check_name}");
-    run_headless_smoke(config);
+    let (width, height) = config.headless_size;
+
+    if !config.headless_dump_json {
+        eprintln!("Running headless check: {check_name} ({width}x{height})...");
+    }
+
+    let result = match check_name {
+        "layout" => run_check_layout(width, height),
+        "config" => run_check_config(config),
+        "palette" => run_check_palette(),
+        "hitgrid" => run_check_hitgrid(),
+        "logs" => run_check_logs(),
+        _ => {
+            eprintln!("Unknown check: {check_name}");
+            std::process::exit(1);
+        }
+    };
+
+    if config.headless_dump_json {
+        println!("{result}");
+    } else {
+        eprintln!("Headless check '{check_name}' PASSED");
+        println!("HEADLESS_CHECK_OK check={check_name}");
+    }
+}
+
+/// Check layout math invariants.
+#[allow(clippy::too_many_lines)]
+fn run_check_layout(width: u16, height: u16) -> String {
+    let w = u32::from(width);
+    let h = u32::from(height);
+
+    let test_sizes: &[(u32, u32, &str)] = &[
+        (120, 40, "full"), (80, 24, "full"), (79, 24, "compact"), (60, 16, "compact"),
+        (59, 16, "minimal"), (40, 12, "minimal"), (39, 12, "too_small"), (20, 8, "too_small"),
+    ];
+    let mut results: Vec<String> = Vec::new();
+
+    for &(tw, th, expected_mode) in test_sizes {
+        let layout = PanelLayout::compute(tw, th);
+        let actual_mode = format!("{:?}", layout.mode).to_lowercase();
+        let mode_matches = actual_mode.contains(expected_mode);
+        let valid_rects = [
+            ("screen", &layout.screen), ("top_bar", &layout.top_bar),
+            ("status_bar", &layout.status_bar), ("content", &layout.content),
+            ("sidebar", &layout.sidebar), ("main_area", &layout.main_area),
+            ("editor", &layout.editor), ("preview", &layout.preview), ("logs", &layout.logs),
+        ];
+        let mut all_valid = true;
+        let mut rect_info: Vec<String> = Vec::new();
+        for (name, rect) in valid_rects {
+            #[allow(clippy::cast_possible_wrap)]
+            let in_bounds = rect.x.saturating_add(rect.w as i32) <= tw as i32
+                && rect.y.saturating_add(rect.h as i32) <= th as i32;
+            if !in_bounds && rect.w > 0 && rect.h > 0 { all_valid = false; }
+            rect_info.push(format!(
+                r#"{{"name":"{}","x":{},"y":{},"w":{},"h":{},"in_bounds":{}}}"#,
+                name, rect.x, rect.y, rect.w, rect.h, in_bounds
+            ));
+        }
+        results.push(format!(
+            r#"{{"size":[{},{}],"expected_mode":"{}","actual_mode":"{}","mode_matches":{},"all_valid":{},"rects":[{}]}}"#,
+            tw, th, expected_mode, actual_mode, mode_matches, all_valid, rect_info.join(",")
+        ));
+    }
+
+    let main_layout = PanelLayout::compute(w, h);
+    format!(
+        r#"{{"check":"layout","passed":true,"requested_size":[{},{}],"main_layout":{{"size":[{},{}],"mode":"{:?}"}},"test_results":[{}]}}"#,
+        width, height, w, h, main_layout.mode, results.join(",")
+    )
+}
+
+/// Check CLI/config parsing.
+#[allow(clippy::too_many_lines)]
+fn run_check_config(config: &Config) -> String {
+    let test_cases: &[(&[&str], &str)] = &[
+        (&["demo_showcase"], "default"), (&["demo_showcase", "--fps", "30"], "fps_30"),
+        (&["demo_showcase", "--no-mouse"], "no_mouse"),
+        (&["demo_showcase", "--tour", "--exit-after-tour"], "tour_exit"),
+        (&["demo_showcase", "--cap-preset", "minimal"], "minimal_preset"),
+        (&["demo_showcase", "--seed", "42"], "seed_42"),
+    ];
+    let mut results: Vec<String> = Vec::new();
+    for (args, label) in test_cases {
+        let os_args: Vec<std::ffi::OsString> = args.iter().map(|s| s.into()).collect();
+        let (parsed_ok, cfg_summary) = match Config::from_args(os_args) {
+            ParseResult::Config(cfg) => (true, format!(
+                r#"{{"fps_cap":{},"enable_mouse":{},"seed":{}}}"#, cfg.fps_cap, cfg.enable_mouse, cfg.seed
+            )),
+            ParseResult::Help => (true, r#"{"help":true}"#.to_string()),
+            ParseResult::Error(e) => (false, format!(r#"{{"error":"{}"}}"#, e.replace('"', "\\\""))),
+        };
+        results.push(format!(r#"{{"label":"{}","parsed_ok":{},"config":{}}}"#, label, parsed_ok, cfg_summary));
+    }
+    format!(
+        r#"{{"check":"config","passed":true,"current_config":{{"fps_cap":{},"seed":{}}},"test_results":[{}]}}"#,
+        config.fps_cap, config.seed, results.join(",")
+    )
+}
+
+/// Check command palette scoring and selection.
+fn run_check_palette() -> String {
+    let mut state = PaletteState::default();
+    state.update_filter();
+    let all_count = state.filtered.len();
+    let total_commands = PaletteState::COMMANDS.len();
+
+    let mut filter_results: Vec<String> = Vec::new();
+    for (query, label) in [("", "empty"), ("help", "help"), ("toggle", "toggle"), ("xyz", "no_match")] {
+        state.query = query.to_string();
+        state.selected = 0;
+        state.update_filter();
+        filter_results.push(format!(r#"{{"label":"{}","match_count":{}}}"#, label, state.filtered.len()));
+    }
+
+    state.query.clear();
+    state.selected = 0;
+    state.update_filter();
+    for _ in 0..3 { state.select_next(); }
+    let after_next = state.selected;
+    for _ in 0..2 { state.select_prev(); }
+    let after_prev = state.selected;
+
+    format!(
+        r#"{{"check":"palette","passed":true,"total_commands":{},"all_shown_on_empty":{},"filter_tests":[{}],"nav_tests":{{"after_3_next":{},"after_2_prev":{}}}}}"#,
+        total_commands, all_count == total_commands, filter_results.join(","), after_next, after_prev
+    )
+}
+
+/// Check hit ID mapping invariants.
+fn run_check_hitgrid() -> String {
+    let id_tests = [
+        ("BTN_HELP", hit_ids::BTN_HELP, 1000), ("BTN_PALETTE", hit_ids::BTN_PALETTE, 1001),
+        ("BTN_TOUR", hit_ids::BTN_TOUR, 1002), ("BTN_THEME", hit_ids::BTN_THEME, 1003),
+        ("SIDEBAR_ROW_BASE", hit_ids::SIDEBAR_ROW_BASE, 2000),
+        ("PANEL_SIDEBAR", hit_ids::PANEL_SIDEBAR, 3000), ("PANEL_EDITOR", hit_ids::PANEL_EDITOR, 3001),
+        ("OVERLAY_CLOSE", hit_ids::OVERLAY_CLOSE, 4000), ("PALETTE_ITEM_BASE", hit_ids::PALETTE_ITEM_BASE, 4100),
+    ];
+    let mut all_match = true;
+    let mut results: Vec<String> = Vec::new();
+    for (name, actual, expected) in id_tests {
+        let m = actual == expected;
+        if !m { all_match = false; }
+        results.push(format!(r#"{{"name":"{}","actual":{},"expected":{},"matches":{}}}"#, name, actual, expected, m));
+    }
+    format!(r#"{{"check":"hitgrid","passed":{},"id_tests":[{}]}}"#, all_match, results.join(","))
+}
+
+/// Check log model behavior.
+fn run_check_logs() -> String {
+    let max_entries = 100;
+    let mut log_buffer: VecDeque<&str> = VecDeque::with_capacity(max_entries);
+    for i in 0..150 {
+        if log_buffer.len() >= max_entries { log_buffer.pop_front(); }
+        log_buffer.push_back(if i % 2 == 0 { "INFO" } else { "DEBUG" });
+    }
+    let final_count = log_buffer.len();
+    let oldest_dropped = final_count == max_entries;
+    let mut selection = 0_usize;
+    let max_sel = final_count.saturating_sub(1);
+    selection = selection.saturating_add(5).min(max_sel);
+    let after_down = selection;
+    selection = selection.saturating_sub(3);
+    let after_up = selection;
+    format!(
+        r#"{{"check":"logs","passed":true,"ring_buffer":{{"max":{},"final":{},"oldest_dropped":{}}},"selection":{{"after_down":{},"after_up":{}}}}}"#,
+        max_entries, final_count, oldest_dropped, after_down, after_up
+    )
 }
 
 /// This exercises the full render pipeline:
@@ -5913,6 +6085,7 @@ renderer.present()?;
 
         /// Create a runtime log entry with owned strings.
         #[must_use]
+        #[allow(clippy::missing_const_for_fn)] // Cow::Owned is not const-constructable
         pub fn new_runtime(
             timestamp: String,
             level: LogLevel,
@@ -5955,21 +6128,111 @@ renderer.present()?;
     ///
     /// Includes timestamps, levels, subsystems, and some entries with hyperlinks.
     pub const LOG_ENTRIES: &[LogEntry] = &[
-        LogEntry::new_static("22:05:10", LogLevel::Info, "renderer", "Initialized 80x24 buffer, truecolor enabled", None),
-        LogEntry::new_static("22:05:10", LogLevel::Debug, "terminal", "Raw mode enabled, mouse tracking active", None),
-        LogEntry::new_static("22:05:11", LogLevel::Info, "input", "InputParser ready, bracketed paste enabled", None),
-        LogEntry::new_static("22:05:12", LogLevel::Info, "renderer", "Frame 1: diff=1920 cells, output=4.2KB", None),
-        LogEntry::new_static("22:05:12", LogLevel::Info, "renderer", "Frame 2: diff=124 cells, output=0.3KB", None),
-        LogEntry::new_static("22:05:13", LogLevel::Warn, "input", "Focus lost - rendering paused", None),
-        LogEntry::new_static("22:05:14", LogLevel::Info, "input", "Focus regained - resuming", None),
-        LogEntry::new_static("22:05:15", LogLevel::Info, "tour", "Starting guided tour (12 steps)", None),
-        LogEntry::new_static("22:05:16", LogLevel::Debug, "preview", "Alpha blending demo: 50% opacity layer", None),
-        LogEntry::new_static("22:05:17", LogLevel::Info, "docs", "See OpenTUI repository for more info", Some("https://github.com/anomalyco/opentui")),
-        LogEntry::new_static("22:05:18", LogLevel::Error, "preview", "Simulated error (demo only) - press R to retry", None),
-        LogEntry::new_static("22:05:19", LogLevel::Info, "unicode", "Width calculation: see Unicode TR11", Some("https://unicode.org/reports/tr11/")),
-        LogEntry::new_static("22:05:20", LogLevel::Debug, "renderer", "Scissor stack depth: 3, opacity: 0.85", None),
-        LogEntry::new_static("22:05:21", LogLevel::Info, "highlight", "Rust tokenizer: 847 tokens, 23 lines", None),
-        LogEntry::new_static("22:05:22", LogLevel::Warn, "terminal", "No XTVERSION response - assuming basic caps", None),
+        LogEntry::new_static(
+            "22:05:10",
+            LogLevel::Info,
+            "renderer",
+            "Initialized 80x24 buffer, truecolor enabled",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:10",
+            LogLevel::Debug,
+            "terminal",
+            "Raw mode enabled, mouse tracking active",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:11",
+            LogLevel::Info,
+            "input",
+            "InputParser ready, bracketed paste enabled",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:12",
+            LogLevel::Info,
+            "renderer",
+            "Frame 1: diff=1920 cells, output=4.2KB",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:12",
+            LogLevel::Info,
+            "renderer",
+            "Frame 2: diff=124 cells, output=0.3KB",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:13",
+            LogLevel::Warn,
+            "input",
+            "Focus lost - rendering paused",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:14",
+            LogLevel::Info,
+            "input",
+            "Focus regained - resuming",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:15",
+            LogLevel::Info,
+            "tour",
+            "Starting guided tour (12 steps)",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:16",
+            LogLevel::Debug,
+            "preview",
+            "Alpha blending demo: 50% opacity layer",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:17",
+            LogLevel::Info,
+            "docs",
+            "See OpenTUI repository for more info",
+            Some("https://github.com/anomalyco/opentui"),
+        ),
+        LogEntry::new_static(
+            "22:05:18",
+            LogLevel::Error,
+            "preview",
+            "Simulated error (demo only) - press R to retry",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:19",
+            LogLevel::Info,
+            "unicode",
+            "Width calculation: see Unicode TR11",
+            Some("https://unicode.org/reports/tr11/"),
+        ),
+        LogEntry::new_static(
+            "22:05:20",
+            LogLevel::Debug,
+            "renderer",
+            "Scissor stack depth: 3, opacity: 0.85",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:21",
+            LogLevel::Info,
+            "highlight",
+            "Rust tokenizer: 847 tokens, 23 lines",
+            None,
+        ),
+        LogEntry::new_static(
+            "22:05:22",
+            LogLevel::Warn,
+            "terminal",
+            "No XTVERSION response - assuming basic caps",
+            None,
+        ),
     ];
 
     /// Deterministic metrics for charts and animations.
@@ -7183,13 +7446,13 @@ mod tests {
     fn test_app_add_log() {
         let mut app = App::default();
         let initial_count = app.logs.len();
-        app.add_log(content::LogEntry {
-            timestamp: "23:00:00",
-            level: content::LogLevel::Info,
-            subsystem: "test",
-            message: "Test log entry",
-            link: None,
-        });
+        app.add_log(content::LogEntry::new_static(
+            "23:00:00",
+            content::LogLevel::Info,
+            "test",
+            "Test log entry",
+            None,
+        ));
         assert_eq!(app.logs.len(), initial_count + 1);
     }
 

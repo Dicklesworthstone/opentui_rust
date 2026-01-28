@@ -1,0 +1,28 @@
+---
+source: tests/demo_showcase_snapshots.rs
+assertion_line: 181
+expression: snapshot
+---
+{
+  "config": {
+    "cap_preset": "Minimal"
+  },
+  "effective_caps": {
+    "focus": true,
+    "hyperlinks": false,
+    "mouse": false,
+    "sync_output": false,
+    "truecolor": false
+  },
+  "headless_size": {
+    "height": 24,
+    "width": 80
+  },
+  "layout_mode": "Full",
+  "warnings": [
+    "truecolor (minimal)",
+    "mouse (minimal)",
+    "hyperlinks (minimal)",
+    "sync_output (minimal)"
+  ]
+}

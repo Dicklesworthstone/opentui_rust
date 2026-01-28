@@ -112,8 +112,10 @@ fn test_cap_degradation_ideal_120x40() {
     let snapshot = extract_capability_snapshot(&json);
 
     // Assert invariants
-    assert!(json["warnings"].as_array().unwrap().is_empty(),
-        "Ideal preset should have no warnings");
+    assert!(
+        json["warnings"].as_array().unwrap().is_empty(),
+        "Ideal preset should have no warnings"
+    );
     assert_eq!(json["effective_caps"]["truecolor"], true);
     assert_eq!(json["effective_caps"]["hyperlinks"], true);
     assert_eq!(json["effective_caps"]["mouse"], true);
@@ -128,7 +130,10 @@ fn test_cap_degradation_no_truecolor_120x40() {
 
     // Assert invariants
     let warnings = json["warnings"].as_array().unwrap();
-    assert!(!warnings.is_empty(), "no_truecolor preset should have warnings");
+    assert!(
+        !warnings.is_empty(),
+        "no_truecolor preset should have warnings"
+    );
     assert_eq!(json["effective_caps"]["truecolor"], false);
     assert_eq!(json["effective_caps"]["hyperlinks"], true); // Still available
     assert_eq!(json["effective_caps"]["mouse"], true); // Still available
@@ -143,7 +148,10 @@ fn test_cap_degradation_no_hyperlinks_120x40() {
 
     // Assert invariants
     let warnings = json["warnings"].as_array().unwrap();
-    assert!(!warnings.is_empty(), "no_hyperlinks preset should have warnings");
+    assert!(
+        !warnings.is_empty(),
+        "no_hyperlinks preset should have warnings"
+    );
     assert_eq!(json["effective_caps"]["hyperlinks"], false);
     assert_eq!(json["effective_caps"]["truecolor"], true); // Still available
     assert_eq!(json["effective_caps"]["mouse"], true); // Still available
@@ -173,7 +181,10 @@ fn test_cap_degradation_minimal_80x24() {
 
     // Assert invariants
     let warnings = json["warnings"].as_array().unwrap();
-    assert!(warnings.len() >= 3, "minimal preset should degrade multiple capabilities");
+    assert!(
+        warnings.len() >= 3,
+        "minimal preset should degrade multiple capabilities"
+    );
     assert_eq!(json["effective_caps"]["truecolor"], false);
     assert_eq!(json["effective_caps"]["hyperlinks"], false);
     assert_eq!(json["effective_caps"]["mouse"], false);
@@ -194,7 +205,10 @@ fn test_cap_degradation_tiny_50x15() {
     );
 
     let warnings = json["warnings"].as_array().unwrap();
-    assert!(warnings.len() >= 3, "minimal preset should degrade multiple capabilities");
+    assert!(
+        warnings.len() >= 3,
+        "minimal preset should degrade multiple capabilities"
+    );
     assert_eq!(json["effective_caps"]["truecolor"], false);
     assert_eq!(json["effective_caps"]["hyperlinks"], false);
     assert_eq!(json["effective_caps"]["mouse"], false);

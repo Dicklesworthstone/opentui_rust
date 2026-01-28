@@ -1,0 +1,25 @@
+---
+source: tests/demo_showcase_snapshots.rs
+assertion_line: 136
+expression: snapshot
+---
+{
+  "config": {
+    "cap_preset": "NoTruecolor"
+  },
+  "effective_caps": {
+    "focus": true,
+    "hyperlinks": true,
+    "mouse": true,
+    "sync_output": true,
+    "truecolor": false
+  },
+  "headless_size": {
+    "height": 40,
+    "width": 120
+  },
+  "layout_mode": "Full",
+  "warnings": [
+    "truecolor (preset)"
+  ]
+}

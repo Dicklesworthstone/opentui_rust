@@ -1,0 +1,25 @@
+---
+source: tests/demo_showcase_snapshots.rs
+assertion_line: 151
+expression: snapshot
+---
+{
+  "config": {
+    "cap_preset": "NoHyperlinks"
+  },
+  "effective_caps": {
+    "focus": true,
+    "hyperlinks": false,
+    "mouse": true,
+    "sync_output": true,
+    "truecolor": true
+  },
+  "headless_size": {
+    "height": 40,
+    "width": 120
+  },
+  "layout_mode": "Full",
+  "warnings": [
+    "hyperlinks (preset)"
+  ]
+}
