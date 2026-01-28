@@ -136,23 +136,36 @@ impl OptimizedBuffer {
         self.cells.len() * std::mem::size_of::<Cell>()
     }
 
-    /// Get cell at position.
-    #[must_use]
-    pub fn get(&self, x: u32, y: u32) -> Option<&Cell> {
-        if x < self.width && y < self.height {
-            Some(&self.cells[(y * self.width + x) as usize])
+    /// Compute cell index with overflow protection.
+    ///
+    /// Returns `None` if:
+    /// - Coordinates are out of bounds
+    /// - Index calculation would overflow
+    #[inline]
+    fn cell_index(&self, x: u32, y: u32) -> Option<usize> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        // Use checked arithmetic to prevent overflow on large dimensions
+        let row_offset = (y as usize).checked_mul(self.width as usize)?;
+        let idx = row_offset.checked_add(x as usize)?;
+        // Bounds check (should always pass given x/y bounds, but defense in depth)
+        if idx < self.cells.len() {
+            Some(idx)
         } else {
             None
         }
     }
 
+    /// Get cell at position.
+    #[must_use]
+    pub fn get(&self, x: u32, y: u32) -> Option<&Cell> {
+        self.cell_index(x, y).map(|idx| &self.cells[idx])
+    }
+
     /// Get mutable cell at position.
     pub fn get_mut(&mut self, x: u32, y: u32) -> Option<&mut Cell> {
-        if x < self.width && y < self.height {
-            Some(&mut self.cells[(y * self.width + x) as usize])
-        } else {
-            None
-        }
+        self.cell_index(x, y).map(|idx| &mut self.cells[idx])
     }
 
     /// Set cell at position, respecting scissor and opacity.
@@ -636,8 +649,13 @@ impl OptimizedBuffer {
 
         for dest_y in dest_y_start..dest_y_end {
             let sy = src_y + (dest_y as i32 - y) as u32;
-            let src_row = (sy * src.width) as usize;
-            let dest_row = (dest_y * self.width) as usize;
+            // Use checked arithmetic to prevent overflow on large dimensions
+            let Some(src_row) = (sy as usize).checked_mul(src.width as usize) else {
+                continue;
+            };
+            let Some(dest_row) = (dest_y as usize).checked_mul(self.width as usize) else {
+                continue;
+            };
 
             for dest_x in dest_x_start..dest_x_end {
                 // Check scissor clip
@@ -646,8 +664,16 @@ impl OptimizedBuffer {
                 }
 
                 let sx = src_x + (dest_x as i32 - x) as u32;
-                let src_idx = src_row + sx as usize;
-                let dest_idx = dest_row + dest_x as usize;
+                let Some(src_idx) = src_row.checked_add(sx as usize) else {
+                    continue;
+                };
+                let Some(dest_idx) = dest_row.checked_add(dest_x as usize) else {
+                    continue;
+                };
+                // Bounds check for safety
+                if src_idx >= src.cells.len() || dest_idx >= self.cells.len() {
+                    continue;
+                }
                 let src_cell = &src.cells[src_idx];
                 let dest_cell = &mut self.cells[dest_idx];
 
@@ -709,8 +735,13 @@ impl OptimizedBuffer {
 
         for dest_y in dest_y_start..dest_y_end {
             let sy = src_y + (dest_y as i32 - y) as u32;
-            let src_row = (sy * src.width) as usize;
-            let dest_row = (dest_y * self.width) as usize;
+            // Use checked arithmetic to prevent overflow on large dimensions
+            let Some(src_row) = (sy as usize).checked_mul(src.width as usize) else {
+                continue;
+            };
+            let Some(dest_row) = (dest_y as usize).checked_mul(self.width as usize) else {
+                continue;
+            };
 
             for dest_x in dest_x_start..dest_x_end {
                 // Check scissor clip
@@ -719,8 +750,16 @@ impl OptimizedBuffer {
                 }
 
                 let sx = src_x + (dest_x as i32 - x) as u32;
-                let src_idx = src_row + sx as usize;
-                let dest_idx = dest_row + dest_x as usize;
+                let Some(src_idx) = src_row.checked_add(sx as usize) else {
+                    continue;
+                };
+                let Some(dest_idx) = dest_row.checked_add(dest_x as usize) else {
+                    continue;
+                };
+                // Bounds check for safety
+                if src_idx >= src.cells.len() || dest_idx >= self.cells.len() {
+                    continue;
+                }
                 let src_cell = &src.cells[src_idx];
                 let dest_cell = &mut self.cells[dest_idx];
 
@@ -971,6 +1010,32 @@ mod tests {
         assert!(buf.get(100, 100).is_none());
         assert!(buf.get(10, 0).is_none());
         assert!(buf.get(0, 10).is_none());
+    }
+
+    #[test]
+    fn test_cell_index_overflow_protection() {
+        // Test that cell_index() uses checked arithmetic to prevent overflow
+        let buf = OptimizedBuffer::new(100, 100);
+
+        // Normal coordinates work
+        assert!(buf.get(50, 50).is_some());
+        assert!(buf.get(0, 0).is_some());
+        assert!(buf.get(99, 99).is_some());
+
+        // Out of bounds returns None
+        assert!(buf.get(100, 0).is_none());
+        assert!(buf.get(0, 100).is_none());
+
+        // Very large coordinates that would overflow u32 multiplication
+        // should return None instead of wrapping around
+        assert!(buf.get(u32::MAX, 0).is_none());
+        assert!(buf.get(0, u32::MAX).is_none());
+        assert!(buf.get(u32::MAX, u32::MAX).is_none());
+
+        // Large y values are rejected by bounds check before arithmetic
+        // This tests that even values close to u32::MAX are handled safely
+        let large_y = u32::MAX - 1;
+        assert!(buf.get(0, large_y).is_none());
     }
 
     #[test]

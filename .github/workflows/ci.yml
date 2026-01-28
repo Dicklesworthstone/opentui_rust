@@ -549,19 +549,23 @@ jobs:
         run: |
           mkdir -p target/demo-smoke
           OUTPUT="target/demo-smoke/${{ matrix.size }}.json"
+          STDERR_LOG="target/demo-smoke/${{ matrix.size }}.stderr.log"
 
-          # Run headless demo with JSON output
-          if cargo run --release --bin demo_showcase -- \
+          # Run the binary directly (already built in previous step)
+          # Redirect stdout to JSON file, stderr to separate log to avoid corrupting JSON
+          if ./target/release/demo_showcase \
               --headless-smoke \
               --tour \
               --exit-after-tour \
               --headless-size ${{ matrix.size }} \
               --seed 12345 \
               --max-frames 1000 \
-              --headless-dump-json > "$OUTPUT" 2>&1; then
+              --headless-dump-json > "$OUTPUT" 2>"$STDERR_LOG"; then
             echo "status=success" >> $GITHUB_OUTPUT
           else
             echo "status=failed" >> $GITHUB_OUTPUT
+            echo "Stderr output:"
+            cat "$STDERR_LOG"
             exit 1
           fi
 
@@ -646,12 +650,13 @@ jobs:
   # Summary job that other workflows can depend on
   ci-success:
     name: CI Success
-    needs: [lint, test, coverage, security, docs, build, conformance, performance-budgets, snapshot-tests, property-tests, e2e-tests]
+    needs: [lint, test, coverage, security, docs, build, conformance, performance-budgets, snapshot-tests, property-tests, e2e-tests, demo-smoke, pty-tests]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check all jobs passed
         run: |
+          # Required jobs (must pass)
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.coverage.result }}" != "success" ]] || \
@@ -662,8 +667,36 @@ jobs:
              [[ "${{ needs.performance-budgets.result }}" != "success" ]] || \
              [[ "${{ needs.snapshot-tests.result }}" != "success" ]] || \
              [[ "${{ needs.property-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.e2e-tests.result }}" != "success" ]]; then
-            echo "One or more jobs failed"
+             [[ "${{ needs.e2e-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.demo-smoke.result }}" != "success" ]]; then
+            echo "One or more required jobs failed"
             exit 1
           fi
-          echo "All CI jobs passed!"
+
+          # PTY tests are informational (allowed to fail)
+          if [[ "${{ needs.pty-tests.result }}" != "success" ]]; then
+            echo "::warning::PTY tests failed (informational, not blocking)"
+          fi
+
+          echo "All required CI jobs passed!"
+
+      - name: Generate CI summary
+        if: always()
+        run: |
+          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ needs.lint.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.test.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ needs.coverage.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${{ needs.security.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docs | ${{ needs.docs.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Conformance | ${{ needs.conformance.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance | ${{ needs.performance-budgets.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Snapshots | ${{ needs.snapshot-tests.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | ${{ needs.property-tests.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E | ${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Demo Smoke | ${{ needs.demo-smoke.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PTY (info) | ${{ needs.pty-tests.result == 'success' && '✅' || '⚠️' }} |" >> $GITHUB_STEP_SUMMARY
