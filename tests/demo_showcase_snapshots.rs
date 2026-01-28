@@ -1,4 +1,4 @@
-//! Snapshot regression tests for demo_showcase.
+//! Snapshot regression tests for `demo_showcase`.
 //!
 //! These tests run the demo in headless mode with JSON output and snapshot
 //! the results using insta for regression testing.

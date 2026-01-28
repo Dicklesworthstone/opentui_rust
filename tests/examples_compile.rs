@@ -92,14 +92,14 @@ fn demo_showcase_compiles() {
     );
 }
 
-/// Validates that the demo_showcase binary runs successfully in headless mode.
+/// Validates that the `demo_showcase` binary runs successfully in headless mode.
 ///
 /// This test exercises the full render pipeline without requiring a TTY:
 /// - Initializes app state
 /// - Executes update + render cycles
 /// - Exercises diff computation
 ///
-/// Expects the process to exit 0 with HEADLESS_SMOKE_OK marker in stdout.
+/// Expects the process to exit 0 with `HEADLESS_SMOKE_OK` marker in stdout.
 #[test]
 fn demo_showcase_headless_smoke() {
     // Run the demo in headless mode with a fixed frame count
@@ -137,8 +137,7 @@ fn demo_showcase_headless_smoke() {
     assert!(
         stdout.contains("HEADLESS_SMOKE_OK"),
         "demo_showcase headless output missing HEADLESS_SMOKE_OK marker.\n\
-         STDOUT:\n{}\n\n\
-         The demo should print this marker when headless smoke completes successfully.",
-        stdout
+         STDOUT:\n{stdout}\n\n\
+         The demo should print this marker when headless smoke completes successfully."
     );
 }

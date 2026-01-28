@@ -3556,15 +3556,17 @@ fn run_interactive(config: &Config) -> io::Result<()> {
 
 /// Pre-allocated hyperlink IDs for OSC 8 links.
 ///
-/// Link IDs are allocated from the renderer's LinkPool at the start of each frame.
+/// Link IDs are allocated from the renderer's `LinkPool` at the start of each frame.
 /// Only valid for the current frame; reset before next frame.
 #[derive(Clone, Debug, Default)]
+#[allow(clippy::struct_field_names)]
 struct PreallocatedLinks {
-    /// Link to OpenTUI GitHub repo.
+    /// Link to `OpenTUI` GitHub repo.
     repo_url: Option<u32>,
-    /// Link to OpenTUI documentation.
+    /// Link to `OpenTUI` documentation.
     docs_url: Option<u32>,
-    /// Link to Unicode reference.
+    /// Link to Unicode reference (reserved for future use).
+    #[allow(dead_code)]
     unicode_url: Option<u32>,
 }
 
@@ -3660,7 +3662,8 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
         app.effective_caps.hyperlinks,
     );
 
-    let buffer = renderer.buffer();
+    // Use buffer_with_pool for proper grapheme handling in Unicode section
+    let (buffer, pool) = renderer.buffer_with_pool();
 
     // === Pass 1: Background ===
     draw_pass_background(buffer, &theme);
@@ -3969,10 +3972,10 @@ fn draw_pass_overlays(
     // --- Overlay panel ---
     match &app.overlays.active {
         Some(Overlay::Help(state)) => {
-            draw_help_overlay(buffer, panels, theme, state, opacity);
+            draw_help_overlay(buffer, panels, theme, state, opacity, links);
         }
         Some(Overlay::Palette(state)) => {
-            draw_palette_overlay(buffer, panels, theme, state, opacity);
+            draw_palette_overlay(buffer, panels, theme, state, opacity, links);
         }
         Some(Overlay::Tour(state)) => {
             draw_tour_overlay(buffer, panels, theme, state, opacity);
@@ -4236,6 +4239,7 @@ fn draw_help_overlay(
     theme: &Theme,
     state: &HelpState,
     _opacity: f32,
+    links: &PreallocatedLinks,
 ) {
     // Calculate overlay dimensions (centered, 60% of screen)
     let overlay_w = (panels.screen.w * 60 / 100).clamp(40, 80);
@@ -4305,7 +4309,24 @@ fn draw_help_overlay(
             if content_y >= content_max_y {
                 break;
             }
-            buffer.draw_text(content_x + 1, content_y, item, Style::fg(theme.fg1));
+
+            // Apply hyperlinks to the Links section
+            let style = if *section_name == "Links" {
+                let link_id = if item.starts_with("Repo:") {
+                    links.repo_url
+                } else if item.starts_with("Docs:") {
+                    links.docs_url
+                } else {
+                    None
+                };
+                link_id.map_or_else(
+                    || Style::fg(theme.fg1),
+                    |id| Style::fg(theme.accent_primary).with_underline().with_link(id),
+                )
+            } else {
+                Style::fg(theme.fg1)
+            };
+            buffer.draw_text(content_x + 1, content_y, item, style);
             content_y += 1;
             line_idx += 1;
         }
@@ -4332,6 +4353,7 @@ fn draw_palette_overlay(
     theme: &Theme,
     state: &PaletteState,
     _opacity: f32,
+    _links: &PreallocatedLinks,
 ) {
     // Palette is narrower and positioned higher
     let overlay_w = (panels.screen.w * 50 / 100).clamp(40, 60);
@@ -4875,7 +4897,13 @@ fn draw_preview_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, 
 /// - OSC 8 hyperlinks for clickable URLs
 /// - Scroll and scissor clipping
 /// - Focus highlighting
-fn draw_logs_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+fn draw_logs_panel(
+    buffer: &mut OptimizedBuffer,
+    rect: &Rect,
+    theme: &Theme,
+    app: &App,
+    _links: &PreallocatedLinks,
+) {
     if rect.is_empty() {
         return;
     }
