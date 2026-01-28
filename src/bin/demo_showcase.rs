@@ -319,6 +319,7 @@ struct App {
 
 impl App {
     /// Create a new app instance from config.
+    #[allow(clippy::missing_const_for_fn)] // const fn with references not stable
     fn new(config: &Config) -> Self {
         Self {
             should_quit: false,
@@ -342,6 +343,7 @@ impl App {
     }
 
     /// Update app state for a new frame.
+    #[allow(clippy::missing_const_for_fn)] // const fn with &mut self not stable
     fn tick(&mut self) {
         self.frame_count = self.frame_count.wrapping_add(1);
 
@@ -362,7 +364,8 @@ fn main() -> io::Result<()> {
     match Config::from_args(std::env::args_os()) {
         ParseResult::Config(config) => {
             if config.headless_smoke {
-                run_headless_smoke(&config)
+                run_headless_smoke(&config);
+                Ok(())
             } else {
                 run_interactive(&config)
             }
@@ -384,7 +387,7 @@ fn main() -> io::Result<()> {
 // ============================================================================
 
 /// Run headless smoke test (no TTY required).
-fn run_headless_smoke(config: &Config) -> io::Result<()> {
+fn run_headless_smoke(config: &Config) {
     let (width, height) = config.headless_size;
     eprintln!("Running headless smoke test ({width}x{height})...");
 
@@ -423,8 +426,6 @@ fn run_headless_smoke(config: &Config) -> io::Result<()> {
     eprintln!("Headless smoke test PASSED");
     eprintln!("  Buffer size: {}x{}", buffer.width(), buffer.height());
     eprintln!("  Seed: {}", config.seed);
-
-    Ok(())
 }
 
 // ============================================================================
@@ -459,7 +460,7 @@ fn run_interactive(config: &Config) -> io::Result<()> {
     set_stdin_nonblocking()?;
 
     // Initialize app state.
-    let mut app = App::new(&config);
+    let mut app = App::new(config);
     let mut parser = InputParser::new();
     let mut input_buf = [0u8; 256];
 
@@ -584,13 +585,14 @@ fn draw_frame(renderer: &mut Renderer, app: &App) {
 
 /// Check if stdout is a TTY.
 #[cfg(unix)]
+#[allow(clippy::missing_const_for_fn)] // libc::isatty is not const
 fn is_tty() -> bool {
     // SAFETY: isatty is safe to call with any file descriptor.
     unsafe { libc::isatty(libc::STDOUT_FILENO) != 0 }
 }
 
 #[cfg(not(unix))]
-fn is_tty() -> bool {
+const fn is_tty() -> bool {
     // Assume TTY on non-Unix platforms
     true
 }
