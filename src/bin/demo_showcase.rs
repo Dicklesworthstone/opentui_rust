@@ -23,7 +23,7 @@ use opentui::terminal::{enable_raw_mode, terminal_size};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
-use opentui::{Renderer, RendererOptions, Rgba, Style};
+use opentui::{CellContent, Renderer, RendererOptions, Rgba, Style};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -52,6 +52,7 @@ OPTIONS:
 
     --headless-smoke        Run headless smoke test (no TTY required)
     --headless-size <WxH>   Force headless buffer size (default: 80x24)
+    --headless-dump-json    Output JSON snapshot for regression testing
 
     --cap-preset <NAME>     Capability preset: auto, ideal, no_truecolor,
                             no_mouse, minimal (default: auto)
@@ -111,6 +112,7 @@ pub struct Config {
     // Headless/testing
     pub headless_smoke: bool,
     pub headless_size: (u16, u16),
+    pub headless_dump_json: bool,
 
     // Capability override
     pub cap_preset: CapPreset,
@@ -132,6 +134,7 @@ impl Default for Config {
             exit_after_tour: false,
             headless_smoke: false,
             headless_size: (80, 24),
+            headless_dump_json: false,
             cap_preset: CapPreset::Auto,
             threaded: false,
             seed: 0,
@@ -208,6 +211,7 @@ impl Config {
                 "--exit-after-tour" => config.exit_after_tour = true,
 
                 "--headless-smoke" => config.headless_smoke = true,
+                "--headless-dump-json" => config.headless_dump_json = true,
 
                 "--headless-size" => {
                     let value = match args.next() {
@@ -2011,6 +2015,16 @@ pub enum Action {
     Resize(u32, u32),
     /// Focus gained/lost.
     FocusChanged(bool),
+    /// Command palette: navigate up.
+    PaletteUp,
+    /// Command palette: navigate down.
+    PaletteDown,
+    /// Command palette: execute selected item.
+    PaletteExecute,
+    /// Command palette: delete character.
+    PaletteBackspace,
+    /// Command palette: input character.
+    PaletteChar(char),
     /// No action (event was handled or ignored).
     None,
 }
@@ -2376,9 +2390,21 @@ impl App {
                 }
                 Action::None
             }
-            AppMode::Help | AppMode::CommandPalette => {
+            AppMode::Help => {
                 if key.code == KeyCode::Esc {
                     return Action::CloseOverlay;
+                }
+                Action::None
+            }
+            AppMode::CommandPalette => {
+                match key.code {
+                    KeyCode::Esc => return Action::CloseOverlay,
+                    KeyCode::Up => return Action::PaletteUp,
+                    KeyCode::Down => return Action::PaletteDown,
+                    KeyCode::Enter => return Action::PaletteExecute,
+                    KeyCode::Backspace => return Action::PaletteBackspace,
+                    KeyCode::Char(c) => return Action::PaletteChar(c),
+                    _ => {}
                 }
                 Action::None
             }
@@ -2394,6 +2420,7 @@ impl App {
     }
 
     /// Apply an action to update state.
+    #[allow(clippy::too_many_lines)] // State machine pattern - all actions in one match
     fn apply_action(&mut self, action: &Action) {
         match action {
             Action::Quit => {
@@ -2466,6 +2493,56 @@ impl App {
             Action::FocusChanged(gained) => {
                 self.paused = !gained;
             }
+            Action::PaletteUp => {
+                if let Some(Overlay::Palette(ref mut state)) = self.overlays.active {
+                    state.select_prev();
+                }
+            }
+            Action::PaletteDown => {
+                if let Some(Overlay::Palette(ref mut state)) = self.overlays.active {
+                    state.select_next();
+                }
+            }
+            Action::PaletteBackspace => {
+                if let Some(Overlay::Palette(ref mut state)) = self.overlays.active {
+                    state.query.pop();
+                    state.update_filter();
+                }
+            }
+            Action::PaletteChar(c) => {
+                if let Some(Overlay::Palette(ref mut state)) = self.overlays.active {
+                    state.query.push(*c);
+                    state.update_filter();
+                }
+            }
+            Action::PaletteExecute => {
+                // Get the selected command before closing
+                let cmd_action = if let Some(Overlay::Palette(ref state)) = self.overlays.active {
+                    if let Some(&cmd_idx) = state.filtered.get(state.selected) {
+                        // Map command index to action
+                        match cmd_idx {
+                            0 => Some(Action::ToggleHelp),    // "Toggle Help"
+                            1 => Some(Action::ToggleTour),   // "Toggle Tour"
+                            2 => Some(Action::CycleTheme),   // "Cycle Theme"
+                            3 => Some(Action::ForceRedraw),  // "Force Redraw"
+                            4 => Some(Action::ToggleDebug),  // "Toggle Debug"
+                            5 => Some(Action::Quit),         // "Quit"
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                // Close the palette first
+                self.mode = AppMode::Normal;
+                self.overlays.close();
+                // Then execute the command if any
+                if let Some(cmd) = cmd_action {
+                    self.apply_action(&cmd);
+                }
+            }
             // Resize is handled in render loop, None is a no-op
             Action::Resize(_, _) | Action::None => {}
         }
@@ -2509,6 +2586,25 @@ impl App {
                 self.exit_reason = ExitReason::MaxFrames;
             }
         }
+    }
+
+    /// Handle terminal resize event.
+    ///
+    /// Called when the terminal is resized. This method:
+    /// - Resets any scroll positions that might be out of bounds
+    /// - Pushes a toast notification with the new size
+    /// - Sets `force_redraw` to ensure immediate visual update
+    pub fn handle_resize(&mut self, width: u32, height: u32) {
+        // Reset overlay scroll positions if active
+        if let Some(Overlay::Help(ref mut state)) = self.overlays.active {
+            state.scroll = 0;
+        }
+
+        // Push a toast notification
+        self.toasts.push(Toast::info(format!("Resized to {width}×{height}")));
+
+        // Force a full redraw
+        self.force_redraw = true;
     }
 
     /// Tick the tour runner and apply any resulting actions.
@@ -2887,20 +2983,49 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
     draw_pass_toasts(buffer, &panels, &theme, app);
 }
 
+/// Per-frame statistics for JSON output.
+#[derive(Clone, Debug)]
+struct FrameStats {
+    frame: u64,
+    dirty_cells: usize,
+    dt: f32,
+}
+
+/// Extract a row of text from the buffer as a string.
+fn extract_buffer_row(buffer: &OptimizedBuffer, y: u32, start_x: u32, max_len: u32) -> String {
+    let mut result = String::new();
+    for x in start_x..start_x + max_len {
+        if let Some(cell) = buffer.get(x, y) {
+            match &cell.content {
+                CellContent::Char(c) => result.push(*c),
+                CellContent::Grapheme(id) => {
+                    // For now, just use placeholder for extended graphemes
+                    use std::fmt::Write;
+                    let _ = write!(result, "[G{id:?}]");
+                }
+                CellContent::Continuation | CellContent::Empty => {}
+            }
+        }
+    }
+    result.trim_end().to_string()
+}
+
 /// Run headless smoke test (no TTY required).
 ///
 /// This exercises the full render pipeline:
 /// - Creates App with proper config
 /// - Runs N frames through all render passes
 /// - Computes `BufferDiff` between frames to verify diffing works
-/// - Outputs standard success format for CI
+/// - Outputs standard success format for CI (or JSON if `--headless-dump-json`)
 fn run_headless_smoke(config: &Config) {
     use opentui::renderer::BufferDiff;
 
     let (width, height) = config.headless_size;
     let frame_count = config.max_frames.unwrap_or(10);
 
-    eprintln!("Running headless smoke test ({width}x{height})...");
+    if !config.headless_dump_json {
+        eprintln!("Running headless smoke test ({width}x{height})...");
+    }
 
     // Create App with config
     let demo_content = content::DemoContent::default();
@@ -2912,6 +3037,8 @@ fn run_headless_smoke(config: &Config) {
 
     let mut last_dirty_cells: usize = 0;
     let mut total_dirty_cells: usize = 0;
+    let mut frame_stats: Vec<FrameStats> =
+        Vec::with_capacity(usize::try_from(frame_count).unwrap_or(64));
 
     // Run frames through the render pipeline
     for frame in 0..frame_count {
@@ -2924,15 +3051,22 @@ fn run_headless_smoke(config: &Config) {
         headless_draw_frame(&mut current_buffer, &app);
 
         // Compute diff between frames (except first frame)
-        if frame > 0 {
+        let dirty_cells = if frame > 0 {
             let diff = BufferDiff::compute(&previous_buffer, &current_buffer);
-            last_dirty_cells = diff.change_count;
-            total_dirty_cells += diff.change_count;
+            diff.change_count
         } else {
             // First frame: all cells are "dirty"
-            last_dirty_cells = (width as usize) * (height as usize);
-            total_dirty_cells += last_dirty_cells;
-        }
+            (width as usize) * (height as usize)
+        };
+
+        last_dirty_cells = dirty_cells;
+        total_dirty_cells += dirty_cells;
+
+        frame_stats.push(FrameStats {
+            frame,
+            dirty_cells,
+            dt: app.clock.dt,
+        });
 
         // Swap buffers (copy current to previous for next diff)
         std::mem::swap(&mut current_buffer, &mut previous_buffer);
@@ -2942,15 +3076,75 @@ fn run_headless_smoke(config: &Config) {
     assert_eq!(previous_buffer.width(), u32::from(width));
     assert_eq!(previous_buffer.height(), u32::from(height));
 
-    // Output success in standard format
-    eprintln!("Headless smoke test PASSED");
-    eprintln!("  Buffer size: {width}x{height}");
-    eprintln!("  Frames rendered: {frame_count}");
-    eprintln!("  Total dirty cells: {total_dirty_cells}");
-    eprintln!("  Seed: {}", config.seed);
+    // Extract sentinel markers from final frame (previous_buffer has the last rendered frame)
+    let panels = PanelLayout::compute(u32::from(width), u32::from(height));
+    let top_bar_text = extract_buffer_row(&previous_buffer, 0, 0, width.into());
+    let section_name = app.section.name().to_string();
+    let layout_mode = format!("{:?}", panels.mode);
 
-    // Standard parseable output for CI
-    println!("HEADLESS_SMOKE_OK frames={frame_count} last_dirty_cells={last_dirty_cells}");
+    // Output based on mode
+    if config.headless_dump_json {
+        // Build JSON output
+        let frame_stats_json: Vec<String> = frame_stats
+            .iter()
+            .map(|f| format!(r#"{{"frame":{},"dirty_cells":{},"dt":{:.6}}}"#, f.frame, f.dirty_cells, f.dt))
+            .collect();
+
+        let json = format!(
+            r#"{{
+  "config": {{
+    "fps_cap": {},
+    "seed": {},
+    "enable_mouse": {},
+    "use_alt_screen": {},
+    "start_in_tour": {},
+    "cap_preset": "{:?}"
+  }},
+  "headless_size": {{
+    "width": {},
+    "height": {}
+  }},
+  "layout_mode": "{}",
+  "frames_rendered": {},
+  "total_dirty_cells": {},
+  "last_dirty_cells": {},
+  "sentinels": {{
+    "top_bar": "{}",
+    "section": "{}"
+  }},
+  "frame_stats": [
+    {}
+  ]
+}}"#,
+            config.fps_cap,
+            config.seed,
+            config.enable_mouse,
+            config.use_alt_screen,
+            config.start_in_tour,
+            config.cap_preset,
+            width,
+            height,
+            layout_mode,
+            frame_count,
+            total_dirty_cells,
+            last_dirty_cells,
+            top_bar_text.replace('\\', "\\\\").replace('"', "\\\""),
+            section_name,
+            frame_stats_json.join(",\n    ")
+        );
+
+        println!("{json}");
+    } else {
+        // Standard human-readable output
+        eprintln!("Headless smoke test PASSED");
+        eprintln!("  Buffer size: {width}x{height}");
+        eprintln!("  Frames rendered: {frame_count}");
+        eprintln!("  Total dirty cells: {total_dirty_cells}");
+        eprintln!("  Seed: {}", config.seed);
+
+        // Standard parseable output for CI
+        println!("HEADLESS_SMOKE_OK frames={frame_count} last_dirty_cells={last_dirty_cells}");
+    }
 }
 
 // ============================================================================
@@ -3004,6 +3198,16 @@ fn run_interactive(config: &Config) -> io::Result<()> {
         match input_pump.poll(input_timeout) {
             Ok(events) => {
                 for tagged_event in events {
+                    // Handle resize events specially - need to resize renderer
+                    if let Event::Resize(resize) = &tagged_event.event {
+                        let new_w = u32::from(resize.width);
+                        let new_h = u32::from(resize.height);
+                        if let Err(e) = renderer.resize(new_w, new_h) {
+                            eprintln!("Resize error: {e}");
+                        }
+                        app.handle_resize(new_w, new_h);
+                    }
+                    // Process all events through normal handling
                     app.handle_event(&tagged_event.event);
                 }
             }
