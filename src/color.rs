@@ -185,7 +185,7 @@ impl Rgba {
             return Self::rgb(v, v, v);
         }
 
-        let h = h % 360.0;
+        let h = h.rem_euclid(360.0);
         let h = h / 60.0;
         let i = h.floor() as i32;
         let f = h - i as f32;
@@ -544,6 +544,47 @@ mod tests {
     fn test_display() {
         assert_eq!(format!("{}", Rgba::RED), "#FF0000");
         assert_eq!(format!("{}", Rgba::BLACK.with_alpha(0.5)), "#0000007F");
+    }
+
+    #[test]
+    fn test_from_hsv() {
+        // Pure red at hue 0
+        let red = Rgba::from_hsv(0.0, 1.0, 1.0);
+        assert!((red.r - 1.0).abs() < 0.01);
+        assert!(red.g < 0.01);
+        assert!(red.b < 0.01);
+
+        // Pure green at hue 120
+        let green = Rgba::from_hsv(120.0, 1.0, 1.0);
+        assert!(green.r < 0.01);
+        assert!((green.g - 1.0).abs() < 0.01);
+        assert!(green.b < 0.01);
+
+        // Pure blue at hue 240
+        let blue = Rgba::from_hsv(240.0, 1.0, 1.0);
+        assert!(blue.r < 0.01);
+        assert!(blue.g < 0.01);
+        assert!((blue.b - 1.0).abs() < 0.01);
+
+        // Negative hue should wrap around: -60 degrees = 300 degrees (magenta-ish)
+        let neg_hue = Rgba::from_hsv(-60.0, 1.0, 1.0);
+        let pos_hue = Rgba::from_hsv(300.0, 1.0, 1.0);
+        assert!((neg_hue.r - pos_hue.r).abs() < 0.01);
+        assert!((neg_hue.g - pos_hue.g).abs() < 0.01);
+        assert!((neg_hue.b - pos_hue.b).abs() < 0.01);
+
+        // Hue > 360 should wrap around: 420 degrees = 60 degrees (yellow)
+        let large_hue = Rgba::from_hsv(420.0, 1.0, 1.0);
+        let normal_hue = Rgba::from_hsv(60.0, 1.0, 1.0);
+        assert!((large_hue.r - normal_hue.r).abs() < 0.01);
+        assert!((large_hue.g - normal_hue.g).abs() < 0.01);
+        assert!((large_hue.b - normal_hue.b).abs() < 0.01);
+
+        // Gray (saturation 0)
+        let gray = Rgba::from_hsv(0.0, 0.0, 0.5);
+        assert!((gray.r - 0.5).abs() < 0.01);
+        assert!((gray.g - 0.5).abs() < 0.01);
+        assert!((gray.b - 0.5).abs() < 0.01);
     }
 
     #[test]
