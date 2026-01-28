@@ -3522,9 +3522,16 @@ fn run_interactive(config: &Config) -> io::Result<()> {
         }
 
         // --- Update phase ---
+        // Capture force_redraw before tick() clears it
+        let needs_full_redraw = app.force_redraw;
         app.tick();
 
         // --- Render phase ---
+        // Force full redraw if requested (Ctrl+R or resize)
+        if needs_full_redraw {
+            renderer.invalidate();
+        }
+
         // Gather inspector data if debug overlay is enabled
         let inspector = if app.show_debug {
             Some(InspectorData::gather(
