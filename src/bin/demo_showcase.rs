@@ -1177,11 +1177,31 @@ impl HelpState {
             ],
         ),
         (
-            "Tips",
+            "Mouse",
             &[
-                "• The sidebar shows all available sections",
-                "• Press number keys for quick navigation",
-                "• Alpha blending is visible in overlays",
+                "Click              Focus panel / activate button",
+                "Scroll             Scroll within logs/lists",
+                "Sidebar click      Navigate to section",
+            ],
+        ),
+        (
+            "Feature Legend",
+            &[
+                "• Alpha blending   Overlays + glass panels",
+                "• Scissor stack    Sidebar/log scroll clipping",
+                "• Opacity stack    Tinted UI + overlay backdrop",
+                "• Grapheme pool    Unicode panel + emoji",
+                "• OSC 8 links      Logs + help (in term)",
+                "• Hit grid         Clickable buttons/nav",
+                "• Pixel buffers    Preview animated orb",
+                "• Diff rendering   Efficient partial updates",
+            ],
+        ),
+        (
+            "Links",
+            &[
+                "Repo: github.com/opentui/opentui",
+                "Docs: opentui.dev",
             ],
         ),
     ];
@@ -3495,7 +3515,19 @@ fn run_interactive(config: &Config) -> io::Result<()> {
         app.tick();
 
         // --- Render phase ---
-        draw_frame(&mut renderer, &app);
+        // Gather inspector data if debug overlay is enabled
+        let inspector = if app.show_debug {
+            Some(InspectorData::gather(
+                renderer.stats(),
+                renderer.capabilities(),
+                &app,
+                config.threaded,
+                config.fps_cap,
+            ))
+        } else {
+            None
+        };
+        draw_frame(&mut renderer, &app, inspector.as_ref());
 
         // --- Present ---
         renderer.present()?;
@@ -3521,12 +3553,15 @@ fn run_interactive(config: &Config) -> io::Result<()> {
 
 /// Data needed for the inspector/debug panel.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)] // Capabilities naturally map to booleans
 struct InspectorData {
     /// Render stats from the renderer.
     fps: f32,
     frame_time_ms: f32,
     cells_updated: usize,
+    #[allow(dead_code)] // Reserved for future memory breakdown display
     buffer_bytes: usize,
+    #[allow(dead_code)] // Reserved for future memory breakdown display
     hitgrid_bytes: usize,
     total_bytes: usize,
     /// Terminal capabilities.
@@ -4011,6 +4046,135 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
             buffer.draw_text(toast_x + toast_w - 1, row, "│", border_style);
         }
     }
+}
+
+/// Pass 6: Draw the debug/inspector panel.
+///
+/// Shows real-time performance stats, terminal capabilities, and demo mode flags.
+/// Positioned in the top-right corner to avoid obscuring main content.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+fn draw_pass_debug(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    data: &InspectorData,
+) {
+    // Panel dimensions - compact width, positioned in top-right
+    let panel_w = 36_u32;
+    let panel_h = 14_u32;
+    let panel_x = panels.screen.w.saturating_sub(panel_w + 1);
+    let panel_y = panels.top_bar.y as u32 + panels.top_bar.h + 1;
+
+    // Semi-transparent dark background
+    let bg_color = Rgba::new(0.05, 0.05, 0.1, 0.92);
+    for y in panel_y..panel_y + panel_h {
+        for x in panel_x..panel_x + panel_w {
+            buffer.set(
+                x,
+                y,
+                opentui::Cell::clear(bg_color),
+            );
+        }
+    }
+
+    // Border
+    let border_color = theme.accent_primary.with_alpha(0.6);
+    let border_style = Style::fg(border_color);
+
+    // Top border
+    buffer.draw_text(panel_x, panel_y, "╭", border_style);
+    for x in panel_x + 1..panel_x + panel_w - 1 {
+        buffer.draw_text(x, panel_y, "─", border_style);
+    }
+    buffer.draw_text(panel_x + panel_w - 1, panel_y, "╮", border_style);
+
+    // Bottom border
+    buffer.draw_text(panel_x, panel_y + panel_h - 1, "╰", border_style);
+    for x in panel_x + 1..panel_x + panel_w - 1 {
+        buffer.draw_text(x, panel_y + panel_h - 1, "─", border_style);
+    }
+    buffer.draw_text(panel_x + panel_w - 1, panel_y + panel_h - 1, "╯", border_style);
+
+    // Side borders
+    for y in panel_y + 1..panel_y + panel_h - 1 {
+        buffer.draw_text(panel_x, y, "│", border_style);
+        buffer.draw_text(panel_x + panel_w - 1, y, "│", border_style);
+    }
+
+    // Title
+    let title = " Inspector ";
+    let title_x = panel_x + (panel_w - title.len() as u32) / 2;
+    buffer.draw_text(title_x, panel_y, title, Style::fg(theme.accent_primary).with_bold());
+
+    let content_x = panel_x + 2;
+    let mut y = panel_y + 1;
+
+    let label_style = Style::fg(theme.fg2);
+    let value_style = Style::fg(theme.fg1).with_bold();
+    let good_style = Style::fg(theme.accent_success);
+    let warn_style = Style::fg(theme.accent_warning);
+
+    // --- Performance Stats ---
+    y += 1;
+    buffer.draw_text(content_x, y, "FPS:", label_style);
+    let fps_text = format!("{:.1}", data.fps);
+    let fps_style = if data.fps >= 55.0 { good_style } else { warn_style };
+    buffer.draw_text(content_x + 5, y, &fps_text, fps_style);
+
+    buffer.draw_text(content_x + 12, y, "Frame:", label_style);
+    let frame_text = format!("{:.1}ms", data.frame_time_ms);
+    buffer.draw_text(content_x + 19, y, &frame_text, value_style);
+
+    y += 1;
+    buffer.draw_text(content_x, y, "Cells:", label_style);
+    buffer.draw_text(content_x + 7, y, &data.cells_updated.to_string(), value_style);
+
+    buffer.draw_text(content_x + 14, y, "Mem:", label_style);
+    let mem_kb = data.total_bytes / 1024;
+    buffer.draw_text(content_x + 19, y, &format!("{mem_kb}KB"), value_style);
+
+    // --- Capabilities ---
+    y += 2;
+    buffer.draw_text(content_x, y, "─ Capabilities ─", Style::fg(theme.fg2));
+
+    y += 1;
+    let cap_on = Style::fg(theme.accent_success);
+    let cap_off = Style::fg(theme.accent_error);
+
+    let tc_style = if data.truecolor { cap_on } else { cap_off };
+    buffer.draw_text(content_x, y, "TC", tc_style);
+
+    let sync_style = if data.sync_output { cap_on } else { cap_off };
+    buffer.draw_text(content_x + 4, y, "Sync", sync_style);
+
+    let link_style = if data.hyperlinks { cap_on } else { cap_off };
+    buffer.draw_text(content_x + 10, y, "Link", link_style);
+
+    let mouse_style = if data.mouse { cap_on } else { cap_off };
+    buffer.draw_text(content_x + 16, y, "Mouse", mouse_style);
+
+    y += 1;
+    let focus_style = if data.focus { cap_on } else { cap_off };
+    buffer.draw_text(content_x, y, "Focus", focus_style);
+
+    let paste_style = if data.bracketed_paste { cap_on } else { cap_off };
+    buffer.draw_text(content_x + 7, y, "Paste", paste_style);
+
+    // --- Demo Flags ---
+    y += 2;
+    buffer.draw_text(content_x, y, "─ Demo ─", Style::fg(theme.fg2));
+
+    y += 1;
+    let tour_text = if data.tour_active { "Tour: ON" } else { "Tour: off" };
+    let tour_style = if data.tour_active { good_style } else { label_style };
+    buffer.draw_text(content_x, y, tour_text, tour_style);
+
+    let threaded_text = if data.threaded { "Threaded" } else { "Direct" };
+    buffer.draw_text(content_x + 12, y, threaded_text, value_style);
+
+    y += 1;
+    let fps_cap_text = format!("FPS Cap: {}", data.fps_cap);
+    buffer.draw_text(content_x, y, &fps_cap_text, label_style);
 }
 
 /// Draw the Help overlay panel.
