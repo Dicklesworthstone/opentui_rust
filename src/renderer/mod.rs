@@ -893,4 +893,460 @@ mod tests {
             self.test(x, y)
         }
     }
+
+    // ============================================
+    // Renderer Constructor & Lifecycle Tests
+    // ============================================
+    //
+    // These tests create actual Renderer instances with all terminal features
+    // disabled (no alt screen, cursor hiding, mouse, or capability queries).
+    // This allows testing Renderer logic without requiring a real terminal.
+
+    /// Create a test renderer with all terminal options disabled.
+    fn test_renderer(width: u32, height: u32) -> Renderer {
+        Renderer::new_with_options(
+            width,
+            height,
+            RendererOptions {
+                use_alt_screen: false,
+                hide_cursor: false,
+                enable_mouse: false,
+                query_capabilities: false,
+            },
+        )
+        .expect("test renderer creation should succeed with disabled options")
+    }
+
+    // --- new() / new_with_options() ---
+
+    #[test]
+    fn test_renderer_new_with_all_options_disabled() {
+        let result = Renderer::new_with_options(
+            80,
+            24,
+            RendererOptions {
+                use_alt_screen: false,
+                hide_cursor: false,
+                enable_mouse: false,
+                query_capabilities: false,
+            },
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_renderer_new_stores_dimensions() {
+        let r = test_renderer(80, 24);
+        assert_eq!(r.size(), (80, 24));
+    }
+
+    #[test]
+    fn test_renderer_new_creates_matching_back_buffer() {
+        let mut r = test_renderer(80, 24);
+        assert_eq!(r.buffer().size(), (80, 24));
+    }
+
+    #[test]
+    fn test_renderer_new_creates_matching_front_buffer() {
+        let r = test_renderer(80, 24);
+        assert_eq!(r.front_buffer().size(), (80, 24));
+    }
+
+    #[test]
+    fn test_renderer_new_various_dimensions() {
+        for &(w, h) in &[(1, 1), (10, 10), (200, 50), (1, 100), (100, 1)] {
+            let r = test_renderer(w, h);
+            assert_eq!(r.size(), (w, h), "Failed for dimensions ({w}, {h})");
+        }
+    }
+
+    #[test]
+    fn test_renderer_new_initializes_zero_stats() {
+        let r = test_renderer(80, 24);
+        let stats = r.stats();
+        assert_eq!(stats.frames, 0);
+        assert_eq!(stats.last_frame_cells, 0);
+        assert_eq!(stats.fps, 0.0);
+    }
+
+    #[test]
+    fn test_renderer_new_default_background_black() {
+        let mut r = test_renderer(10, 10);
+        // clear() uses the background color, which defaults to black
+        r.clear();
+        let cell = r.buffer().get(0, 0).unwrap();
+        assert_eq!(cell.bg, Rgba::BLACK);
+    }
+
+    #[test]
+    fn test_renderer_new_single_cell() {
+        let r = test_renderer(1, 1);
+        assert_eq!(r.size(), (1, 1));
+        assert!(r.front_buffer().get(0, 0).is_some());
+    }
+
+    // --- resize() ---
+
+    #[test]
+    fn test_resize_changes_reported_dimensions() {
+        let mut r = test_renderer(80, 24);
+        r.resize(100, 50).unwrap();
+        assert_eq!(r.size(), (100, 50));
+    }
+
+    #[test]
+    fn test_resize_changes_back_buffer_size() {
+        let mut r = test_renderer(80, 24);
+        r.resize(100, 50).unwrap();
+        assert_eq!(r.buffer().size(), (100, 50));
+    }
+
+    #[test]
+    fn test_resize_changes_front_buffer_size() {
+        let mut r = test_renderer(80, 24);
+        r.resize(100, 50).unwrap();
+        assert_eq!(r.front_buffer().size(), (100, 50));
+    }
+
+    #[test]
+    fn test_resize_shrink() {
+        let mut r = test_renderer(80, 24);
+        r.resize(40, 12).unwrap();
+        assert_eq!(r.size(), (40, 12));
+        assert_eq!(r.buffer().size(), (40, 12));
+    }
+
+    #[test]
+    fn test_resize_grow() {
+        let mut r = test_renderer(40, 12);
+        r.resize(160, 48).unwrap();
+        assert_eq!(r.size(), (160, 48));
+        assert_eq!(r.buffer().size(), (160, 48));
+    }
+
+    #[test]
+    fn test_resize_to_single_cell() {
+        let mut r = test_renderer(80, 24);
+        r.resize(1, 1).unwrap();
+        assert_eq!(r.size(), (1, 1));
+    }
+
+    #[test]
+    fn test_resize_sets_force_redraw() {
+        // After resize, the next present should be a full redraw.
+        // We verify this indirectly: present after resize should report
+        // total cells (full redraw), not a partial diff count.
+        let mut r = test_renderer(10, 10);
+        // First present clears the initial force_redraw flag
+        r.present().unwrap();
+
+        // Resize
+        r.resize(20, 20).unwrap();
+
+        // Present after resize should be a full redraw (400 cells)
+        r.present().unwrap();
+        assert_eq!(r.stats().last_frame_cells, 400);
+    }
+
+    #[test]
+    fn test_resize_clears_hit_grid() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(10, 5, 20, 3, 42);
+        assert_eq!(r.hit_test(15, 6), Some(42));
+
+        r.resize(80, 24).unwrap();
+        // Hit grid is rebuilt on resize
+        assert_eq!(r.hit_test(15, 6), None);
+    }
+
+    // --- invalidate() ---
+
+    #[test]
+    fn test_invalidate_does_not_panic() {
+        let mut r = test_renderer(80, 24);
+        r.invalidate();
+    }
+
+    #[test]
+    fn test_invalidate_multiple_times() {
+        let mut r = test_renderer(80, 24);
+        r.invalidate();
+        r.invalidate();
+        r.invalidate();
+        // Should not panic or cause issues
+    }
+
+    #[test]
+    fn test_invalidate_forces_full_redraw() {
+        let mut r = test_renderer(10, 10);
+        // First present: full redraw (force_redraw starts true)
+        r.present().unwrap();
+        assert_eq!(r.stats().last_frame_cells, 100);
+
+        // Invalidate and present again
+        r.invalidate();
+        r.present().unwrap();
+        // Should be a full redraw (100 cells for 10x10)
+        assert_eq!(r.stats().last_frame_cells, 100);
+    }
+
+    // --- cleanup() ---
+
+    #[test]
+    fn test_cleanup_succeeds() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.cleanup().is_ok());
+    }
+
+    #[test]
+    fn test_cleanup_idempotent() {
+        let mut r = test_renderer(80, 24);
+        r.cleanup().unwrap();
+        r.cleanup().unwrap();
+        // Safe to call multiple times
+    }
+
+    #[test]
+    fn test_cleanup_on_fresh_renderer() {
+        // cleanup should work even on a renderer that never drew anything
+        let mut r = test_renderer(80, 24);
+        assert!(r.cleanup().is_ok());
+    }
+
+    // --- Buffer access through Renderer ---
+
+    #[test]
+    fn test_renderer_buffer_is_writable() {
+        let mut r = test_renderer(10, 10);
+        r.buffer()
+            .set(5, 5, Cell::new('X', crate::style::Style::NONE));
+        let cell = r.buffer().get(5, 5).unwrap();
+        assert!(matches!(cell.content, crate::cell::CellContent::Char('X')));
+    }
+
+    #[test]
+    fn test_renderer_buffer_with_pool() {
+        let mut r = test_renderer(10, 10);
+        let (buf, pool) = r.buffer_with_pool();
+        let id = pool.alloc("👨‍👩‍👧");
+        assert!(pool.get(id).is_some());
+        assert_eq!(buf.size(), (10, 10));
+    }
+
+    #[test]
+    fn test_renderer_front_buffer_readable() {
+        let r = test_renderer(10, 10);
+        let front = r.front_buffer();
+        // Front buffer should exist and be accessible
+        assert!(front.get(0, 0).is_some());
+        assert_eq!(front.size(), (10, 10));
+    }
+
+    // --- set_background() ---
+
+    #[test]
+    fn test_set_background_affects_clear() {
+        let mut r = test_renderer(10, 10);
+        r.set_background(Rgba::RED);
+        r.clear();
+        let cell = r.buffer().get(0, 0).unwrap();
+        assert_eq!(cell.bg, Rgba::RED);
+    }
+
+    #[test]
+    fn test_set_background_multiple_colors() {
+        let mut r = test_renderer(10, 10);
+        for color in [Rgba::RED, Rgba::GREEN, Rgba::BLUE, Rgba::WHITE] {
+            r.set_background(color);
+            r.clear();
+            let cell = r.buffer().get(0, 0).unwrap();
+            assert_eq!(cell.bg, color);
+        }
+    }
+
+    // --- set_debug_overlay() ---
+
+    #[test]
+    fn test_set_debug_overlay_toggle() {
+        let mut r = test_renderer(80, 24);
+        r.set_debug_overlay(true);
+        r.set_debug_overlay(false);
+        r.set_debug_overlay(true);
+        // Should not panic
+    }
+
+    // --- Capabilities access ---
+
+    #[test]
+    fn test_renderer_capabilities_accessible() {
+        let r = test_renderer(80, 24);
+        let caps = r.capabilities();
+        // Just verify we can access capabilities without panic
+        let _ = caps.hyperlinks;
+        let _ = caps.sync_output;
+    }
+
+    #[test]
+    fn test_renderer_capabilities_mut_writable() {
+        let mut r = test_renderer(80, 24);
+        r.capabilities_mut().hyperlinks = true;
+        assert!(r.capabilities().hyperlinks);
+        r.capabilities_mut().hyperlinks = false;
+        assert!(!r.capabilities().hyperlinks);
+    }
+
+    // --- Pool access ---
+
+    #[test]
+    fn test_renderer_link_pool_usable() {
+        let mut r = test_renderer(80, 24);
+        let id = r.link_pool().alloc("https://example.com");
+        assert_eq!(r.link_pool().get(id), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_renderer_grapheme_pool_usable() {
+        let mut r = test_renderer(80, 24);
+        let id = r.grapheme_pool().alloc("test_grapheme");
+        assert_eq!(r.grapheme_pool().get(id), Some("test_grapheme"));
+    }
+
+    #[test]
+    fn test_renderer_grapheme_pool_ref_readable() {
+        let r = test_renderer(80, 24);
+        let _pool = r.grapheme_pool_ref();
+        // Pool exists and is readable without panic
+    }
+
+    // --- Hit testing through Renderer ---
+
+    #[test]
+    fn test_renderer_register_and_hit_test() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(10, 5, 20, 3, 42);
+        assert_eq!(r.hit_test(15, 6), Some(42));
+        assert_eq!(r.hit_test(5, 3), None);
+    }
+
+    #[test]
+    fn test_renderer_hit_scissor_clips_registration() {
+        let mut r = test_renderer(80, 24);
+        // Push scissor that restricts to a sub-region
+        r.push_hit_scissor(ClipRect::new(10, 10, 20, 20));
+        // Register a full-screen hit area
+        r.register_hit_area(0, 0, 80, 24, 1);
+        // Inside scissor should hit
+        assert_eq!(r.hit_test(15, 15), Some(1));
+        // Outside scissor should miss
+        assert_eq!(r.hit_test(5, 5), None);
+        r.pop_hit_scissor();
+    }
+
+    #[test]
+    fn test_renderer_clear_hit_scissors_restores_full_area() {
+        let mut r = test_renderer(80, 24);
+        r.push_hit_scissor(ClipRect::new(10, 10, 5, 5));
+        r.clear_hit_scissors();
+        r.register_hit_area(0, 0, 80, 24, 1);
+        // After clearing scissors, full area should be accessible
+        assert_eq!(r.hit_test(5, 5), Some(1));
+    }
+
+    // --- Present integration ---
+
+    #[test]
+    fn test_present_succeeds_on_fresh_renderer() {
+        let mut r = test_renderer(80, 24);
+        assert!(r.present().is_ok());
+    }
+
+    #[test]
+    fn test_present_increments_frame_count() {
+        let mut r = test_renderer(10, 10);
+        r.present().unwrap();
+        assert_eq!(r.stats().frames, 1);
+        r.present().unwrap();
+        assert_eq!(r.stats().frames, 2);
+        r.present().unwrap();
+        assert_eq!(r.stats().frames, 3);
+    }
+
+    #[test]
+    fn test_present_updates_stats() {
+        let mut r = test_renderer(10, 10);
+        r.buffer()
+            .set(0, 0, Cell::new('X', crate::style::Style::NONE));
+        r.present().unwrap();
+        assert!(r.stats().frames > 0);
+        assert!(r.stats().buffer_bytes > 0);
+        assert!(r.stats().total_bytes > 0);
+    }
+
+    #[test]
+    fn test_present_force_succeeds() {
+        let mut r = test_renderer(10, 10);
+        assert!(r.present_force().is_ok());
+    }
+
+    #[test]
+    fn test_present_swaps_buffers() {
+        let mut r = test_renderer(10, 10);
+        // Draw to back buffer
+        r.buffer()
+            .set(5, 5, Cell::new('A', crate::style::Style::NONE));
+
+        // Before present, front should not have 'A'
+        let front_cell = r.front_buffer().get(5, 5).unwrap();
+        assert!(!matches!(
+            front_cell.content,
+            crate::cell::CellContent::Char('A')
+        ));
+
+        // Present swaps buffers
+        r.present().unwrap();
+
+        // After present, front should have 'A' (what was back)
+        let front_cell = r.front_buffer().get(5, 5).unwrap();
+        assert!(matches!(
+            front_cell.content,
+            crate::cell::CellContent::Char('A')
+        ));
+    }
+
+    #[test]
+    fn test_present_clears_back_buffer_after_swap() {
+        let mut r = test_renderer(10, 10);
+        r.buffer()
+            .set(5, 5, Cell::new('Z', crate::style::Style::NONE));
+        r.present().unwrap();
+
+        // After present, back buffer should be cleared
+        let back_cell = r.buffer().get(5, 5).unwrap();
+        assert!(
+            !matches!(back_cell.content, crate::cell::CellContent::Char('Z')),
+            "Back buffer should be cleared after present"
+        );
+    }
+
+    // --- Clear through Renderer ---
+
+    #[test]
+    fn test_renderer_clear_resets_buffer() {
+        let mut r = test_renderer(10, 10);
+        r.buffer()
+            .set(0, 0, Cell::new('X', crate::style::Style::NONE));
+        r.clear();
+        let cell = r.buffer().get(0, 0).unwrap();
+        assert_eq!(cell.bg, Rgba::BLACK);
+    }
+
+    #[test]
+    fn test_renderer_clear_resets_hit_grid() {
+        let mut r = test_renderer(80, 24);
+        r.register_hit_area(0, 0, 80, 24, 1);
+        assert_eq!(r.hit_test(5, 5), Some(1));
+
+        r.clear();
+        assert_eq!(r.hit_test(5, 5), None);
+    }
 }
