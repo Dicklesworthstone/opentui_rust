@@ -604,6 +604,10 @@ pub mod layout {
     pub const PREVIEW_WIDTH_RATIO: u32 = 40;
     /// Minimum width for the editor panel.
     pub const EDITOR_MIN_WIDTH: u32 = 30;
+    /// Logs panel height in full layout mode.
+    pub const LOGS_HEIGHT_FULL: u32 = 6;
+    /// Logs panel height in compact layout mode.
+    pub const LOGS_HEIGHT_COMPACT: u32 = 4;
     /// Minimum terminal width.
     pub const MIN_WIDTH: u32 = 40;
     /// Minimum terminal height.
@@ -1312,10 +1316,14 @@ pub struct PanelLayout {
     pub sidebar: Rect,
     /// Main area (right of sidebar).
     pub main_area: Rect,
-    /// Editor panel (left portion of main area in Full mode).
+    /// Upper main area (editor + preview in Full mode).
+    pub upper_main: Rect,
+    /// Editor panel (left portion of upper main area in Full mode).
     pub editor: Rect,
-    /// Preview panel (right portion of main area in Full mode).
+    /// Preview panel (right portion of upper main area in Full mode).
     pub preview: Rect,
+    /// Logs panel (bottom of main area, spans full width).
+    pub logs: Rect,
 }
 
 impl PanelLayout {
@@ -1349,15 +1357,26 @@ impl PanelLayout {
 
         let (sidebar, main_area) = content.split_h(sidebar_w);
 
+        // Logs height depends on mode and available space.
+        let logs_h = match mode {
+            LayoutMode::Full => layout::LOGS_HEIGHT_FULL.min(main_area.h / 3),
+            LayoutMode::Compact => layout::LOGS_HEIGHT_COMPACT.min(main_area.h / 3),
+            LayoutMode::Minimal | LayoutMode::TooSmall => 0,
+        };
+
+        // Split main area: upper for editor/preview, lower for logs.
+        let upper_h = main_area.h.saturating_sub(logs_h);
+        let (upper_main, logs) = main_area.split_v(upper_h);
+
         // Editor/Preview split only in Full mode.
         let (editor, preview) =
-            if mode == LayoutMode::Full && main_area.w > layout::EDITOR_MIN_WIDTH {
-                let preview_w = main_area.w * layout::PREVIEW_WIDTH_RATIO / 100;
-                let editor_w = main_area.w.saturating_sub(preview_w);
-                main_area.split_h(editor_w)
+            if mode == LayoutMode::Full && upper_main.w > layout::EDITOR_MIN_WIDTH {
+                let preview_w = upper_main.w * layout::PREVIEW_WIDTH_RATIO / 100;
+                let editor_w = upper_main.w.saturating_sub(preview_w);
+                upper_main.split_h(editor_w)
             } else {
-                // Compact/Minimal: editor takes all main area, no preview.
-                (main_area, Rect::default())
+                // Compact/Minimal: editor takes all upper main area, no preview.
+                (upper_main, Rect::default())
             };
 
         Self {
@@ -1368,8 +1387,10 @@ impl PanelLayout {
             content,
             sidebar,
             main_area,
+            upper_main,
             editor,
             preview,
+            logs,
         }
     }
 }
@@ -2459,6 +2480,12 @@ fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
     if !panels.preview.is_empty() {
         draw_preview_panel(buffer, &panels.preview, theme, app);
     }
+
+    // --- Logs panel ---
+    if !panels.logs.is_empty() {
+        draw_rect_bg(buffer, &panels.logs, theme.bg1);
+        draw_logs_panel(buffer, &panels.logs, theme, app);
+    }
 }
 
 /// Pass 4: Draw overlays (help, command palette, tour).
@@ -2876,6 +2903,109 @@ fn draw_preview_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, 
 
     let frame_info = format!("Frame {}", app.frame_count);
     buffer.draw_text(px + 2, py + 3, &frame_info, Style::fg(theme.fg2));
+}
+
+/// Draw the logs panel showing event stream with hyperlink support.
+///
+/// Features demonstrated:
+/// - Styled text with log level colors
+/// - OSC 8 hyperlinks for clickable URLs
+/// - Scroll and scissor clipping
+/// - Focus highlighting
+fn draw_logs_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = u32::try_from(rect.x).unwrap_or(0);
+    let y = u32::try_from(rect.y).unwrap_or(0);
+    let is_focused = app.focus == Focus::Logs;
+
+    // Draw top border with separator
+    let border_color = if is_focused {
+        theme.focus_border
+    } else {
+        theme.bg2
+    };
+    let border_char = "─";
+    for col in 0..rect.w {
+        buffer.draw_text(x + col, y, border_char, Style::fg(border_color));
+    }
+
+    // Draw "Logs" label on the border
+    let label = " Logs ";
+    let label_style = if is_focused {
+        Style::fg(theme.accent_primary).with_bold()
+    } else {
+        Style::fg(theme.fg2)
+    };
+    buffer.draw_text(x + 2, y, label, label_style);
+
+    // Content area below the border
+    let content_y = y + 1;
+    let content_h = rect.h.saturating_sub(1);
+
+    // Draw log entries
+    let visible_rows = content_h.min(u32::try_from(app.logs.len()).unwrap_or(0));
+
+    // Scroll to show most recent logs (display from bottom up)
+    let start_idx = app.logs.len().saturating_sub(usize::try_from(visible_rows).unwrap_or(0));
+
+    for (row_offset, log) in app.logs.iter().skip(start_idx).enumerate() {
+        let row = u32::try_from(row_offset).unwrap_or(0);
+        if row >= content_h {
+            break;
+        }
+
+        let log_y = content_y + row;
+        let mut col = x + 1;
+
+        // Timestamp (dim)
+        buffer.draw_text(col, log_y, log.timestamp, Style::fg(theme.fg2));
+        col += u32::try_from(log.timestamp.len()).unwrap_or(0) + 1;
+
+        // Log level with color
+        let level_style = match log.level {
+            content::LogLevel::Debug => Style::fg(theme.fg2),
+            content::LogLevel::Info => Style::fg(theme.accent_primary),
+            content::LogLevel::Warn => Style::fg(theme.accent_warning).with_bold(),
+            content::LogLevel::Error => Style::fg(theme.accent_error).with_bold(),
+        };
+        buffer.draw_text(col, log_y, log.level.as_str(), level_style);
+        col += u32::try_from(log.level.as_str().len()).unwrap_or(0) + 1;
+
+        // Subsystem (bracketed)
+        let subsystem_text = format!("[{}]", log.subsystem);
+        buffer.draw_text(col, log_y, &subsystem_text, Style::fg(theme.fg1));
+        col += u32::try_from(subsystem_text.len()).unwrap_or(0) + 1;
+
+        // Message (with link if present)
+        let message_style = if log.link.is_some() {
+            // Underline for linked entries
+            Style::fg(theme.accent_secondary).with_underline()
+        } else {
+            Style::fg(theme.fg0)
+        };
+
+        // Truncate message if needed
+        let available_width = rect.w.saturating_sub(col - x).saturating_sub(2);
+        let message = if u32::try_from(log.message.len()).unwrap_or(0) > available_width {
+            // Truncate with ellipsis
+            let max_chars = usize::try_from(available_width.saturating_sub(1)).unwrap_or(0);
+            let truncated: String = log.message.chars().take(max_chars).collect();
+            format!("{truncated}…")
+        } else {
+            log.message.to_string()
+        };
+
+        buffer.draw_text(col, log_y, &message, message_style);
+    }
+
+    // If no logs, show placeholder
+    if app.logs.is_empty() {
+        let placeholder = "No log entries yet...";
+        buffer.draw_text(x + 2, content_y, placeholder, Style::fg(theme.fg2));
+    }
 }
 
 /// Draw a filled rectangle background.
@@ -3886,6 +4016,9 @@ mod tests {
         assert_eq!(layout.status_bar.h, 1);
         assert_eq!(layout.sidebar.w, layout::SIDEBAR_WIDTH_FULL);
         assert!(!layout.preview.is_empty());
+        // Logs panel should be present in full layout
+        assert!(!layout.logs.is_empty());
+        assert!(layout.logs.h >= layout::LOGS_HEIGHT_FULL.min(layout.main_area.h / 3));
     }
 
     #[test]
@@ -3894,6 +4027,9 @@ mod tests {
         assert_eq!(layout.mode, LayoutMode::Compact);
         assert_eq!(layout.sidebar.w, layout::SIDEBAR_WIDTH_COMPACT);
         assert!(layout.preview.is_empty()); // No preview in compact mode
+        // Logs panel should be present in compact layout
+        assert!(!layout.logs.is_empty());
+        assert!(layout.logs.h >= layout::LOGS_HEIGHT_COMPACT.min(layout.main_area.h / 3));
     }
 
     #[test]
@@ -4312,13 +4448,17 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)] // Acceptable for test loop counter
     fn test_pulse_range() {
         // Pulse should oscillate between 0 and 1
         let omega = std::f32::consts::TAU; // One cycle per second
         for i in 0..10 {
             let t = i as f32 * 0.1;
             let v = easing::pulse(t, omega);
-            assert!(v >= 0.0 && v <= 1.0, "pulse({t}, {omega}) = {v} out of range");
+            assert!(
+                (0.0..=1.0).contains(&v),
+                "pulse({t}, {omega}) = {v} out of range"
+            );
         }
     }
 
