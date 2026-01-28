@@ -598,4 +598,276 @@ mod tests {
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&buf), "👍");
     }
+
+    // =========================================================================
+    // Additional tests per bd-2ei4 spec
+    // =========================================================================
+
+    // Cell Creation Tests
+    #[test]
+    fn test_cell_default() {
+        let cell = Cell::default();
+        assert!(cell.content.is_empty());
+        assert_eq!(cell.fg, Rgba::default());
+        assert_eq!(cell.bg, Rgba::default());
+        assert_eq!(cell.attributes, TextAttributes::empty());
+    }
+
+    #[test]
+    fn test_cell_with_style() {
+        let style = Style::fg(Rgba::RED).with_bg(Rgba::BLUE).with_bold().with_italic();
+        let cell = Cell::new('X', style);
+        assert_eq!(cell.fg, Rgba::RED);
+        assert_eq!(cell.bg, Rgba::BLUE);
+        assert!(cell.attributes.contains(TextAttributes::BOLD));
+        assert!(cell.attributes.contains(TextAttributes::ITALIC));
+    }
+
+    #[test]
+    fn test_cell_with_fg_bg() {
+        let cell = Cell::new('A', Style::fg(Rgba::GREEN).with_bg(Rgba::BLACK));
+        assert_eq!(cell.fg, Rgba::GREEN);
+        assert_eq!(cell.bg, Rgba::BLACK);
+    }
+
+    // Cell Comparison Tests
+    #[test]
+    fn test_cell_eq_same() {
+        let cell1 = Cell::new('A', Style::fg(Rgba::RED));
+        let cell2 = Cell::new('A', Style::fg(Rgba::RED));
+        assert_eq!(cell1, cell2);
+        assert!(cell1.bits_eq(&cell2));
+    }
+
+    #[test]
+    fn test_cell_eq_different_char() {
+        let cell1 = Cell::new('A', Style::fg(Rgba::RED));
+        let cell2 = Cell::new('B', Style::fg(Rgba::RED));
+        assert_ne!(cell1, cell2);
+        assert!(!cell1.bits_eq(&cell2));
+    }
+
+    #[test]
+    fn test_cell_eq_different_style() {
+        let cell1 = Cell::new('A', Style::fg(Rgba::RED));
+        let cell2 = Cell::new('A', Style::fg(Rgba::BLUE));
+        assert_ne!(cell1, cell2);
+        assert!(!cell1.bits_eq(&cell2));
+    }
+
+    #[test]
+    fn test_cell_eq_different_attributes() {
+        let cell1 = Cell::new('A', Style::bold());
+        let cell2 = Cell::new('A', Style::italic());
+        assert_ne!(cell1, cell2);
+        assert!(!cell1.bits_eq(&cell2));
+    }
+
+    // Wide Character Tests
+    #[test]
+    fn test_cell_cjk_characters() {
+        // Chinese
+        assert_eq!(Cell::new('中', Style::NONE).display_width(), 2);
+        // Japanese
+        assert_eq!(Cell::new('日', Style::NONE).display_width(), 2);
+        // Korean
+        assert_eq!(Cell::new('한', Style::NONE).display_width(), 2);
+    }
+
+    #[test]
+    fn test_cell_emoji_handling() {
+        // Simple emoji
+        let cell = Cell::from_grapheme("😀", Style::NONE);
+        assert_eq!(cell.display_width(), 2);
+
+        // Thumbs up
+        let cell = Cell::from_grapheme("👍", Style::NONE);
+        assert_eq!(cell.display_width(), 2);
+    }
+
+    #[test]
+    fn test_cell_combining_chars() {
+        // e with combining acute accent: e + ́ = é
+        let cell = Cell::from_grapheme("é", Style::NONE); // precomposed
+        assert_eq!(cell.display_width(), 1);
+
+        // "e\u{0301}" is 'e' followed by combining acute accent
+        // This should be a grapheme cluster
+        let combined = Cell::from_grapheme("e\u{0301}", Style::NONE);
+        // The display width should be 1 (one visual character)
+        assert_eq!(combined.display_width(), 1);
+    }
+
+    // CellContent Tests
+    #[test]
+    fn test_cell_content_display_width_all_variants() {
+        // Single-width char
+        assert_eq!(CellContent::Char('a').display_width(), 1);
+        // Wide char
+        assert_eq!(CellContent::Char('中').display_width(), 2);
+        // Empty
+        assert_eq!(CellContent::Empty.display_width(), 1);
+        // Continuation
+        assert_eq!(CellContent::Continuation.display_width(), 0);
+        // Grapheme (width from ID)
+        let id = GraphemeId::new(1, 3);
+        assert_eq!(CellContent::Grapheme(id).display_width(), 3);
+    }
+
+    #[test]
+    fn test_cell_content_is_empty() {
+        assert!(CellContent::Empty.is_empty());
+        assert!(!CellContent::Char('A').is_empty());
+        assert!(!CellContent::Continuation.is_empty());
+        assert!(!CellContent::Grapheme(GraphemeId::placeholder(2)).is_empty());
+    }
+
+    #[test]
+    fn test_cell_content_is_continuation() {
+        assert!(CellContent::Continuation.is_continuation());
+        assert!(!CellContent::Empty.is_continuation());
+        assert!(!CellContent::Char('A').is_continuation());
+        assert!(!CellContent::Grapheme(GraphemeId::placeholder(2)).is_continuation());
+    }
+
+    #[test]
+    fn test_cell_content_as_char() {
+        assert_eq!(CellContent::Char('A').as_char(), Some('A'));
+        assert_eq!(CellContent::Char('中').as_char(), Some('中'));
+        assert_eq!(CellContent::Empty.as_char(), None);
+        assert_eq!(CellContent::Continuation.as_char(), None);
+        assert_eq!(
+            CellContent::Grapheme(GraphemeId::placeholder(2)).as_char(),
+            None
+        );
+    }
+
+    // Cell Method Tests
+    #[test]
+    fn test_cell_apply_style() {
+        let mut cell = Cell::new('A', Style::NONE);
+        assert_eq!(cell.fg, Rgba::WHITE);
+
+        cell.apply_style(Style::fg(Rgba::RED).with_bold());
+        assert_eq!(cell.fg, Rgba::RED);
+        assert!(cell.attributes.contains(TextAttributes::BOLD));
+    }
+
+    #[test]
+    fn test_cell_apply_style_partial() {
+        // apply_style should only change set fields
+        let mut cell = Cell::new('A', Style::fg(Rgba::RED).with_bg(Rgba::BLUE));
+        cell.apply_style(Style::fg(Rgba::GREEN)); // Only set fg
+        assert_eq!(cell.fg, Rgba::GREEN);
+        assert_eq!(cell.bg, Rgba::BLUE); // bg unchanged
+    }
+
+    #[test]
+    fn test_cell_blend_with_opacity() {
+        let mut cell = Cell::new('A', Style::fg(Rgba::WHITE).with_bg(Rgba::BLACK));
+        cell.blend_with_opacity(0.5);
+        assert!(cell.fg.a < 1.0);
+        assert!(cell.bg.a < 1.0);
+    }
+
+    #[test]
+    fn test_cell_bits_eq_vs_eq() {
+        // bits_eq should behave same as PartialEq for normal cases
+        let cell1 = Cell::new('A', Style::fg(Rgba::RED));
+        let cell2 = Cell::new('A', Style::fg(Rgba::RED));
+        assert_eq!(cell1 == cell2, cell1.bits_eq(&cell2));
+
+        let cell3 = Cell::new('B', Style::fg(Rgba::RED));
+        assert_eq!(cell1 == cell3, cell1.bits_eq(&cell3));
+    }
+
+    #[test]
+    fn test_cell_write_content_empty() {
+        let cell = Cell::clear(Rgba::BLACK);
+        let mut buf = Vec::new();
+        cell.write_content(&mut buf).unwrap();
+        assert_eq!(&buf, b" ");
+    }
+
+    #[test]
+    fn test_cell_write_content_continuation() {
+        let cell = Cell::continuation(Rgba::BLACK);
+        let mut buf = Vec::new();
+        cell.write_content(&mut buf).unwrap();
+        assert!(buf.is_empty()); // Continuation writes nothing
+    }
+
+    #[test]
+    fn test_cell_write_content_grapheme_placeholder() {
+        // Without pool, grapheme writes spaces matching width
+        let id = GraphemeId::new(42, 2);
+        let cell = Cell {
+            content: CellContent::Grapheme(id),
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: TextAttributes::empty(),
+        };
+        let mut buf = Vec::new();
+        cell.write_content(&mut buf).unwrap();
+        assert_eq!(&buf, b"  "); // Two spaces for width 2
+    }
+
+    // Grapheme Storage Tests
+    #[test]
+    fn test_grapheme_cluster_storage() {
+        // Family emoji (multi-codepoint ZWJ sequence)
+        let cell = Cell::from_grapheme("👨‍👩‍👧‍👦", Style::NONE);
+        assert!(matches!(cell.content, CellContent::Grapheme(_)));
+        assert_eq!(cell.display_width(), 2);
+
+        // Flag emoji (regional indicator sequence)
+        let flag = Cell::from_grapheme("🇺🇸", Style::NONE);
+        assert!(matches!(flag.content, CellContent::Grapheme(_)));
+        assert_eq!(flag.display_width(), 2);
+    }
+
+    #[test]
+    fn test_grapheme_width_calculation() {
+        // Verify width is correctly cached in GraphemeId
+        let id = GraphemeId::new(100, 4);
+        assert_eq!(id.width(), 4);
+
+        let content = CellContent::Grapheme(id);
+        assert_eq!(content.display_width(), 4);
+
+        // Cell should use content's display_width
+        let cell = Cell {
+            content,
+            fg: Rgba::WHITE,
+            bg: Rgba::BLACK,
+            attributes: TextAttributes::empty(),
+        };
+        assert_eq!(cell.display_width(), 4);
+    }
+
+    #[test]
+    fn test_grapheme_id_default() {
+        let id = GraphemeId::default();
+        assert_eq!(id.pool_id(), 0);
+        assert_eq!(id.width(), 0);
+    }
+
+    // Edge Cases
+    #[test]
+    fn test_cell_zero_width_chars() {
+        // Zero-width joiner and other invisible characters
+        let cell = Cell::new('\u{200B}', Style::NONE); // Zero-width space
+        assert_eq!(cell.display_width(), 0);
+    }
+
+    #[test]
+    fn test_cell_blend_over_transparent() {
+        let bg = Cell::new('A', Style::bg(Rgba::RED));
+        // Note: blend_over preserves background content only for CellContent::Empty,
+        // not for space characters. Use Cell::clear() to get Empty content.
+        let fg = Cell::clear(Rgba::TRANSPARENT);
+        let blended = fg.blend_over(&bg);
+        // Foreground is Empty so should preserve background content
+        assert_eq!(blended.content, CellContent::Char('A'));
+    }
 }

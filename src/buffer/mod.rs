@@ -837,12 +837,86 @@ impl Default for OptimizedBuffer {
 mod tests {
     use super::*;
 
+    // =========================================================================
+    // Buffer Creation & Sizing
+    // =========================================================================
+
     #[test]
     fn test_buffer_creation() {
         let buf = OptimizedBuffer::new(80, 24);
         assert_eq!(buf.width(), 80);
         assert_eq!(buf.height(), 24);
     }
+
+    #[test]
+    fn test_buffer_create_dimensions() {
+        let buf = OptimizedBuffer::new(120, 40);
+        assert_eq!(buf.size(), (120, 40));
+        assert_eq!(buf.cells().len(), 120 * 40);
+    }
+
+    #[test]
+    fn test_buffer_resize_larger() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+        buf.set(5, 5, Cell::new('X', Style::NONE));
+
+        // Resize larger
+        buf.resize(20, 20);
+
+        assert_eq!(buf.width(), 20);
+        assert_eq!(buf.height(), 20);
+        // Contents are cleared on resize
+        let cell = buf.get(5, 5).unwrap();
+        assert!(cell.content.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_resize_smaller() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+        buf.set(15, 15, Cell::new('X', Style::NONE));
+
+        // Resize smaller
+        buf.resize(10, 10);
+
+        assert_eq!(buf.width(), 10);
+        assert_eq!(buf.height(), 10);
+        // Cell at (15, 15) is now out of bounds
+        assert!(buf.get(15, 15).is_none());
+    }
+
+    #[test]
+    fn test_buffer_clear() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+        buf.clear(Rgba::BLUE);
+
+        for cell in buf.cells() {
+            assert_eq!(cell.bg, Rgba::BLUE);
+        }
+    }
+
+    #[test]
+    fn test_buffer_default() {
+        let buf = OptimizedBuffer::default();
+        assert_eq!(buf.width(), 80);
+        assert_eq!(buf.height(), 24);
+    }
+
+    #[test]
+    fn test_buffer_with_id() {
+        let buf = OptimizedBuffer::new(10, 10).with_id("main");
+        assert_eq!(buf.id(), "main");
+    }
+
+    #[test]
+    fn test_buffer_byte_size() {
+        let buf = OptimizedBuffer::new(10, 10);
+        let expected = 100 * std::mem::size_of::<Cell>();
+        assert_eq!(buf.byte_size(), expected);
+    }
+
+    // =========================================================================
+    // Cell Access
+    // =========================================================================
 
     #[test]
     fn test_buffer_get_set() {
@@ -855,6 +929,21 @@ mod tests {
     }
 
     #[test]
+    fn test_buffer_get_set_cell() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        // Set various cells
+        buf.set(0, 0, Cell::new('A', Style::NONE));
+        buf.set(9, 9, Cell::new('Z', Style::NONE));
+        buf.set(5, 5, Cell::new('M', Style::NONE));
+
+        // Verify
+        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
+        assert!(matches!(buf.get(9, 9).unwrap().content, CellContent::Char('Z')));
+        assert!(matches!(buf.get(5, 5).unwrap().content, CellContent::Char('M')));
+    }
+
+    #[test]
     fn test_buffer_bounds() {
         let buf = OptimizedBuffer::new(10, 10);
         assert!(buf.get(0, 0).is_some());
@@ -863,14 +952,231 @@ mod tests {
     }
 
     #[test]
-    fn test_buffer_clear() {
+    fn test_buffer_bounds_check() {
         let mut buf = OptimizedBuffer::new(10, 10);
-        buf.clear(Rgba::BLUE);
 
-        for cell in buf.cells() {
-            assert_eq!(cell.bg, Rgba::BLUE);
-        }
+        // Out-of-bounds set should be silently ignored
+        buf.set(100, 100, Cell::new('X', Style::NONE));
+
+        // Out-of-bounds get returns None
+        assert!(buf.get(100, 100).is_none());
+        assert!(buf.get(10, 0).is_none());
+        assert!(buf.get(0, 10).is_none());
     }
+
+    #[test]
+    fn test_buffer_get_mut() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        if let Some(cell) = buf.get_mut(5, 5) {
+            cell.fg = Rgba::GREEN;
+        }
+
+        assert_eq!(buf.get(5, 5).unwrap().fg, Rgba::GREEN);
+    }
+
+    #[test]
+    fn test_buffer_fill_rect() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+        buf.fill_rect(5, 5, 10, 10, Rgba::RED);
+
+        // Inside filled region
+        assert_eq!(buf.get(5, 5).unwrap().bg, Rgba::RED);
+        assert_eq!(buf.get(14, 14).unwrap().bg, Rgba::RED);
+        assert_eq!(buf.get(10, 10).unwrap().bg, Rgba::RED);
+
+        // Outside filled region
+        assert_eq!(buf.get(0, 0).unwrap().bg, Rgba::TRANSPARENT);
+        assert_eq!(buf.get(4, 4).unwrap().bg, Rgba::TRANSPARENT);
+        assert_eq!(buf.get(15, 15).unwrap().bg, Rgba::TRANSPARENT);
+    }
+
+    #[test]
+    fn test_buffer_fill_rect_edge_cases() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        // Zero width/height should do nothing
+        buf.fill_rect(5, 5, 0, 5, Rgba::RED);
+        buf.fill_rect(5, 5, 5, 0, Rgba::RED);
+        assert_eq!(buf.get(5, 5).unwrap().bg, Rgba::TRANSPARENT);
+
+        // Fill extends past buffer edge (should be clipped)
+        buf.fill_rect(8, 8, 10, 10, Rgba::BLUE);
+        assert_eq!(buf.get(8, 8).unwrap().bg, Rgba::BLUE);
+        assert_eq!(buf.get(9, 9).unwrap().bg, Rgba::BLUE);
+    }
+
+    // =========================================================================
+    // Scissor Stack
+    // =========================================================================
+
+    #[test]
+    fn test_scissor_push_pop() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+
+        // Initially all visible
+        buf.set(0, 0, Cell::new('A', Style::NONE));
+        buf.set(19, 19, Cell::new('B', Style::NONE));
+        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
+        assert!(matches!(buf.get(19, 19).unwrap().content, CellContent::Char('B')));
+
+        // Push scissor to restrict to center region
+        buf.push_scissor(ClipRect::new(5, 5, 10, 10));
+
+        // Set inside scissor should work
+        buf.set(10, 10, Cell::new('C', Style::NONE));
+        assert!(matches!(buf.get(10, 10).unwrap().content, CellContent::Char('C')));
+
+        // Set outside scissor should be ignored
+        buf.set(0, 0, Cell::new('X', Style::NONE));
+        // Should still be 'A' from before
+        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('A')));
+
+        // Pop scissor
+        buf.pop_scissor();
+
+        // Now (0, 0) should be writable again
+        buf.set(0, 0, Cell::new('Y', Style::NONE));
+        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('Y')));
+    }
+
+    #[test]
+    fn test_scissor_intersection() {
+        let mut buf = OptimizedBuffer::new(30, 30);
+
+        // Push outer scissor (5, 5) to (25, 25)
+        buf.push_scissor(ClipRect::new(5, 5, 20, 20));
+
+        // Push inner scissor (10, 10) to (20, 20)
+        buf.push_scissor(ClipRect::new(10, 10, 10, 10));
+
+        // Set inside inner scissor should work
+        buf.set(15, 15, Cell::new('I', Style::NONE));
+        assert!(matches!(buf.get(15, 15).unwrap().content, CellContent::Char('I')));
+
+        // Set outside inner but inside outer should be ignored
+        buf.set(7, 7, Cell::new('O', Style::NONE));
+        // Should remain empty
+        assert!(buf.get(7, 7).unwrap().content.is_empty());
+
+        // Pop inner scissor
+        buf.pop_scissor();
+
+        // Now (7, 7) should be writable
+        buf.set(7, 7, Cell::new('O', Style::NONE));
+        assert!(matches!(buf.get(7, 7).unwrap().content, CellContent::Char('O')));
+    }
+
+    #[test]
+    fn test_scissor_outside_bounds() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+
+        // Push scissor that's completely outside buffer bounds
+        buf.push_scissor(ClipRect::new(100, 100, 10, 10));
+
+        // Any set should be ignored
+        buf.set(5, 5, Cell::new('X', Style::NONE));
+        assert!(buf.get(5, 5).unwrap().content.is_empty());
+
+        buf.pop_scissor();
+
+        // Now set should work
+        buf.set(5, 5, Cell::new('Y', Style::NONE));
+        assert!(matches!(buf.get(5, 5).unwrap().content, CellContent::Char('Y')));
+    }
+
+    #[test]
+    fn test_scissor_fill_rect_interaction() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+
+        // Restrict to center region
+        buf.push_scissor(ClipRect::new(5, 5, 10, 10));
+
+        // Fill entire buffer - should only fill scissor region
+        buf.fill_rect(0, 0, 20, 20, Rgba::RED);
+
+        // Inside scissor should be filled
+        assert_eq!(buf.get(10, 10).unwrap().bg, Rgba::RED);
+
+        // Outside scissor should NOT be filled
+        assert_eq!(buf.get(0, 0).unwrap().bg, Rgba::TRANSPARENT);
+        assert_eq!(buf.get(19, 19).unwrap().bg, Rgba::TRANSPARENT);
+    }
+
+    #[test]
+    fn test_scissor_clear_scissors() {
+        let mut buf = OptimizedBuffer::new(20, 20);
+
+        buf.push_scissor(ClipRect::new(5, 5, 10, 10));
+        buf.push_scissor(ClipRect::new(7, 7, 5, 5));
+
+        // Clear all scissors
+        buf.clear_scissors();
+
+        // Now entire buffer should be visible
+        buf.set(0, 0, Cell::new('X', Style::NONE));
+        assert!(matches!(buf.get(0, 0).unwrap().content, CellContent::Char('X')));
+    }
+
+    // =========================================================================
+    // Opacity Stack
+    // =========================================================================
+
+    #[test]
+    fn test_opacity_push_pop() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        assert_eq!(buf.current_opacity(), 1.0);
+
+        buf.push_opacity(0.5);
+        assert!((buf.current_opacity() - 0.5).abs() < 0.01);
+
+        buf.push_opacity(0.5);
+        // Should multiply: 0.5 * 0.5 = 0.25
+        assert!((buf.current_opacity() - 0.25).abs() < 0.01);
+
+        buf.pop_opacity();
+        assert!((buf.current_opacity() - 0.5).abs() < 0.01);
+
+        buf.pop_opacity();
+        assert_eq!(buf.current_opacity(), 1.0);
+    }
+
+    #[test]
+    fn test_opacity_blending() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        // Set without opacity
+        buf.set(0, 0, Cell::new('A', Style::fg(Rgba::RED)));
+        let cell_no_opacity = *buf.get(0, 0).unwrap();
+        assert_eq!(cell_no_opacity.fg.a, 1.0);
+
+        // Set with 50% opacity
+        buf.push_opacity(0.5);
+        buf.set(1, 0, Cell::new('B', Style::fg(Rgba::GREEN)));
+        let cell_with_opacity = *buf.get(1, 0).unwrap();
+        // Alpha should be reduced
+        assert!(cell_with_opacity.fg.a < 1.0);
+        assert!((cell_with_opacity.fg.a - 0.5).abs() < 0.01);
+
+        buf.pop_opacity();
+    }
+
+    #[test]
+    fn test_opacity_affects_fill_rect() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        buf.push_opacity(0.5);
+        buf.fill_rect(0, 0, 5, 5, Rgba::RED);
+
+        let cell = buf.get(2, 2).unwrap();
+        // Alpha should be reduced
+        assert!(cell.bg.a < 1.0);
+    }
+
+    // =========================================================================
+    // Buffer Drawing / Compositing
+    // =========================================================================
 
     #[test]
     fn test_draw_buffer_region() {
@@ -900,5 +1206,98 @@ mod tests {
         // Verify dst is still empty/transparent
         let cell = dst.get(0, 0).unwrap();
         assert_eq!(cell.bg, Rgba::TRANSPARENT);
+    }
+
+    #[test]
+    fn test_draw_buffer() {
+        let mut src = OptimizedBuffer::new(5, 5);
+        src.fill_rect(0, 0, 5, 5, Rgba::BLUE);
+
+        let mut dst = OptimizedBuffer::new(10, 10);
+        dst.draw_buffer(2, 2, &src);
+
+        // Check copied region
+        assert_eq!(dst.get(2, 2).unwrap().bg, Rgba::BLUE);
+        assert_eq!(dst.get(6, 6).unwrap().bg, Rgba::BLUE);
+
+        // Check outside region
+        assert_eq!(dst.get(0, 0).unwrap().bg, Rgba::TRANSPARENT);
+    }
+
+    // =========================================================================
+    // Alpha Blending
+    // =========================================================================
+
+    #[test]
+    fn test_set_blended() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+
+        // First, set a background
+        buf.set(0, 0, Cell::clear(Rgba::RED));
+
+        // Then blend a semi-transparent cell over it
+        let overlay = Cell::clear(Rgba::new(0.0, 1.0, 0.0, 0.5)); // 50% green
+        buf.set_blended(0, 0, overlay);
+
+        let result = buf.get(0, 0).unwrap();
+        // Result should be a blend of red and green
+        assert!(result.bg.g > 0.0); // Has some green
+        assert!(result.bg.r > 0.0); // Has some red (from background)
+    }
+
+    #[test]
+    fn test_respect_alpha_flag() {
+        let mut buf = OptimizedBuffer::new(10, 10);
+        assert!(buf.respect_alpha());
+
+        buf.set_respect_alpha(false);
+        assert!(!buf.respect_alpha());
+
+        // With respect_alpha disabled, blended operations should replace
+        buf.set(0, 0, Cell::clear(Rgba::RED));
+        let overlay = Cell::clear(Rgba::new(0.0, 1.0, 0.0, 0.5));
+        buf.set_blended(0, 0, overlay);
+
+        // Should be the overlay color directly, not blended
+        let result = buf.get(0, 0).unwrap();
+        assert_eq!(result.bg.g, 1.0);
+        assert_eq!(result.bg.r, 0.0);
+    }
+
+    // =========================================================================
+    // Iterator
+    // =========================================================================
+
+    #[test]
+    fn test_iter_cells() {
+        let buf = OptimizedBuffer::new(3, 3);
+        let mut count = 0;
+
+        for (x, y, _cell) in buf.iter_cells() {
+            assert!(x < 3);
+            assert!(y < 3);
+            count += 1;
+        }
+
+        assert_eq!(count, 9);
+    }
+
+    // =========================================================================
+    // Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn test_zero_size_buffer() {
+        let buf = OptimizedBuffer::new(0, 0);
+        assert_eq!(buf.width(), 0);
+        assert_eq!(buf.height(), 0);
+        assert!(buf.cells().is_empty());
+    }
+
+    #[test]
+    fn test_large_buffer() {
+        // Test large buffer doesn't overflow
+        let buf = OptimizedBuffer::new(1000, 1000);
+        assert_eq!(buf.cells().len(), 1_000_000);
     }
 }
