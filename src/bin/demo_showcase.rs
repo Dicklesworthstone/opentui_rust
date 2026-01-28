@@ -3232,6 +3232,9 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
     let panels = PanelLayout::compute(width, height);
     let theme = app.ui_theme.tokens();
 
+    // No hyperlinks in headless mode (no terminal to handle OSC 8)
+    let links = PreallocatedLinks::default();
+
     // === Pass 1: Background ===
     draw_pass_background(buffer, &theme);
 
@@ -3245,10 +3248,10 @@ fn headless_draw_frame(buffer: &mut OptimizedBuffer, app: &App) {
     draw_pass_chrome(buffer, &panels, &theme, app);
 
     // === Pass 3: Panels ===
-    draw_pass_panels(buffer, &panels, &theme, app);
+    draw_pass_panels(buffer, &panels, &theme, app, &links);
 
     // === Pass 4: Overlays ===
-    draw_pass_overlays(buffer, &panels, &theme, app);
+    draw_pass_overlays(buffer, &panels, &theme, app, &links);
 
     // === Pass 5: Toasts ===
     draw_pass_toasts(buffer, &panels, &theme, app);
@@ -3929,6 +3932,7 @@ fn draw_pass_overlays(
     panels: &PanelLayout,
     theme: &Theme,
     app: &App,
+    links: &PreallocatedLinks,
 ) {
     // Skip if no overlay is active
     if !app.overlays.is_active() {
