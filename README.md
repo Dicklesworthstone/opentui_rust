@@ -269,6 +269,106 @@ loop {
 
 ---
 
+## Demo Showcase
+
+The `demo_showcase` binary demonstrates OpenTUI's full capability set in an interactive terminal application.
+
+### Running the Demo
+
+```bash
+# Interactive mode (explore with keyboard/mouse)
+cargo run --bin demo_showcase
+
+# Guided tour mode (auto-plays through features)
+cargo run --bin demo_showcase -- --tour
+
+# Tour mode with auto-exit (for scripting/CI)
+cargo run --bin demo_showcase -- --tour --exit-after-tour
+```
+
+### What It Demonstrates
+
+The demo showcases every major OpenTUI feature:
+
+- **Alpha blending** — Glass-like overlays, semi-transparent panels
+- **Scissor clipping** — Nested scroll regions, viewport masking
+- **Opacity stacks** — Hierarchical transparency
+- **Diff rendering** — Only changed cells update (watch the stats panel)
+- **Grapheme handling** — CJK, emoji, ZWJ sequences rendered correctly
+- **OSC 8 hyperlinks** — Clickable URLs in supported terminals
+- **Hit testing** — Mouse hover/click detection
+- **Pixel buffers** — Animated graphics using block characters
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Cycle focus between panels |
+| `↑/↓` | Navigate sidebar sections |
+| `Enter` | Select section |
+| `F1` | Toggle help overlay |
+| `Ctrl+P` | Command palette |
+| `Ctrl+D` | Debug/inspector panel |
+| `T` | Start/restart tour |
+| `Esc` | Close overlay / exit tour |
+| `Q` | Quit |
+
+### CLI Flags
+
+**Interactive:**
+
+| Flag | Description |
+|------|-------------|
+| `--fps <N>` | Target frame rate (default: 60) |
+| `--tour` | Start in guided tour mode |
+| `--exit-after-tour` | Exit when tour completes |
+| `--max-frames <N>` | Hard frame limit (safety bound) |
+| `--seed <N>` | Random seed for deterministic behavior |
+| `--threaded` | Use threaded renderer |
+
+**Headless/Testing:**
+
+| Flag | Description |
+|------|-------------|
+| `--headless-smoke` | Run without TTY (for CI) |
+| `--headless-dump-json` | Output frame stats as JSON |
+| `--headless-size <WxH>` | Set virtual terminal size (e.g., `80x24`) |
+
+**Terminal Behavior:**
+
+| Flag | Description |
+|------|-------------|
+| `--no-mouse` | Disable mouse tracking |
+| `--no-alt-screen` | Don't use alternate screen buffer |
+| `--no-cap-queries` | Skip terminal capability detection |
+| `--cap-preset <name>` | Force capability preset (`minimal`, `no_hyperlinks`, etc.) |
+
+### Recommended Terminals
+
+For the best visual experience, use a terminal that supports:
+
+- **True color** (24-bit RGB)
+- **Synchronized output** (eliminates flicker)
+- **OSC 8 hyperlinks** (clickable URLs)
+- **Unicode** (grapheme clusters, emoji)
+
+**Recommended:** kitty, WezTerm, Ghostty, Alacritty, iTerm2
+
+### Verification Scripts
+
+```bash
+# Quick validation (format + clippy + tests)
+./scripts/demo_showcase_verify.sh
+
+# Fast check (skip headless tests)
+./scripts/demo_showcase_verify.sh --quick
+
+# Run PTY E2E tests with artifact collection
+./scripts/demo_showcase_e2e_pty.sh
+```
+
+---
+
 ## API Reference
 
 ### Core Types
