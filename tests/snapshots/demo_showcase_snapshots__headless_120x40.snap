@@ -1,0 +1,24 @@
+---
+source: tests/demo_showcase_snapshots.rs
+assertion_line: 55
+expression: snapshot
+---
+{
+  "config": {
+    "cap_preset": "Auto",
+    "fps_cap": 60,
+    "seed": 0
+  },
+  "first_frame_dirty": 4800,
+  "frames_rendered": 10,
+  "headless_size": {
+    "height": 40,
+    "width": 120
+  },
+  "last_frame_dirty": 57,
+  "layout_mode": "Full",
+  "sentinels": {
+    "section": "Overview",
+    "top_bar": "OpenTUIShowcaseOverview[Normal] Sidebar"
+  }
+}

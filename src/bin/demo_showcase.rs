@@ -92,6 +92,123 @@ impl CapPreset {
     }
 }
 
+/// Effective capabilities after applying preset constraints.
+///
+/// In interactive mode: `effective = detected ∩ preset` (preset can only DISABLE).
+/// In headless mode: preset defines capabilities directly.
+#[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)] // Capabilities naturally map to booleans
+pub struct EffectiveCaps {
+    /// True color (24-bit) support.
+    pub truecolor: bool,
+    /// Mouse tracking support.
+    pub mouse: bool,
+    /// Hyperlink (OSC 8) support.
+    pub hyperlinks: bool,
+    /// Focus event support.
+    pub focus: bool,
+    /// Synchronized output support.
+    pub sync_output: bool,
+    /// List of features that were disabled by the preset.
+    pub degraded: Vec<&'static str>,
+}
+
+impl Default for EffectiveCaps {
+    fn default() -> Self {
+        Self {
+            truecolor: true,
+            mouse: true,
+            hyperlinks: true,
+            focus: true,
+            sync_output: true,
+            degraded: Vec::new(),
+        }
+    }
+}
+
+impl EffectiveCaps {
+    /// Compute effective capabilities from detected caps and preset.
+    ///
+    /// For interactive mode, pass detected capabilities from the renderer.
+    /// For headless mode, pass `None` to use preset directly.
+    #[must_use]
+    pub fn compute(
+        detected: Option<&opentui::terminal::Capabilities>,
+        preset: CapPreset,
+    ) -> Self {
+        let mut caps = Self::default();
+        let mut degraded = Vec::new();
+
+        // Start with detected capabilities (or ideal defaults for headless)
+        if let Some(det) = detected {
+            caps.truecolor = det.has_true_color();
+            caps.mouse = det.mouse;
+            caps.hyperlinks = det.hyperlinks;
+            caps.focus = det.focus;
+            caps.sync_output = det.sync_output;
+        }
+
+        // Apply preset constraints (can only disable in interactive mode)
+        match preset {
+            CapPreset::Auto | CapPreset::Ideal => {
+                // No additional constraints
+            }
+            CapPreset::NoTruecolor => {
+                if caps.truecolor {
+                    degraded.push("truecolor (preset)");
+                }
+                caps.truecolor = false;
+            }
+            CapPreset::NoMouse => {
+                if caps.mouse {
+                    degraded.push("mouse (preset)");
+                }
+                caps.mouse = false;
+            }
+            CapPreset::Minimal => {
+                if caps.truecolor {
+                    degraded.push("truecolor (minimal)");
+                }
+                if caps.mouse {
+                    degraded.push("mouse (minimal)");
+                }
+                if caps.hyperlinks {
+                    degraded.push("hyperlinks (minimal)");
+                }
+                if caps.sync_output {
+                    degraded.push("sync_output (minimal)");
+                }
+                caps.truecolor = false;
+                caps.mouse = false;
+                caps.hyperlinks = false;
+                caps.sync_output = false;
+            }
+        }
+
+        // Track features that were unavailable from detection
+        if let Some(det) = detected {
+            if !det.has_true_color() && preset != CapPreset::NoTruecolor && preset != CapPreset::Minimal {
+                degraded.push("truecolor (terminal)");
+            }
+            if !det.mouse && preset != CapPreset::NoMouse && preset != CapPreset::Minimal {
+                degraded.push("mouse (terminal)");
+            }
+            if !det.hyperlinks && preset != CapPreset::Minimal {
+                degraded.push("hyperlinks (terminal)");
+            }
+        }
+
+        caps.degraded = degraded;
+        caps
+    }
+
+    /// Check if any features are degraded.
+    #[must_use]
+    pub fn is_degraded(&self) -> bool {
+        !self.degraded.is_empty()
+    }
+}
+
 /// Application configuration parsed from command-line arguments.
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)] // Config naturally has many boolean flags
@@ -308,6 +425,40 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
         return None;
     }
     Some((w, h))
+}
+
+// ============================================================================
+// Hit Testing IDs
+// ============================================================================
+
+/// Hit ID ranges for mouse interaction.
+///
+/// We reserve ID ranges by component for stability and debuggability:
+/// - `1000-1999`: Chrome buttons (top bar controls)
+/// - `2000-2999`: Sidebar rows (section navigation)
+/// - `3000-3999`: Panel areas (focus targets)
+/// - `4000-4999`: Overlay controls (close buttons, etc.)
+///
+/// ID 0 is reserved for "no hit" / background.
+pub mod hit_ids {
+    // Chrome buttons (top bar)
+    pub const BTN_HELP: u32 = 1000;
+    pub const BTN_PALETTE: u32 = 1001;
+    pub const BTN_TOUR: u32 = 1002;
+    pub const BTN_THEME: u32 = 1003;
+
+    // Sidebar rows (base + index)
+    pub const SIDEBAR_ROW_BASE: u32 = 2000;
+
+    // Panel focus areas
+    pub const PANEL_SIDEBAR: u32 = 3000;
+    pub const PANEL_EDITOR: u32 = 3001;
+    pub const PANEL_PREVIEW: u32 = 3002;
+    pub const PANEL_LOGS: u32 = 3003;
+
+    // Overlay controls
+    pub const OVERLAY_CLOSE: u32 = 4000;
+    pub const PALETTE_ITEM_BASE: u32 = 4100;
 }
 
 // ============================================================================
@@ -2025,6 +2176,10 @@ pub enum Action {
     PaletteBackspace,
     /// Command palette: input character.
     PaletteChar(char),
+    /// Mouse: directly set focus to a panel.
+    SetFocus(Focus),
+    /// Mouse: click on palette item by index.
+    PaletteClick(usize),
     /// No action (event was handled or ignored).
     None,
 }
@@ -2090,6 +2245,12 @@ pub struct App {
     // Toast state
     /// Toast notification manager.
     pub toasts: ToastManager,
+
+    // Capability state
+    /// Effective capabilities (detected ∩ preset).
+    pub effective_caps: EffectiveCaps,
+    /// Capability preset from config.
+    pub cap_preset: CapPreset,
 }
 
 impl Default for App {
@@ -2119,6 +2280,9 @@ impl Default for App {
             metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
             // Toast state
             toasts: ToastManager::new(),
+            // Capability state (defaults to ideal)
+            effective_caps: EffectiveCaps::default(),
+            cap_preset: CapPreset::Auto,
         }
     }
 }
@@ -2128,6 +2292,22 @@ impl App {
     #[must_use]
     pub fn new(config: &Config) -> Self {
         Self::with_content(config, &content::DemoContent::default())
+    }
+
+    /// Update effective capabilities from detected terminal capabilities.
+    ///
+    /// Call this after the renderer is created to apply capability gating.
+    pub fn update_effective_caps(&mut self, detected: Option<&opentui::terminal::Capabilities>) {
+        self.effective_caps = EffectiveCaps::compute(detected, self.cap_preset);
+
+        // Show toast if any features are degraded
+        if self.effective_caps.is_degraded() {
+            let msg = format!(
+                "Degraded: {}",
+                self.effective_caps.degraded.join(", ")
+            );
+            self.toasts.push(Toast::warn(msg));
+        }
     }
 
     /// Create a new app instance from config and custom demo content.
@@ -2158,6 +2338,8 @@ impl App {
             logs: demo_content.seed_logs.to_vec(),
             target_fps: demo_content.metric_params.target_fps,
             metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
+            // Capability preset from config (effective caps computed after renderer init)
+            cap_preset: config.cap_preset,
             ..Self::default()
         }
     }
@@ -2548,6 +2730,22 @@ impl App {
                     }
                     self.apply_action(&cmd);
                 }
+            }
+            Action::SetFocus(focus) => {
+                // Only allow focus change in normal mode
+                if self.mode == AppMode::Normal {
+                    self.focus = *focus;
+                }
+            }
+            Action::PaletteClick(idx) => {
+                // Click on palette item - select it and execute
+                if let Some(Overlay::Palette(ref mut state)) = self.overlays.active {
+                    if *idx < state.filtered.len() {
+                        state.selected = *idx;
+                    }
+                }
+                // Now execute via PaletteExecute
+                self.apply_action(&Action::PaletteExecute);
             }
             // Resize is handled in render loop, None is a no-op
             Action::Resize(_, _) | Action::None => {}
@@ -3037,6 +3235,9 @@ fn run_headless_smoke(config: &Config) {
     let demo_content = content::DemoContent::default();
     let mut app = App::with_content(config, &demo_content);
 
+    // In headless mode, preset defines effective caps directly (no terminal to detect)
+    app.update_effective_caps(None);
+
     // Create double buffers for diffing
     let mut current_buffer = OptimizedBuffer::new(u32::from(width), u32::from(height));
     let mut previous_buffer = OptimizedBuffer::new(u32::from(width), u32::from(height));
@@ -3186,6 +3387,9 @@ fn run_interactive(config: &Config) -> io::Result<()> {
 
     // Initialize app state.
     let mut app = App::new(config);
+
+    // Apply capability gating based on detected terminal capabilities.
+    app.update_effective_caps(Some(renderer.capabilities()));
 
     // Initialize input pump for event handling.
     let mut input_pump = InputPump::new();
