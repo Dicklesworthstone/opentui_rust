@@ -6,9 +6,7 @@
 //! - Paste events (bracketed paste mode)
 //! - Timing simulation (instant, realistic WPM, stress testing)
 
-use opentui::input::keyboard::{KeyCode, KeyEvent, KeyModifiers};
-use opentui::input::Event;
-use opentui::terminal::{MouseButton, MouseEvent, MouseEventKind};
+use opentui::input::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 /// Timing mode for input simulation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -53,11 +51,11 @@ impl From<InputEvent> for Event {
         match event {
             InputEvent::Key(k) => Event::Key(k),
             InputEvent::Mouse(m) => Event::Mouse(m),
-            InputEvent::Paste(s) => Event::Paste(opentui::input::event::PasteEvent::new(s)),
+            InputEvent::Paste(s) => Event::Paste(opentui::input::PasteEvent::new(s)),
             InputEvent::FocusGained => Event::FocusGained,
             InputEvent::FocusLost => Event::FocusLost,
             InputEvent::Resize { width, height } => {
-                Event::Resize(opentui::input::event::ResizeEvent::new(width, height))
+                Event::Resize(opentui::input::ResizeEvent::new(width, height))
             }
         }
     }
@@ -366,6 +364,11 @@ impl InputSequence {
     /// Check if the sequence is empty.
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
+    }
+
+    /// Get the timing mode.
+    pub fn timing(&self) -> TimingMode {
+        self.timing
     }
 
     /// Compute delay based on timing mode.
