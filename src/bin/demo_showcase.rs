@@ -54,6 +54,8 @@ OPTIONS:
     --headless-smoke        Run headless smoke test (no TTY required)
     --headless-size <WxH>   Force headless buffer size (default: 80x24)
     --headless-dump-json    Output JSON snapshot for regression testing
+    --headless-check <NAME> Run specific headless check (layout, config,
+                            palette, hitgrid, logs)
 
     --cap-preset <NAME>     Capability preset: auto, ideal, no_truecolor,
                             no_mouse, minimal (default: auto)
@@ -231,6 +233,8 @@ pub struct Config {
     pub headless_smoke: bool,
     pub headless_size: (u16, u16),
     pub headless_dump_json: bool,
+    /// Run a specific headless check (layout, config, palette, hitgrid, logs).
+    pub headless_check: Option<String>,
 
     // Capability override
     pub cap_preset: CapPreset,
@@ -253,6 +257,7 @@ impl Default for Config {
             headless_smoke: false,
             headless_size: (80, 24),
             headless_dump_json: false,
+            headless_check: None,
             cap_preset: CapPreset::Auto,
             threaded: false,
             seed: 0,
@@ -347,6 +352,25 @@ impl Config {
                                 "Invalid --headless-size: {value} (use WxH format, e.g., 80x24)"
                             ));
                         }
+                    }
+                }
+
+                "--headless-check" => {
+                    let value = match args.next() {
+                        Some(v) => v.to_string_lossy().to_string(),
+                        None => {
+                            return ParseResult::Error(
+                                "--headless-check requires a value (layout, config, palette, hitgrid, logs)".to_string(),
+                            );
+                        }
+                    };
+                    let valid_checks = ["layout", "config", "palette", "hitgrid", "logs"];
+                    if valid_checks.contains(&value.as_str()) {
+                        config.headless_check = Some(value);
+                    } else {
+                        return ParseResult::Error(format!(
+                            "Unknown --headless-check: {value} (valid: layout, config, palette, hitgrid, logs)"
+                        ));
                     }
                 }
 
@@ -3193,14 +3217,95 @@ impl Default for InputPump {
 }
 
 // ============================================================================
+// Panic Hook (Terminal Recovery)
+// ============================================================================
+
+/// Install a panic hook that attempts to restore terminal state.
+///
+/// This is belt-and-suspenders cleanup. Even though `Renderer` and `RawModeGuard`
+/// try to restore state on Drop, a panic (especially with `panic = "abort"` in
+/// release profile) can leave the terminal in a bad state.
+fn install_panic_hook() {
+    let original_hook = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Best-effort terminal restoration.
+        let _ = attempt_terminal_cleanup();
+
+        // Print recovery instructions for safety.
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"\n\x1b[0m[demo_showcase] If your terminal is broken, run: reset\n\
+              Or: stty sane && clear\n\n",
+        );
+
+        // Chain to the original panic handler (preserves panic info).
+        original_hook(panic_info);
+    }));
+}
+
+/// Attempt to restore terminal state after a panic.
+///
+/// Writes ANSI reset sequences and attempts to restore termios settings.
+fn attempt_terminal_cleanup() -> io::Result<()> {
+    use std::io::Write;
+
+    // Write ANSI sequences directly to stderr (bypasses stdout buffering).
+    let mut stderr = std::io::stderr().lock();
+
+    // Reset all text attributes.
+    stderr.write_all(b"\x1b[0m")?;
+    // Show cursor.
+    stderr.write_all(b"\x1b[?25h")?;
+    // Exit alternate screen.
+    stderr.write_all(b"\x1b[?1049l")?;
+    // Disable mouse tracking (all modes).
+    stderr.write_all(b"\x1b[?1006l")?; // SGR
+    stderr.write_all(b"\x1b[?1003l")?; // Any-event
+    stderr.write_all(b"\x1b[?1000l")?; // Normal
+    // Disable bracketed paste.
+    stderr.write_all(b"\x1b[?2004l")?;
+    stderr.flush()?;
+
+    // Attempt to restore termios (raw mode → cooked mode).
+    restore_cooked_mode();
+
+    Ok(())
+}
+
+/// Best-effort restoration of terminal cooked mode via termios.
+///
+/// This directly manipulates termios since we can't rely on `RawModeGuard`
+/// being in scope during a panic.
+fn restore_cooked_mode() {
+    // SAFETY: libc calls for termios are safe with valid fd and struct.
+    unsafe {
+        let mut termios: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(libc::STDIN_FILENO, &raw mut termios) == 0 {
+            // Re-enable canonical mode, echo, and signal processing.
+            termios.c_lflag |= libc::ECHO | libc::ICANON | libc::IEXTEN | libc::ISIG;
+            termios.c_iflag |= libc::IXON | libc::ICRNL;
+            termios.c_oflag |= libc::OPOST;
+            let _ = libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, &raw const termios);
+        }
+    }
+}
+
+// ============================================================================
 // Entry Point
 // ============================================================================
 
 fn main() -> io::Result<()> {
+    // Install panic hook for robust terminal cleanup on crash.
+    install_panic_hook();
+
     match Config::from_args(std::env::args_os()) {
         ParseResult::Config(config) => {
             if config.headless_smoke {
                 run_headless_smoke(&config);
+                Ok(())
+            } else if let Some(ref check_name) = config.headless_check {
+                run_headless_check(&config, check_name);
                 Ok(())
             } else {
                 run_interactive(&config)
