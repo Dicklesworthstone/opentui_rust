@@ -18,7 +18,7 @@
 #![allow(unsafe_code)]
 
 use opentui::GraphemePool;
-use opentui::buffer::{ClipRect, GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
+use opentui::buffer::{ClipRect, GrayscaleBuffer, OptimizedBuffer, PixelBuffer, ScissorStack};
 use opentui::event::{LogLevel as OpentuiLogLevel, set_log_callback};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 #[allow(unused_imports)]
@@ -477,6 +477,8 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
 /// Provides a unified interface over `Renderer` and `ThreadedRenderer`.
 /// For threaded mode, we maintain a local hit grid and scissor stack
 /// since `ThreadedRenderer` doesn't provide these directly.
+#[allow(clippy::large_enum_variant)] // Renderer variants are intentionally different sizes
+#[allow(clippy::large_enum_variant)] // Variants are intentionally different sizes
 pub enum Backend {
     /// Direct (synchronous) renderer.
     Direct(Renderer),
@@ -489,10 +491,14 @@ pub enum Backend {
     },
 }
 
+#[allow(clippy::missing_errors_doc)] // Internal type, errors are obvious
+#[allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 impl Backend {
     /// Create a new direct (synchronous) backend.
     pub fn new_direct(width: u32, height: u32, options: RendererOptions) -> io::Result<Self> {
-        Ok(Self::Direct(Renderer::new_with_options(width, height, options)?))
+        Ok(Self::Direct(Renderer::new_with_options(
+            width, height, options,
+        )?))
     }
 
     /// Create a new threaded backend.
@@ -599,7 +605,7 @@ impl Backend {
             } => {
                 let rect = ClipRect::new(x as i32, y as i32, width, height);
                 if let Some(intersect) = hit_scissor.current().intersect(&rect) {
-                    if !intersect.is_empty() {
+                    if !ClipRect::is_empty(&intersect) {
                         hit_grid.register(
                             intersect.x.max(0) as u32,
                             intersect.y.max(0) as u32,
