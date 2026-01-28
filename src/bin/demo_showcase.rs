@@ -175,7 +175,7 @@ impl Config {
                         _ => {
                             return ParseResult::Error(format!(
                                 "Invalid --fps value: {value} (must be positive integer)"
-                            ))
+                            ));
                         }
                     }
                 }
@@ -188,7 +188,7 @@ impl Config {
                     let value = match args.next() {
                         Some(v) => v.to_string_lossy().to_string(),
                         None => {
-                            return ParseResult::Error("--max-frames requires a value".to_string())
+                            return ParseResult::Error("--max-frames requires a value".to_string());
                         }
                     };
                     match value.parse::<u64>() {
@@ -196,7 +196,7 @@ impl Config {
                         Err(_) => {
                             return ParseResult::Error(format!(
                                 "Invalid --max-frames value: {value}"
-                            ))
+                            ));
                         }
                     }
                 }
@@ -211,7 +211,7 @@ impl Config {
                         None => {
                             return ParseResult::Error(
                                 "--headless-size requires a value (e.g., 80x24)".to_string(),
-                            )
+                            );
                         }
                     };
                     match parse_size(&value) {
@@ -219,7 +219,7 @@ impl Config {
                         None => {
                             return ParseResult::Error(format!(
                                 "Invalid --headless-size: {value} (use WxH format, e.g., 80x24)"
-                            ))
+                            ));
                         }
                     }
                 }
@@ -228,7 +228,7 @@ impl Config {
                     let value = match args.next() {
                         Some(v) => v.to_string_lossy().to_string(),
                         None => {
-                            return ParseResult::Error("--cap-preset requires a value".to_string())
+                            return ParseResult::Error("--cap-preset requires a value".to_string());
                         }
                     };
                     match CapPreset::from_str(&value) {
@@ -237,7 +237,7 @@ impl Config {
                             return ParseResult::Error(format!(
                                 "Unknown --cap-preset: {value} \
                                  (valid: auto, ideal, no_truecolor, no_mouse, minimal)"
-                            ))
+                            ));
                         }
                     }
                 }
@@ -252,7 +252,7 @@ impl Config {
                     match value.parse::<u64>() {
                         Ok(n) => config.seed = n,
                         Err(_) => {
-                            return ParseResult::Error(format!("Invalid --seed value: {value}"))
+                            return ParseResult::Error(format!("Invalid --seed value: {value}"));
                         }
                     }
                 }
@@ -686,11 +686,7 @@ impl Styles {
     /// Header style: bold with primary accent.
     #[must_use]
     pub fn header(theme: &Theme) -> Style {
-        Style::builder()
-            .fg(theme.fg0)
-            .bg(theme.bg1)
-            .bold()
-            .build()
+        Style::builder().fg(theme.fg0).bg(theme.bg1).bold().build()
     }
 
     /// Panel border style (unfocused).
@@ -712,7 +708,10 @@ impl Styles {
     /// Selection style.
     #[must_use]
     pub fn selection(theme: &Theme) -> Style {
-        Style::builder().fg(theme.fg0).bg(theme.selection_bg).build()
+        Style::builder()
+            .fg(theme.fg0)
+            .bg(theme.selection_bg)
+            .build()
     }
 
     /// Muted/hint text style.
@@ -736,7 +735,10 @@ impl Styles {
     /// Link style.
     #[must_use]
     pub fn link(theme: &Theme) -> Style {
-        Style::builder().fg(theme.accent_primary).underline().build()
+        Style::builder()
+            .fg(theme.accent_primary)
+            .underline()
+            .build()
     }
 
     /// Error style.
@@ -755,6 +757,345 @@ impl Styles {
     #[must_use]
     pub fn warning(theme: &Theme) -> Style {
         Style::builder().fg(theme.accent_warning).build()
+    }
+}
+
+// ============================================================================
+// Overlay System
+// ============================================================================
+
+/// Animation state for overlay transitions.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OverlayAnim {
+    /// Progress from 0.0 (closed) to 1.0 (fully open).
+    pub progress: f32,
+    /// Whether we're animating in (true) or out (false).
+    pub opening: bool,
+}
+
+impl OverlayAnim {
+    /// Animation speed (progress per tick at 60fps).
+    const SPEED: f32 = 0.15;
+
+    /// Create a new animation starting to open.
+    #[must_use]
+    pub const fn opening() -> Self {
+        Self {
+            progress: 0.0,
+            opening: true,
+        }
+    }
+
+    /// Update the animation state. Returns true if animation is complete.
+    pub fn tick(&mut self) -> bool {
+        if self.opening {
+            self.progress = (self.progress + Self::SPEED).min(1.0);
+            self.progress >= 1.0
+        } else {
+            self.progress = (self.progress - Self::SPEED).max(0.0);
+            self.progress <= 0.0
+        }
+    }
+
+    /// Start closing the overlay.
+    pub const fn start_close(&mut self) {
+        self.opening = false;
+    }
+
+    /// Get the current opacity (eased).
+    #[must_use]
+    pub fn opacity(&self) -> f32 {
+        // Ease-out cubic for smooth animation
+        let t = self.progress;
+        1.0 - (1.0 - t).powi(3)
+    }
+
+    /// Check if fully closed.
+    #[must_use]
+    pub const fn is_closed(&self) -> bool {
+        self.progress <= 0.0 && !self.opening
+    }
+
+    /// Check if fully open.
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.progress >= 1.0
+    }
+}
+
+/// State for the Help overlay.
+#[derive(Clone, Debug, Default)]
+pub struct HelpState {
+    /// Current scroll offset (line index).
+    pub scroll: usize,
+    /// Which help section is focused (for future use).
+    pub focused_section: usize,
+}
+
+impl HelpState {
+    /// Help content sections.
+    pub const SECTIONS: &'static [(&'static str, &'static [&'static str])] = &[
+        (
+            "Navigation",
+            &[
+                "Tab / Shift+Tab    Cycle focus between panels",
+                "1-6                Jump to section by number",
+                "↑/↓                Navigate within focused panel",
+            ],
+        ),
+        (
+            "Actions",
+            &[
+                "Ctrl+Q             Quit application",
+                "Ctrl+N             Cycle UI theme",
+                "Ctrl+R             Force redraw",
+                "Ctrl+D             Toggle debug overlay",
+            ],
+        ),
+        (
+            "Overlays",
+            &[
+                "F1                 Toggle this help overlay",
+                "Ctrl+P             Toggle command palette",
+                "Ctrl+T             Toggle guided tour",
+                "Esc                Close current overlay",
+            ],
+        ),
+        (
+            "Tips",
+            &[
+                "• The sidebar shows all available sections",
+                "• Press number keys for quick navigation",
+                "• Alpha blending is visible in overlays",
+            ],
+        ),
+    ];
+
+    /// Scroll up by one line.
+    pub const fn scroll_up(&mut self) {
+        self.scroll = self.scroll.saturating_sub(1);
+    }
+
+    /// Scroll down by one line.
+    pub const fn scroll_down(&mut self, max_scroll: usize) {
+        if self.scroll < max_scroll {
+            self.scroll += 1;
+        }
+    }
+}
+
+/// State for the Command Palette overlay.
+#[derive(Clone, Debug, Default)]
+pub struct PaletteState {
+    /// Current search query.
+    pub query: String,
+    /// Selected command index.
+    pub selected: usize,
+    /// Filtered command indices.
+    pub filtered: Vec<usize>,
+}
+
+impl PaletteState {
+    /// Available commands in the palette.
+    pub const COMMANDS: &'static [(&'static str, &'static str)] = &[
+        ("Toggle Help", "Show keyboard shortcuts and tips"),
+        ("Toggle Tour", "Start the guided feature tour"),
+        ("Cycle Theme", "Switch to the next color theme"),
+        ("Force Redraw", "Refresh the entire display"),
+        ("Toggle Debug", "Show/hide performance overlay"),
+        ("Quit", "Exit the application"),
+    ];
+
+    /// Update filtered commands based on query.
+    pub fn update_filter(&mut self) {
+        let query_lower = self.query.to_lowercase();
+        self.filtered = Self::COMMANDS
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, desc))| {
+                query_lower.is_empty()
+                    || name.to_lowercase().contains(&query_lower)
+                    || desc.to_lowercase().contains(&query_lower)
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        // Clamp selection to valid range
+        if !self.filtered.is_empty() && self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len() - 1;
+        }
+    }
+
+    /// Move selection up.
+    pub fn select_prev(&mut self) {
+        if !self.filtered.is_empty() {
+            self.selected = self.selected.saturating_sub(1);
+        }
+    }
+
+    /// Move selection down.
+    pub fn select_next(&mut self) {
+        if !self.filtered.is_empty() && self.selected < self.filtered.len() - 1 {
+            self.selected += 1;
+        }
+    }
+}
+
+/// State for the Tour overlay.
+#[derive(Clone, Debug, Default)]
+pub struct TourState {
+    /// Current tour step (0-indexed).
+    pub step: usize,
+    /// Highlight rectangle for the current step (if any).
+    pub spotlight: Option<Rect>,
+}
+
+impl TourState {
+    /// Tour step definitions: (title, description, `spotlight_target`).
+    pub const STEPS: &'static [(&'static str, &'static str, Option<&'static str>)] = &[
+        (
+            "Welcome to OpenTUI!",
+            "This tour will guide you through the key features.\nPress Enter to continue, Esc to exit.",
+            None,
+        ),
+        (
+            "Sidebar Navigation",
+            "Use number keys 1-6 or click to switch sections.\nThe sidebar adapts to terminal size.",
+            Some("sidebar"),
+        ),
+        (
+            "Editor Panel",
+            "The main content area displays text with\nfull grapheme and Unicode support.",
+            Some("editor"),
+        ),
+        (
+            "Preview Panel",
+            "See rendered output and visual effects.\nAlpha blending is demonstrated here.",
+            Some("preview"),
+        ),
+        (
+            "Theme System",
+            "Press Ctrl+N to cycle through themes.\n4 built-in themes with full color tokens.",
+            None,
+        ),
+        (
+            "Keyboard Shortcuts",
+            "Press F1 anytime to see all shortcuts.\nTab cycles focus between panels.",
+            None,
+        ),
+        (
+            "Command Palette",
+            "Press Ctrl+P to open the command palette.\nQuickly access any action by typing.",
+            None,
+        ),
+        (
+            "Responsive Layout",
+            "Resize the terminal to see adaptive layouts.\nFull → Compact → Minimal → TooSmall.",
+            None,
+        ),
+        (
+            "Alpha Blending Demo",
+            "This overlay itself demonstrates alpha blending!\nNotice the backdrop transparency.",
+            None,
+        ),
+        (
+            "Performance",
+            "OpenTUI uses diff-based rendering.\nOnly changed cells are sent to the terminal.",
+            None,
+        ),
+        (
+            "Scissor Clipping",
+            "Content is clipped to panel boundaries.\nOverlays use the scissor stack.",
+            None,
+        ),
+        (
+            "Tour Complete!",
+            "You've seen all the key features.\nPress Esc to exit and explore on your own.",
+            None,
+        ),
+    ];
+
+    /// Advance to the next step. Returns true if tour is complete.
+    pub const fn next_step(&mut self) -> bool {
+        if self.step < Self::STEPS.len() - 1 {
+            self.step += 1;
+            false
+        } else {
+            true
+        }
+    }
+
+    /// Go back to the previous step.
+    pub const fn prev_step(&mut self) {
+        self.step = self.step.saturating_sub(1);
+    }
+
+    /// Get current step info.
+    #[must_use]
+    pub fn current(&self) -> (&'static str, &'static str, Option<&'static str>) {
+        Self::STEPS
+            .get(self.step)
+            .copied()
+            .unwrap_or(("", "", None))
+    }
+}
+
+/// Which overlay is currently active.
+#[derive(Clone, Debug)]
+pub enum Overlay {
+    /// Help overlay with keyboard shortcuts.
+    Help(HelpState),
+    /// Command palette for quick actions.
+    Palette(PaletteState),
+    /// Guided tour overlay.
+    Tour(TourState),
+}
+
+/// Manages overlay state and transitions.
+#[derive(Clone, Debug, Default)]
+pub struct OverlayManager {
+    /// Currently active overlay (if any).
+    pub active: Option<Overlay>,
+    /// Animation state for the current overlay.
+    pub anim: OverlayAnim,
+}
+
+impl OverlayManager {
+    /// Open a new overlay.
+    pub fn open(&mut self, overlay: Overlay) {
+        self.active = Some(overlay);
+        self.anim = OverlayAnim::opening();
+    }
+
+    /// Close the current overlay.
+    pub const fn close(&mut self) {
+        self.anim.start_close();
+    }
+
+    /// Update overlay state for a new frame.
+    pub fn tick(&mut self) {
+        if self.active.is_some() {
+            let done = self.anim.tick();
+            if done && self.anim.is_closed() {
+                self.active = None;
+            }
+        }
+    }
+
+    /// Check if any overlay is active (including closing animation).
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        self.active.is_some()
+    }
+
+    /// Get the current overlay kind (for mode matching).
+    #[must_use]
+    pub fn kind(&self) -> Option<AppMode> {
+        self.active.as_ref().map(|o| match o {
+            Overlay::Help(_) => AppMode::Help,
+            Overlay::Palette(_) => AppMode::CommandPalette,
+            Overlay::Tour(_) => AppMode::Tour,
+        })
     }
 }
 
@@ -855,14 +1196,15 @@ impl PanelLayout {
         let (sidebar, main_area) = content.split_h(sidebar_w);
 
         // Editor/Preview split only in Full mode.
-        let (editor, preview) = if mode == LayoutMode::Full && main_area.w > layout::EDITOR_MIN_WIDTH {
-            let preview_w = main_area.w * layout::PREVIEW_WIDTH_RATIO / 100;
-            let editor_w = main_area.w.saturating_sub(preview_w);
-            main_area.split_h(editor_w)
-        } else {
-            // Compact/Minimal: editor takes all main area, no preview.
-            (main_area, Rect::default())
-        };
+        let (editor, preview) =
+            if mode == LayoutMode::Full && main_area.w > layout::EDITOR_MIN_WIDTH {
+                let preview_w = main_area.w * layout::PREVIEW_WIDTH_RATIO / 100;
+                let editor_w = main_area.w.saturating_sub(preview_w);
+                main_area.split_h(editor_w)
+            } else {
+                // Compact/Minimal: editor takes all main area, no preview.
+                (main_area, Rect::default())
+            };
 
         Self {
             mode,
@@ -1051,6 +1393,10 @@ pub struct App {
     pub tour_step: usize,
     /// Total tour steps.
     pub tour_total: usize,
+
+    // Overlay state
+    /// Overlay manager for modal overlays.
+    pub overlays: OverlayManager,
 }
 
 impl Default for App {
@@ -1067,7 +1413,8 @@ impl Default for App {
             show_debug: false,
             force_redraw: false,
             tour_step: 0,
-            tour_total: 12, // Placeholder tour length
+            tour_total: TourState::STEPS.len(),
+            overlays: OverlayManager::default(),
         }
     }
 }
@@ -1174,29 +1521,38 @@ impl App {
                 self.should_quit = true;
             }
             Action::ToggleHelp => {
-                self.mode = if self.mode == AppMode::Help {
-                    AppMode::Normal
+                if self.mode == AppMode::Help {
+                    self.mode = AppMode::Normal;
+                    self.overlays.close();
                 } else {
-                    AppMode::Help
-                };
+                    self.mode = AppMode::Help;
+                    self.overlays.open(Overlay::Help(HelpState::default()));
+                }
             }
             Action::TogglePalette => {
-                self.mode = if self.mode == AppMode::CommandPalette {
-                    AppMode::Normal
+                if self.mode == AppMode::CommandPalette {
+                    self.mode = AppMode::Normal;
+                    self.overlays.close();
                 } else {
-                    AppMode::CommandPalette
-                };
+                    self.mode = AppMode::CommandPalette;
+                    let mut state = PaletteState::default();
+                    state.update_filter(); // Initialize with all commands
+                    self.overlays.open(Overlay::Palette(state));
+                }
             }
             Action::ToggleTour => {
                 if self.mode == AppMode::Tour {
                     self.mode = AppMode::Normal;
+                    self.overlays.close();
                 } else {
                     self.mode = AppMode::Tour;
                     self.tour_step = 0;
+                    self.overlays.open(Overlay::Tour(TourState::default()));
                 }
             }
             Action::CloseOverlay => {
                 self.mode = AppMode::Normal;
+                self.overlays.close();
             }
             Action::CycleFocusForward => {
                 if self.mode == AppMode::Normal {
@@ -1235,6 +1591,15 @@ impl App {
 
         // Clear force redraw flag after use
         self.force_redraw = false;
+
+        // Update overlay animations
+        self.overlays.tick();
+
+        // If overlay finished closing, ensure mode is Normal
+        if !self.overlays.is_active() && self.mode != AppMode::Normal {
+            // Overlay closed, sync mode
+            self.mode = AppMode::Normal;
+        }
 
         // Check max frames limit
         if let Some(max) = self.max_frames {
@@ -1371,14 +1736,16 @@ impl InputPump {
             match io::stdin().read(&mut self.scratch) {
                 Ok(n) if n > 0 => {
                     // Append to accumulator, enforcing size limit.
-                    let space = self.max_accumulator_size.saturating_sub(self.accumulator.len());
+                    let space = self
+                        .max_accumulator_size
+                        .saturating_sub(self.accumulator.len());
                     let to_add = n.min(space);
                     self.accumulator.extend_from_slice(&self.scratch[..to_add]);
 
                     // Parse all complete events from accumulator.
                     self.parse_accumulated(&mut events);
                 }
-                Ok(_) => {} // No bytes read
+                Ok(_) => {}                                           // No bytes read
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {} // No data available
                 Err(e) => return Err(e),
             }
@@ -1531,12 +1898,7 @@ fn run_headless_smoke(config: &Config) {
     let bg = Rgba::from_hex("#1a1a2e").unwrap_or(Rgba::BLACK);
     buffer.clear(bg);
 
-    buffer.draw_text(
-        2,
-        0,
-        "OpenTUI Showcase",
-        Style::fg(Rgba::WHITE).with_bold(),
-    );
+    buffer.draw_text(2, 0, "OpenTUI Showcase", Style::fg(Rgba::WHITE).with_bold());
 
     buffer.draw_text(
         2,
@@ -1674,8 +2036,8 @@ fn draw_frame(renderer: &mut Renderer, app: &App) {
     // === Pass 3: Panels ===
     draw_pass_panels(buffer, &panels, &theme, app);
 
-    // === Pass 4: Overlays (placeholder) ===
-    // Will be implemented when overlay system is added.
+    // === Pass 4: Overlays ===
+    draw_pass_overlays(buffer, &panels, &theme, app);
 
     // === Pass 5: Toasts (placeholder) ===
     // Will be implemented when toast system is added.
@@ -1707,12 +2069,7 @@ fn draw_pass_chrome(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
         "OpenTUI",
         Style::fg(theme.accent_primary).with_bold(),
     );
-    buffer.draw_text(
-        top_x + 10,
-        top_y,
-        "Showcase",
-        Style::fg(theme.fg1),
-    );
+    buffer.draw_text(top_x + 10, top_y, "Showcase", Style::fg(theme.fg1));
 
     // Center: Current section (if there's enough space)
     if panels.top_bar.w > 60 {
@@ -1828,6 +2185,379 @@ fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
     }
 }
 
+/// Pass 4: Draw overlays (help, command palette, tour).
+///
+/// Overlays render at the highest z-order with:
+/// - Semi-transparent backdrop that dims the underlying UI
+/// - Glass-like panel with alpha blending
+/// - Animated enter/exit transitions
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn draw_pass_overlays(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    app: &App,
+) {
+    // Skip if no overlay is active
+    if !app.overlays.is_active() {
+        return;
+    }
+
+    let opacity = app.overlays.anim.opacity();
+    if opacity <= 0.0 {
+        return;
+    }
+
+    // --- Backdrop ---
+    // Draw a semi-transparent overlay that dims the entire screen
+    let backdrop_alpha = 0.6 * opacity;
+    let backdrop_color = Rgba::new(0.0, 0.0, 0.0, backdrop_alpha);
+
+    // Use opacity stack for proper alpha blending
+    buffer.push_opacity(opacity);
+
+    // Fill backdrop with blended dark color
+    for y in 0..panels.screen.h {
+        for x in 0..panels.screen.w {
+            let cell = buffer.get(x, y);
+            if let Some(cell) = cell {
+                let mut new_cell = *cell;
+                // Blend backdrop color over existing background
+                let existing_bg = new_cell.bg;
+                new_cell.bg = backdrop_color.blend_over(existing_bg);
+                buffer.set(x, y, new_cell);
+            }
+        }
+    }
+
+    // --- Overlay panel ---
+    match &app.overlays.active {
+        Some(Overlay::Help(state)) => {
+            draw_help_overlay(buffer, panels, theme, state, opacity);
+        }
+        Some(Overlay::Palette(state)) => {
+            draw_palette_overlay(buffer, panels, theme, state, opacity);
+        }
+        Some(Overlay::Tour(state)) => {
+            draw_tour_overlay(buffer, panels, theme, state, opacity);
+        }
+        None => {}
+    }
+
+    buffer.pop_opacity();
+}
+
+/// Draw the Help overlay panel.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss
+)]
+fn draw_help_overlay(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    state: &HelpState,
+    _opacity: f32,
+) {
+    // Calculate overlay dimensions (centered, 60% of screen)
+    let overlay_w = (panels.screen.w * 60 / 100).clamp(40, 80);
+    let overlay_h = (panels.screen.h * 70 / 100).clamp(12, 30);
+    let overlay_x = (panels.screen.w - overlay_w) / 2;
+    let overlay_y = (panels.screen.h - overlay_h) / 2;
+
+    let rect = Rect::new(overlay_x as i32, overlay_y as i32, overlay_w, overlay_h);
+
+    // Draw glass panel background with subtle gradient
+    let glass_bg = Rgba::new(
+        theme.bg1.r,
+        theme.bg1.g,
+        theme.bg1.b,
+        0.95, // Nearly opaque for readability
+    );
+    draw_rect_bg(buffer, &rect, glass_bg);
+
+    // Draw border (double-line style for "premium" look)
+    draw_overlay_border(buffer, &rect, theme);
+
+    // Draw title bar
+    let title = "═══ Help (F1) ═══";
+    let title_x = overlay_x + (overlay_w.saturating_sub(title.len() as u32)) / 2;
+    buffer.draw_text(
+        title_x,
+        overlay_y,
+        title,
+        Style::fg(theme.accent_primary).with_bold(),
+    );
+
+    // Draw content with scroll
+    let content_x = overlay_x + 2;
+    let mut content_y = overlay_y + 2;
+    let content_max_y = overlay_y + overlay_h - 2;
+
+    let mut line_idx = 0;
+    for (section_name, items) in HelpState::SECTIONS {
+        // Skip lines before scroll offset
+        if line_idx < state.scroll {
+            line_idx += 1 + items.len();
+            continue;
+        }
+
+        if content_y >= content_max_y {
+            break;
+        }
+
+        // Section header
+        if line_idx >= state.scroll {
+            buffer.draw_text(
+                content_x,
+                content_y,
+                section_name,
+                Style::fg(theme.accent_secondary).with_bold(),
+            );
+            content_y += 1;
+        }
+        line_idx += 1;
+
+        // Section items
+        for item in *items {
+            if line_idx < state.scroll {
+                line_idx += 1;
+                continue;
+            }
+            if content_y >= content_max_y {
+                break;
+            }
+            buffer.draw_text(content_x + 1, content_y, item, Style::fg(theme.fg1));
+            content_y += 1;
+            line_idx += 1;
+        }
+
+        content_y += 1; // Blank line between sections
+    }
+
+    // Draw footer with hint
+    let footer = "Press Esc to close";
+    let footer_x = overlay_x + (overlay_w.saturating_sub(footer.len() as u32)) / 2;
+    buffer.draw_text(
+        footer_x,
+        overlay_y + overlay_h - 1,
+        footer,
+        Style::fg(theme.fg2),
+    );
+}
+
+/// Draw the Command Palette overlay.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn draw_palette_overlay(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    state: &PaletteState,
+    _opacity: f32,
+) {
+    // Palette is narrower and positioned higher
+    let overlay_w = (panels.screen.w * 50 / 100).clamp(40, 60);
+    let overlay_h = (state.filtered.len() as u32 + 4)
+        .min(panels.screen.h * 50 / 100)
+        .max(6);
+    let overlay_x = (panels.screen.w - overlay_w) / 2;
+    let overlay_y = panels.screen.h / 4; // Upper third
+
+    let rect = Rect::new(overlay_x as i32, overlay_y as i32, overlay_w, overlay_h);
+
+    // Draw glass background
+    let glass_bg = Rgba::new(theme.bg1.r, theme.bg1.g, theme.bg1.b, 0.95);
+    draw_rect_bg(buffer, &rect, glass_bg);
+    draw_overlay_border(buffer, &rect, theme);
+
+    // Title
+    let title = "═══ Command Palette (Ctrl+P) ═══";
+    let title_x = overlay_x + overlay_w.saturating_sub(title.len() as u32) / 2;
+    buffer.draw_text(
+        title_x,
+        overlay_y,
+        title,
+        Style::fg(theme.accent_secondary).with_bold(),
+    );
+
+    // Search prompt
+    let prompt = "> ";
+    buffer.draw_text(
+        overlay_x + 2,
+        overlay_y + 2,
+        prompt,
+        Style::fg(theme.accent_primary),
+    );
+
+    // Query text (or placeholder)
+    let query_display = if state.query.is_empty() {
+        "Type to search..."
+    } else {
+        &state.query
+    };
+    let query_style = if state.query.is_empty() {
+        Style::fg(theme.fg2)
+    } else {
+        Style::fg(theme.fg0)
+    };
+    buffer.draw_text(overlay_x + 4, overlay_y + 2, query_display, query_style);
+
+    // Draw filtered commands
+    let list_y = overlay_y + 4;
+    let max_items = (overlay_h - 5).min(state.filtered.len() as u32);
+
+    for (i, &cmd_idx) in state.filtered.iter().take(max_items as usize).enumerate() {
+        let y = list_y + i as u32;
+        let (name, desc) = PaletteState::COMMANDS[cmd_idx];
+
+        let is_selected = i == state.selected;
+        let style = if is_selected {
+            Style::fg(theme.bg0).with_bg(theme.accent_primary)
+        } else {
+            Style::fg(theme.fg0)
+        };
+
+        // Selection indicator
+        let indicator = if is_selected { "▸ " } else { "  " };
+        buffer.draw_text(overlay_x + 2, y, indicator, Style::fg(theme.accent_primary));
+
+        // Command name
+        buffer.draw_text(overlay_x + 4, y, name, style);
+
+        // Description (truncated)
+        let desc_x = overlay_x + 4 + name.len() as u32 + 2;
+        let desc_max = overlay_w.saturating_sub(desc_x - overlay_x + 2);
+        if desc_max > 5 {
+            let desc_truncated: String = desc.chars().take(desc_max as usize).collect();
+            buffer.draw_text(desc_x, y, &desc_truncated, Style::fg(theme.fg2));
+        }
+    }
+}
+
+/// Draw the Tour overlay.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn draw_tour_overlay(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    state: &TourState,
+    _opacity: f32,
+) {
+    let (title, desc, _spotlight) = state.current();
+
+    // Tour panel at bottom of screen (like a HUD)
+    let overlay_w = (panels.screen.w * 70 / 100).clamp(50, 80);
+    let overlay_h = 8_u32;
+    let overlay_x = (panels.screen.w - overlay_w) / 2;
+    let overlay_y = panels.screen.h.saturating_sub(overlay_h + 2);
+
+    let rect = Rect::new(overlay_x as i32, overlay_y as i32, overlay_w, overlay_h);
+
+    // Draw glass background
+    let glass_bg = Rgba::new(theme.bg1.r, theme.bg1.g, theme.bg1.b, 0.95);
+    draw_rect_bg(buffer, &rect, glass_bg);
+    draw_overlay_border(buffer, &rect, theme);
+
+    // Step indicator
+    let step_text = format!(
+        "═══ Tour Step {}/{} ═══",
+        state.step + 1,
+        TourState::STEPS.len()
+    );
+    let step_x = overlay_x + overlay_w.saturating_sub(step_text.len() as u32) / 2;
+    buffer.draw_text(
+        step_x,
+        overlay_y,
+        &step_text,
+        Style::fg(theme.accent_success).with_bold(),
+    );
+
+    // Title
+    buffer.draw_text(
+        overlay_x + 3,
+        overlay_y + 2,
+        title,
+        Style::fg(theme.fg0).with_bold(),
+    );
+
+    // Description (may have newlines)
+    let mut desc_y = overlay_y + 4;
+    for line in desc.lines() {
+        if desc_y >= overlay_y + overlay_h - 1 {
+            break;
+        }
+        buffer.draw_text(overlay_x + 3, desc_y, line, Style::fg(theme.fg1));
+        desc_y += 1;
+    }
+
+    // Navigation hint
+    let nav_hint = "Enter: Next │ Backspace: Prev │ Esc: Exit";
+    let nav_x = overlay_x + overlay_w.saturating_sub(nav_hint.len() as u32) / 2;
+    buffer.draw_text(
+        nav_x,
+        overlay_y + overlay_h - 1,
+        nav_hint,
+        Style::fg(theme.fg2),
+    );
+
+    // Progress bar
+    let progress_w = overlay_w.saturating_sub(6);
+    let filled =
+        (progress_w as f32 * (state.step + 1) as f32 / TourState::STEPS.len() as f32) as u32;
+    let progress_x = overlay_x + 3;
+    let progress_y = overlay_y + overlay_h - 2;
+
+    // Draw progress track
+    for i in 0..progress_w {
+        let ch = if i < filled { '█' } else { '░' };
+        let color = if i < filled {
+            theme.accent_success
+        } else {
+            theme.fg2
+        };
+        buffer.draw_text(
+            progress_x + i,
+            progress_y,
+            &ch.to_string(),
+            Style::fg(color),
+        );
+    }
+}
+
+/// Draw a decorative border around an overlay panel.
+fn draw_overlay_border(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme) {
+    let x = u32::try_from(rect.x).unwrap_or(0);
+    let y = u32::try_from(rect.y).unwrap_or(0);
+    let w = rect.w;
+    let h = rect.h;
+
+    let border_style = Style::fg(theme.accent_primary);
+
+    // Top and bottom edges
+    for col in 1..w.saturating_sub(1) {
+        buffer.draw_text(x + col, y, "═", border_style);
+        buffer.draw_text(x + col, y + h - 1, "═", border_style);
+    }
+
+    // Left and right edges
+    for row in 1..h.saturating_sub(1) {
+        buffer.draw_text(x, y + row, "║", border_style);
+        buffer.draw_text(x + w - 1, y + row, "║", border_style);
+    }
+
+    // Corners
+    buffer.draw_text(x, y, "╔", border_style);
+    buffer.draw_text(x + w - 1, y, "╗", border_style);
+    buffer.draw_text(x, y + h - 1, "╚", border_style);
+    buffer.draw_text(x + w - 1, y + h - 1, "╝", border_style);
+}
+
 /// Draw the editor panel content.
 fn draw_editor_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme) {
     let center_x = u32::try_from(rect.x).unwrap_or(0) + rect.w / 2;
@@ -1846,7 +2576,12 @@ fn draw_editor_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme) {
     let subtext = "Press Ctrl+Q to quit";
     let subtext_len = u32::try_from(subtext.len()).unwrap_or(0);
     let subtext_x = center_x.saturating_sub(subtext_len / 2);
-    buffer.draw_text(subtext_x, center_y.saturating_add(1), subtext, Style::fg(theme.fg2));
+    buffer.draw_text(
+        subtext_x,
+        center_y.saturating_add(1),
+        subtext,
+        Style::fg(theme.fg2),
+    );
 }
 
 /// Draw the preview panel with border.
@@ -1930,10 +2665,25 @@ fn draw_too_small_message(buffer: &mut OptimizedBuffer, width: u32, height: u32,
         buf.draw_text(x, y, text, style);
     };
 
-    draw_centered(buffer, center_y.saturating_sub(2), msg1, Style::fg(theme.accent_error).with_bold());
-    draw_centered(buffer, center_y.saturating_sub(1), &msg2, Style::fg(theme.fg0));
+    draw_centered(
+        buffer,
+        center_y.saturating_sub(2),
+        msg1,
+        Style::fg(theme.accent_error).with_bold(),
+    );
+    draw_centered(
+        buffer,
+        center_y.saturating_sub(1),
+        &msg2,
+        Style::fg(theme.fg0),
+    );
     draw_centered(buffer, center_y, &msg3, Style::fg(theme.fg0));
-    draw_centered(buffer, center_y.saturating_add(2), msg4, Style::fg(theme.fg0));
+    draw_centered(
+        buffer,
+        center_y.saturating_add(2),
+        msg4,
+        Style::fg(theme.fg0),
+    );
 }
 
 /// Draw the sidebar navigation panel.
@@ -1982,7 +2732,9 @@ fn draw_sidebar(
         let style = if is_selected {
             if is_focused {
                 // Selected + focused: inverted colors
-                Style::fg(theme.bg0).with_bg(theme.accent_primary).with_bold()
+                Style::fg(theme.bg0)
+                    .with_bg(theme.accent_primary)
+                    .with_bold()
             } else {
                 // Selected but not focused: highlight bg
                 Style::fg(theme.fg0).with_bg(theme.selection_bg)
@@ -1998,7 +2750,11 @@ fn draw_sidebar(
         }
 
         // Draw the text (with padding for alignment)
-        let text_x = if mode == LayoutMode::Compact { content_x } else { content_x + 2 };
+        let text_x = if mode == LayoutMode::Compact {
+            content_x
+        } else {
+            content_x + 2
+        };
         buffer.draw_text(text_x, y, &text, style);
 
         y += 1;
@@ -2008,7 +2764,12 @@ fn draw_sidebar(
     let bottom = u32::try_from(sidebar.bottom()).unwrap_or(0);
     if y < bottom.saturating_sub(1) && mode == LayoutMode::Full {
         let count_text = format!("{}/{}", Section::ALL.len(), Section::ALL.len());
-        buffer.draw_text(content_x + 2, bottom.saturating_sub(2), &count_text, Style::fg(theme.fg2));
+        buffer.draw_text(
+            content_x + 2,
+            bottom.saturating_sub(2),
+            &count_text,
+            Style::fg(theme.fg2),
+        );
     }
 }
 
@@ -2071,9 +2832,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let result = Config::from_args(args(&["demo_showcase"]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert_eq!(config.fps_cap, 60);
         assert!(config.enable_mouse);
@@ -2090,9 +2850,8 @@ mod tests {
     #[test]
     fn test_fps_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--fps", "30"]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert_eq!(config.fps_cap, 30);
     }
@@ -2100,9 +2859,8 @@ mod tests {
     #[test]
     fn test_no_mouse_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--no-mouse"]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert!(!config.enable_mouse);
     }
@@ -2110,23 +2868,17 @@ mod tests {
     #[test]
     fn test_headless_smoke_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--headless-smoke"]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert!(config.headless_smoke);
     }
 
     #[test]
     fn test_headless_size() {
-        let result = Config::from_args(args(&[
-            "demo_showcase",
-            "--headless-size",
-            "120x40",
-        ]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let result = Config::from_args(args(&["demo_showcase", "--headless-size", "120x40"]));
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert_eq!(config.headless_size, (120, 40));
     }
@@ -2134,9 +2886,8 @@ mod tests {
     #[test]
     fn test_max_frames() {
         let result = Config::from_args(args(&["demo_showcase", "--max-frames", "100"]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert_eq!(config.max_frames, Some(100));
     }
@@ -2158,14 +2909,9 @@ mod tests {
 
     #[test]
     fn test_cap_preset() {
-        let result = Config::from_args(args(&[
-            "demo_showcase",
-            "--cap-preset",
-            "no_mouse",
-        ]));
-        let config = match result {
-            ParseResult::Config(c) => c,
-            _ => panic!("Expected Config"),
+        let result = Config::from_args(args(&["demo_showcase", "--cap-preset", "no_mouse"]));
+        let ParseResult::Config(config) = result else {
+            panic!("Expected Config")
         };
         assert_eq!(config.cap_preset, CapPreset::NoMouse);
     }
@@ -2585,8 +3331,10 @@ mod tests {
 
     #[test]
     fn test_app_new_tour_mode() {
-        let mut config = Config::default();
-        config.start_in_tour = true;
+        let config = Config {
+            start_in_tour: true,
+            ..Default::default()
+        };
         let app = App::new(&config);
         assert_eq!(app.mode, AppMode::Tour);
     }
@@ -2623,8 +3371,10 @@ mod tests {
 
     #[test]
     fn test_app_max_frames() {
-        let mut config = Config::default();
-        config.max_frames = Some(5);
+        let config = Config {
+            max_frames: Some(5),
+            ..Default::default()
+        };
         let mut app = App::new(&config);
 
         for _ in 0..4 {
