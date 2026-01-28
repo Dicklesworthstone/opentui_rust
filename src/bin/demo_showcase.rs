@@ -3551,6 +3551,37 @@ fn run_interactive(config: &Config) -> io::Result<()> {
     Ok(())
 }
 
+/// Pre-allocated hyperlink IDs for OSC 8 links.
+///
+/// Link IDs are allocated from the renderer's LinkPool at the start of each frame.
+/// Only valid for the current frame; reset before next frame.
+#[derive(Clone, Debug, Default)]
+struct PreallocatedLinks {
+    /// Link to OpenTUI GitHub repo.
+    repo_url: Option<u32>,
+    /// Link to OpenTUI documentation.
+    docs_url: Option<u32>,
+    /// Link to Unicode reference.
+    unicode_url: Option<u32>,
+}
+
+impl PreallocatedLinks {
+    /// Allocate all links from the renderer's link pool.
+    ///
+    /// Returns None values if hyperlinks are disabled.
+    fn allocate(link_pool: &mut opentui::LinkPool, hyperlinks_enabled: bool) -> Self {
+        if !hyperlinks_enabled {
+            return Self::default();
+        }
+
+        Self {
+            repo_url: Some(link_pool.alloc("https://github.com/opentui/opentui")),
+            docs_url: Some(link_pool.alloc("https://opentui.dev")),
+            unicode_url: Some(link_pool.alloc("https://unicode.org/charts/")),
+        }
+    }
+}
+
 /// Data needed for the inspector/debug panel.
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)] // Capabilities naturally map to booleans
@@ -3620,6 +3651,12 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
     let panels = PanelLayout::compute(width, height);
     let theme = app.ui_theme.tokens();
 
+    // Pre-allocate hyperlinks (only if terminal supports them)
+    let links = PreallocatedLinks::allocate(
+        renderer.link_pool(),
+        app.effective_caps.hyperlinks,
+    );
+
     let buffer = renderer.buffer();
 
     // === Pass 1: Background ===
@@ -3635,10 +3672,10 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
     draw_pass_chrome(buffer, &panels, &theme, app);
 
     // === Pass 3: Panels ===
-    draw_pass_panels(buffer, &panels, &theme, app);
+    draw_pass_panels(buffer, &panels, &theme, app, &links);
 
     // === Pass 4: Overlays ===
-    draw_pass_overlays(buffer, &panels, &theme, app);
+    draw_pass_overlays(buffer, &panels, &theme, app, &links);
 
     // === Pass 5: Toasts ===
     draw_pass_toasts(buffer, &panels, &theme, app);
@@ -3850,7 +3887,13 @@ fn draw_pass_chrome(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 }
 
 /// Pass 3: Draw main panels (sidebar, editor, preview).
-fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &Theme, app: &App) {
+fn draw_pass_panels(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    app: &App,
+    links: &PreallocatedLinks,
+) {
     // --- Sidebar ---
     if !panels.sidebar.is_empty() {
         draw_rect_bg(buffer, &panels.sidebar, theme.bg2);
@@ -3870,7 +3913,7 @@ fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
     // --- Logs panel ---
     if !panels.logs.is_empty() {
         draw_rect_bg(buffer, &panels.logs, theme.bg1);
-        draw_logs_panel(buffer, &panels.logs, theme, app);
+        draw_logs_panel(buffer, &panels.logs, theme, app, links);
     }
 }
 
