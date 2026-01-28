@@ -2516,11 +2516,12 @@ impl App {
                 }
             }
             Action::PaletteExecute => {
-                // Get the selected command before closing
-                let cmd_action = if let Some(Overlay::Palette(ref state)) = self.overlays.active {
+                // Get the selected command name and action before closing
+                let cmd_info = if let Some(Overlay::Palette(ref state)) = self.overlays.active {
                     if let Some(&cmd_idx) = state.filtered.get(state.selected) {
+                        let (name, _) = PaletteState::COMMANDS[cmd_idx];
                         // Map command index to action
-                        match cmd_idx {
+                        let action = match cmd_idx {
                             0 => Some(Action::ToggleHelp),    // "Toggle Help"
                             1 => Some(Action::ToggleTour),   // "Toggle Tour"
                             2 => Some(Action::CycleTheme),   // "Cycle Theme"
@@ -2528,7 +2529,8 @@ impl App {
                             4 => Some(Action::ToggleDebug),  // "Toggle Debug"
                             5 => Some(Action::Quit),         // "Quit"
                             _ => None,
-                        }
+                        };
+                        action.map(|a| (name, a))
                     } else {
                         None
                     }
@@ -2538,8 +2540,12 @@ impl App {
                 // Close the palette first
                 self.mode = AppMode::Normal;
                 self.overlays.close();
-                // Then execute the command if any
-                if let Some(cmd) = cmd_action {
+                // Then execute the command if any, with toast notification
+                if let Some((name, cmd)) = cmd_info {
+                    // Show toast for non-quit commands
+                    if !matches!(cmd, Action::Quit) {
+                        self.toast_info(format!("Executed: {name}"));
+                    }
                     self.apply_action(&cmd);
                 }
             }
