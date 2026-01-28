@@ -469,6 +469,267 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
 }
 
 // ============================================================================
+// Backend Abstraction (Direct vs Threaded Renderer)
+// ============================================================================
+
+/// Backend wrapper for direct vs threaded rendering.
+///
+/// Provides a unified interface over `Renderer` and `ThreadedRenderer`.
+/// For threaded mode, we maintain a local hit grid and scissor stack
+/// since `ThreadedRenderer` doesn't provide these directly.
+pub enum Backend {
+    /// Direct (synchronous) renderer.
+    Direct(Renderer),
+    /// Threaded renderer with local hit testing state.
+    Threaded {
+        renderer: ThreadedRenderer,
+        hit_grid: HitGrid,
+        hit_scissor: ScissorStack,
+        capabilities: Capabilities,
+    },
+}
+
+impl Backend {
+    /// Create a new direct (synchronous) backend.
+    pub fn new_direct(width: u32, height: u32, options: RendererOptions) -> io::Result<Self> {
+        Ok(Self::Direct(Renderer::new_with_options(width, height, options)?))
+    }
+
+    /// Create a new threaded backend.
+    pub fn new_threaded(width: u32, height: u32, options: RendererOptions) -> io::Result<Self> {
+        let renderer = ThreadedRenderer::new_with_options(width, height, options)?;
+        let capabilities = Capabilities::detect();
+        Ok(Self::Threaded {
+            renderer,
+            hit_grid: HitGrid::new(width, height),
+            hit_scissor: ScissorStack::new(),
+            capabilities,
+        })
+    }
+
+    /// Get the back buffer for drawing.
+    pub fn buffer(&mut self) -> &mut OptimizedBuffer {
+        match self {
+            Self::Direct(r) => r.buffer(),
+            Self::Threaded { renderer, .. } => renderer.buffer(),
+        }
+    }
+
+    /// Get the grapheme pool.
+    pub fn grapheme_pool(&mut self) -> &mut GraphemePool {
+        match self {
+            Self::Direct(r) => r.grapheme_pool(),
+            Self::Threaded { renderer, .. } => renderer.grapheme_pool(),
+        }
+    }
+
+    /// Get the link pool.
+    pub fn link_pool(&mut self) -> &mut opentui::LinkPool {
+        match self {
+            Self::Direct(r) => r.link_pool(),
+            Self::Threaded { renderer, .. } => renderer.link_pool(),
+        }
+    }
+
+    /// Present the current frame.
+    pub fn present(&mut self) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.present(),
+            Self::Threaded { renderer, .. } => renderer.present(),
+        }
+    }
+
+    /// Resize the renderer.
+    pub fn resize(&mut self, width: u32, height: u32) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.resize(width, height),
+            Self::Threaded {
+                renderer,
+                hit_grid,
+                hit_scissor,
+                ..
+            } => {
+                hit_grid.resize(width, height);
+                hit_scissor.clear();
+                renderer.resize(width, height)
+            }
+        }
+    }
+
+    /// Set the terminal title.
+    pub fn set_title(&mut self, title: &str) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.set_title(title),
+            Self::Threaded { renderer, .. } => renderer.set_title(title),
+        }
+    }
+
+    /// Set cursor position and visibility.
+    pub fn set_cursor(&mut self, x: u32, y: u32, visible: bool) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.set_cursor(x, y, visible),
+            Self::Threaded { renderer, .. } => renderer.set_cursor(x, y, visible),
+        }
+    }
+
+    /// Set cursor style.
+    pub fn set_cursor_style(&mut self, style: CursorStyle, blinking: bool) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.set_cursor_style(style, blinking),
+            Self::Threaded { renderer, .. } => renderer.set_cursor_style(style, blinking),
+        }
+    }
+
+    /// Get terminal capabilities.
+    pub fn capabilities(&self) -> &Capabilities {
+        match self {
+            Self::Direct(r) => r.capabilities(),
+            Self::Threaded { capabilities, .. } => capabilities,
+        }
+    }
+
+    /// Register a hit area for mouse testing.
+    pub fn register_hit_area(&mut self, x: u32, y: u32, width: u32, height: u32, id: u32) {
+        match self {
+            Self::Direct(r) => r.register_hit_area(x, y, width, height, id),
+            Self::Threaded {
+                hit_grid,
+                hit_scissor,
+                ..
+            } => {
+                let rect = ClipRect::new(x as i32, y as i32, width, height);
+                if let Some(intersect) = hit_scissor.current().intersect(&rect) {
+                    if !intersect.is_empty() {
+                        hit_grid.register(
+                            intersect.x.max(0) as u32,
+                            intersect.y.max(0) as u32,
+                            intersect.width,
+                            intersect.height,
+                            id,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Test which hit area contains a point.
+    #[must_use]
+    pub fn hit_test(&self, x: u32, y: u32) -> Option<u32> {
+        match self {
+            Self::Direct(r) => r.hit_test(x, y),
+            Self::Threaded { hit_grid, .. } => hit_grid.test(x, y),
+        }
+    }
+
+    /// Push a hit-scissor rectangle.
+    pub fn push_hit_scissor(&mut self, rect: ClipRect) {
+        match self {
+            Self::Direct(r) => r.push_hit_scissor(rect),
+            Self::Threaded { hit_scissor, .. } => hit_scissor.push(rect),
+        }
+    }
+
+    /// Pop a hit-scissor rectangle.
+    pub fn pop_hit_scissor(&mut self) {
+        match self {
+            Self::Direct(r) => r.pop_hit_scissor(),
+            Self::Threaded { hit_scissor, .. } => hit_scissor.pop(),
+        }
+    }
+
+    /// Clear all hit-scissor rectangles.
+    pub fn clear_hit_scissors(&mut self) {
+        match self {
+            Self::Direct(r) => r.clear_hit_scissors(),
+            Self::Threaded { hit_scissor, .. } => hit_scissor.clear(),
+        }
+    }
+
+    /// Force next present to do a full redraw.
+    pub fn invalidate(&mut self) {
+        match self {
+            Self::Direct(r) => r.invalidate(),
+            Self::Threaded { renderer, .. } => {
+                let _ = renderer.invalidate();
+            }
+        }
+    }
+
+    /// Set the background color.
+    pub fn set_background(&mut self, color: Rgba) {
+        match self {
+            Self::Direct(r) => r.set_background(color),
+            Self::Threaded { renderer, .. } => renderer.set_background(color),
+        }
+    }
+
+    /// Clear the buffer.
+    pub fn clear(&mut self) {
+        match self {
+            Self::Direct(r) => r.clear(),
+            Self::Threaded { renderer, .. } => renderer.clear(),
+        }
+    }
+
+    /// Get render stats (for inspector).
+    pub fn stats(&self) -> RenderStatsView {
+        match self {
+            Self::Direct(r) => RenderStatsView::Direct(r.stats()),
+            Self::Threaded { renderer, .. } => RenderStatsView::Threaded(renderer.stats()),
+        }
+    }
+
+    /// Cleanup (for direct renderer only - threaded uses shutdown).
+    pub fn cleanup(&mut self) -> io::Result<()> {
+        match self {
+            Self::Direct(r) => r.cleanup(),
+            Self::Threaded { .. } => Ok(()), // Threaded cleanup happens on drop
+        }
+    }
+
+    /// Shutdown the backend (consumes self for threaded).
+    pub fn shutdown(self) -> io::Result<()> {
+        match self {
+            Self::Direct(_) => Ok(()), // Direct renderer cleans up on drop
+            Self::Threaded { renderer, .. } => renderer.shutdown(),
+        }
+    }
+}
+
+/// View over render stats (handles both renderer types).
+pub enum RenderStatsView<'a> {
+    Direct(&'a opentui::RenderStats),
+    Threaded(&'a opentui::renderer::ThreadedRenderStats),
+}
+
+impl RenderStatsView<'_> {
+    /// Get total frames rendered.
+    pub fn frames(&self) -> u64 {
+        match self {
+            Self::Direct(s) => s.frames,
+            Self::Threaded(s) => s.frames,
+        }
+    }
+
+    /// Get last frame time in microseconds.
+    pub fn last_frame_us(&self) -> u128 {
+        match self {
+            Self::Direct(s) => s.last_frame_time.as_micros(),
+            Self::Threaded(s) => s.last_frame_time.as_micros(),
+        }
+    }
+
+    /// Get last frame cells updated.
+    pub fn last_frame_cells(&self) -> usize {
+        match self {
+            Self::Direct(s) => s.last_frame_cells,
+            Self::Threaded(s) => s.last_frame_cells,
+        }
+    }
+}
+
+// ============================================================================
 // Hit Testing IDs
 // ============================================================================
 
