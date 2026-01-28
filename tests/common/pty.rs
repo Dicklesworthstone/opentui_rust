@@ -43,9 +43,7 @@ pub struct PtyResult {
 impl PtyResult {
     /// Check if output contains a byte sequence.
     pub fn contains_sequence(&self, seq: &[u8]) -> bool {
-        self.output
-            .windows(seq.len())
-            .any(|window| window == seq)
+        self.output.windows(seq.len()).any(|window| window == seq)
     }
 
     /// Check if output contains an ANSI CSI sequence like `ESC [ ? <n> h`.
@@ -326,7 +324,8 @@ pub fn spawn_pty(config: &PtyConfig) -> io::Result<PtyResult> {
         // Check if child has exited
         let mut status: libc::c_int = 0;
         // SAFETY: waitpid with WNOHANG is safe
-        let wait_result = unsafe { libc::waitpid(pid, std::ptr::from_mut(&mut status), libc::WNOHANG) };
+        let wait_result =
+            unsafe { libc::waitpid(pid, std::ptr::from_mut(&mut status), libc::WNOHANG) };
         if wait_result == pid {
             // Child exited - drain remaining output
             while let Ok(n) = master.read(&mut buf) {
@@ -451,7 +450,9 @@ pub fn log_pty_result(result: &PtyResult, test_name: &str) {
     if std::env::var("HARNESS_ARTIFACTS").is_ok_and(|v| v == "1") {
         let base_dir = std::env::var("HARNESS_ARTIFACTS_DIR")
             .unwrap_or_else(|_| "target/test-artifacts".to_string());
-        let artifact_dir = std::path::PathBuf::from(base_dir).join("pty").join(test_name);
+        let artifact_dir = std::path::PathBuf::from(base_dir)
+            .join("pty")
+            .join(test_name);
         std::fs::create_dir_all(&artifact_dir).ok();
 
         // Write raw output

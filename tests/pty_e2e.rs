@@ -20,7 +20,7 @@
 
 mod common;
 
-use common::pty::{log_pty_result, sequences, spawn_pty, PtyConfig};
+use common::pty::{PtyConfig, log_pty_result, sequences, spawn_pty};
 use std::time::Duration;
 
 /// Build `demo_showcase` if not already built.
@@ -95,9 +95,10 @@ fn test_tour_mode_terminal_lifecycle() {
         "Should show cursor on exit"
     );
 
-    // Mouse tracking (at least button mode)
+    // Mouse tracking (check for any supported mode)
     let has_mouse = result.contains_sequence(sequences::MOUSE_BUTTON_ENABLE)
-        || result.contains_sequence(sequences::MOUSE_MOTION_ENABLE);
+        || result.contains_sequence(sequences::MOUSE_MOTION_ENABLE)
+        || result.contains_sequence(sequences::MOUSE_ALL_ENABLE);
     assert!(has_mouse, "Should enable some form of mouse tracking");
 
     // SGR mouse format

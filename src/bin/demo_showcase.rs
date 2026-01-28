@@ -17,10 +17,10 @@
 // Required for libc FFI (fcntl for non-blocking stdin).
 #![allow(unsafe_code)]
 
-use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::GraphemePool;
+use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
-use opentui::terminal::{enable_raw_mode, terminal_size, MouseButton, MouseEventKind};
+use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_size};
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
@@ -133,10 +133,7 @@ impl EffectiveCaps {
     /// For interactive mode, pass detected capabilities from the renderer.
     /// For headless mode, pass `None` to use preset directly.
     #[must_use]
-    pub fn compute(
-        detected: Option<&opentui::terminal::Capabilities>,
-        preset: CapPreset,
-    ) -> Self {
+    pub fn compute(detected: Option<&opentui::terminal::Capabilities>, preset: CapPreset) -> Self {
         let mut caps = Self::default();
         let mut degraded = Vec::new();
 
@@ -188,7 +185,10 @@ impl EffectiveCaps {
 
         // Track features that were unavailable from detection
         if let Some(det) = detected {
-            if !det.has_true_color() && preset != CapPreset::NoTruecolor && preset != CapPreset::Minimal {
+            if !det.has_true_color()
+                && preset != CapPreset::NoTruecolor
+                && preset != CapPreset::Minimal
+            {
                 degraded.push("truecolor (terminal)");
             }
             if !det.mouse && preset != CapPreset::NoMouse && preset != CapPreset::Minimal {
@@ -1200,10 +1200,7 @@ impl HelpState {
         ),
         (
             "Links",
-            &[
-                "Repo: github.com/opentui/opentui",
-                "Docs: opentui.dev",
-            ],
+            &["Repo: github.com/opentui/opentui", "Docs: opentui.dev"],
         ),
     ];
 
@@ -2323,10 +2320,7 @@ impl App {
 
         // Show toast if any features are degraded
         if self.effective_caps.is_degraded() {
-            let msg = format!(
-                "Degraded: {}",
-                self.effective_caps.degraded.join(", ")
-            );
+            let msg = format!("Degraded: {}", self.effective_caps.degraded.join(", "));
             self.toasts.push(Toast::warn(msg));
         }
     }
@@ -2386,9 +2380,7 @@ impl App {
     /// Get the current file language for syntax highlighting.
     #[must_use]
     pub fn current_file_language(&self) -> content::Language {
-        self.current_file()
-            .map(|f| f.language)
-            .unwrap_or_default()
+        self.current_file().map(|f| f.language).unwrap_or_default()
     }
 
     /// Switch to the next file in the file list.
@@ -2709,7 +2701,11 @@ impl App {
                     self.tour_runner = Some(TourRunner::new(true, false));
                     self.overlays.open(Overlay::Tour(TourState::default()));
                     // Execute first step's action immediately
-                    if let Some(action) = self.tour_runner.as_ref().and_then(TourRunner::execute_step_action) {
+                    if let Some(action) = self
+                        .tour_runner
+                        .as_ref()
+                        .and_then(TourRunner::execute_step_action)
+                    {
                         self.apply_tour_action(action);
                     }
                 }
@@ -2772,12 +2768,12 @@ impl App {
                         let (name, _) = PaletteState::COMMANDS[cmd_idx];
                         // Map command index to action
                         let action = match cmd_idx {
-                            0 => Some(Action::ToggleHelp),    // "Toggle Help"
-                            1 => Some(Action::ToggleTour),   // "Toggle Tour"
-                            2 => Some(Action::CycleTheme),   // "Cycle Theme"
-                            3 => Some(Action::ForceRedraw),  // "Force Redraw"
-                            4 => Some(Action::ToggleDebug),  // "Toggle Debug"
-                            5 => Some(Action::Quit),         // "Quit"
+                            0 => Some(Action::ToggleHelp),  // "Toggle Help"
+                            1 => Some(Action::ToggleTour),  // "Toggle Tour"
+                            2 => Some(Action::CycleTheme),  // "Cycle Theme"
+                            3 => Some(Action::ForceRedraw), // "Force Redraw"
+                            4 => Some(Action::ToggleDebug), // "Toggle Debug"
+                            5 => Some(Action::Quit),        // "Quit"
                             _ => None,
                         };
                         action.map(|a| (name, a))
@@ -2846,7 +2842,8 @@ impl App {
         }
 
         // If overlay finished closing, ensure mode is Normal (but not during tour)
-        if !self.overlays.is_active() && self.mode != AppMode::Normal && self.mode != AppMode::Tour {
+        if !self.overlays.is_active() && self.mode != AppMode::Normal && self.mode != AppMode::Tour
+        {
             // Overlay closed, sync mode
             self.mode = AppMode::Normal;
         }
@@ -2873,7 +2870,8 @@ impl App {
         }
 
         // Push a toast notification
-        self.toasts.push(Toast::info(format!("Resized to {width}×{height}")));
+        self.toasts
+            .push(Toast::info(format!("Resized to {width}×{height}")));
 
         // Force a full redraw
         self.force_redraw = true;
@@ -3368,7 +3366,12 @@ fn run_headless_smoke(config: &Config) {
         // Build JSON output
         let frame_stats_json: Vec<String> = frame_stats
             .iter()
-            .map(|f| format!(r#"{{"frame":{},"dirty_cells":{},"dt":{:.6}}}"#, f.frame, f.dirty_cells, f.dt))
+            .map(|f| {
+                format!(
+                    r#"{{"frame":{},"dirty_cells":{},"dt":{:.6}}}"#,
+                    f.frame, f.dirty_cells, f.dt
+                )
+            })
             .collect();
 
         let json = format!(
@@ -3661,10 +3664,7 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
     let theme = app.ui_theme.tokens();
 
     // Pre-allocate hyperlinks (only if terminal supports them)
-    let links = PreallocatedLinks::allocate(
-        renderer.link_pool(),
-        app.effective_caps.hyperlinks,
-    );
+    let links = PreallocatedLinks::allocate(renderer.link_pool(), app.effective_caps.hyperlinks);
 
     // Use buffer_with_pool for proper grapheme handling in Unicode section
     let (buffer, pool) = renderer.buffer_with_pool();
@@ -3705,20 +3705,13 @@ fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorDa
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // UI coordinates fit in u32
 fn register_hit_areas(renderer: &mut Renderer, panels: &PanelLayout, app: &App) {
     use hit_ids::{
-        PALETTE_ITEM_BASE, PANEL_EDITOR, PANEL_LOGS, PANEL_PREVIEW, PANEL_SIDEBAR,
-        SIDEBAR_ROW_BASE,
+        PALETTE_ITEM_BASE, PANEL_EDITOR, PANEL_LOGS, PANEL_PREVIEW, PANEL_SIDEBAR, SIDEBAR_ROW_BASE,
     };
 
     // Register panel focus areas
     if !panels.sidebar.is_empty() {
         let r = &panels.sidebar;
-        renderer.register_hit_area(
-            r.x as u32,
-            r.y as u32,
-            r.w,
-            r.h,
-            PANEL_SIDEBAR,
-        );
+        renderer.register_hit_area(r.x as u32, r.y as u32, r.w, r.h, PANEL_SIDEBAR);
     }
     {
         let r = &panels.editor;
@@ -4000,7 +3993,11 @@ fn draw_pass_overlays(
 ///
 /// Toasts stack in the bottom-right corner, above the status bar.
 /// Each toast has a severity color, title, optional detail, and fade animation.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &Theme, app: &App) {
     if app.toasts.is_empty() {
         return;
@@ -4030,8 +4027,14 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
         // Get level-specific colors
         let (accent_color, icon) = match toast.level {
             ToastLevel::Info => (theme.accent_primary, toast.level.icon()),
-            ToastLevel::Warn => (Rgba::from_hex("#ffcc00").unwrap_or(theme.accent_warning), toast.level.icon()),
-            ToastLevel::Error => (Rgba::from_hex("#ff4444").unwrap_or(theme.accent_error), toast.level.icon()),
+            ToastLevel::Warn => (
+                Rgba::from_hex("#ffcc00").unwrap_or(theme.accent_warning),
+                toast.level.icon(),
+            ),
+            ToastLevel::Error => (
+                Rgba::from_hex("#ff4444").unwrap_or(theme.accent_error),
+                toast.level.icon(),
+            ),
         };
 
         // Apply opacity to colors
@@ -4052,13 +4055,23 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 
         // Draw left accent bar
         for row in toast_y..toast_y + toast_h {
-            buffer.draw_text(toast_x, row, "▌", Style::fg(accent_with_alpha).with_bg(bg_color));
+            buffer.draw_text(
+                toast_x,
+                row,
+                "▌",
+                Style::fg(accent_with_alpha).with_bg(bg_color),
+            );
         }
 
         // Draw icon and title on first content row
         let content_x = toast_x + 2;
         let title_y = toast_y + 1;
-        buffer.draw_text(content_x, title_y, icon, Style::fg(accent_with_alpha).with_bold());
+        buffer.draw_text(
+            content_x,
+            title_y,
+            icon,
+            Style::fg(accent_with_alpha).with_bold(),
+        );
 
         // Draw title (truncate if needed)
         let title_start = content_x + 2;
@@ -4068,7 +4081,12 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
         } else {
             toast.title.clone()
         };
-        buffer.draw_text(title_start, title_y, &title, Style::fg(fg_color).with_bold());
+        buffer.draw_text(
+            title_start,
+            title_y,
+            &title,
+            Style::fg(fg_color).with_bold(),
+        );
 
         // Draw detail if present
         if let Some(detail) = &toast.detail {
@@ -4099,7 +4117,12 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
         for col in toast_x + 1..toast_x + toast_w - 1 {
             buffer.draw_text(col, toast_y + toast_h - 1, "─", border_style);
         }
-        buffer.draw_text(toast_x + toast_w - 1, toast_y + toast_h - 1, "╯", border_style);
+        buffer.draw_text(
+            toast_x + toast_w - 1,
+            toast_y + toast_h - 1,
+            "╯",
+            border_style,
+        );
 
         // Side borders
         for row in toast_y + 1..toast_y + toast_h - 1 {
@@ -4112,7 +4135,11 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 ///
 /// Shows real-time performance stats, terminal capabilities, and demo mode flags.
 /// Positioned in the top-right corner to avoid obscuring main content.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn draw_pass_debug(
     buffer: &mut OptimizedBuffer,
     panels: &PanelLayout,
@@ -4129,11 +4156,7 @@ fn draw_pass_debug(
     let bg_color = Rgba::new(0.05, 0.05, 0.1, 0.92);
     for y in panel_y..panel_y + panel_h {
         for x in panel_x..panel_x + panel_w {
-            buffer.set(
-                x,
-                y,
-                opentui::Cell::clear(bg_color),
-            );
+            buffer.set(x, y, opentui::Cell::clear(bg_color));
         }
     }
 
@@ -4153,7 +4176,12 @@ fn draw_pass_debug(
     for x in panel_x + 1..panel_x + panel_w - 1 {
         buffer.draw_text(x, panel_y + panel_h - 1, "─", border_style);
     }
-    buffer.draw_text(panel_x + panel_w - 1, panel_y + panel_h - 1, "╯", border_style);
+    buffer.draw_text(
+        panel_x + panel_w - 1,
+        panel_y + panel_h - 1,
+        "╯",
+        border_style,
+    );
 
     // Side borders
     for y in panel_y + 1..panel_y + panel_h - 1 {
@@ -4164,7 +4192,12 @@ fn draw_pass_debug(
     // Title
     let title = " Inspector ";
     let title_x = panel_x + (panel_w - title.len() as u32) / 2;
-    buffer.draw_text(title_x, panel_y, title, Style::fg(theme.accent_primary).with_bold());
+    buffer.draw_text(
+        title_x,
+        panel_y,
+        title,
+        Style::fg(theme.accent_primary).with_bold(),
+    );
 
     let content_x = panel_x + 2;
     let mut y = panel_y + 1;
@@ -4178,7 +4211,11 @@ fn draw_pass_debug(
     y += 1;
     buffer.draw_text(content_x, y, "FPS:", label_style);
     let fps_text = format!("{:.1}", data.fps);
-    let fps_style = if data.fps >= 55.0 { good_style } else { warn_style };
+    let fps_style = if data.fps >= 55.0 {
+        good_style
+    } else {
+        warn_style
+    };
     buffer.draw_text(content_x + 5, y, &fps_text, fps_style);
 
     buffer.draw_text(content_x + 12, y, "Frame:", label_style);
@@ -4187,7 +4224,12 @@ fn draw_pass_debug(
 
     y += 1;
     buffer.draw_text(content_x, y, "Cells:", label_style);
-    buffer.draw_text(content_x + 7, y, &data.cells_updated.to_string(), value_style);
+    buffer.draw_text(
+        content_x + 7,
+        y,
+        &data.cells_updated.to_string(),
+        value_style,
+    );
 
     buffer.draw_text(content_x + 14, y, "Mem:", label_style);
     let mem_kb = data.total_bytes / 1024;
@@ -4217,7 +4259,11 @@ fn draw_pass_debug(
     let focus_style = if data.focus { cap_on } else { cap_off };
     buffer.draw_text(content_x, y, "Focus", focus_style);
 
-    let paste_style = if data.bracketed_paste { cap_on } else { cap_off };
+    let paste_style = if data.bracketed_paste {
+        cap_on
+    } else {
+        cap_off
+    };
     buffer.draw_text(content_x + 7, y, "Paste", paste_style);
 
     // --- Demo Flags ---
@@ -4225,8 +4271,16 @@ fn draw_pass_debug(
     buffer.draw_text(content_x, y, "─ Demo ─", Style::fg(theme.fg2));
 
     y += 1;
-    let tour_text = if data.tour_active { "Tour: ON" } else { "Tour: off" };
-    let tour_style = if data.tour_active { good_style } else { label_style };
+    let tour_text = if data.tour_active {
+        "Tour: ON"
+    } else {
+        "Tour: off"
+    };
+    let tour_style = if data.tour_active {
+        good_style
+    } else {
+        label_style
+    };
     buffer.draw_text(content_x, y, tour_text, tour_style);
 
     let threaded_text = if data.threaded { "Threaded" } else { "Direct" };
@@ -4331,7 +4385,11 @@ fn draw_help_overlay(
                 };
                 link_id.map_or_else(
                     || Style::fg(theme.fg1),
-                    |id| Style::fg(theme.accent_primary).with_underline().with_link(id),
+                    |id| {
+                        Style::fg(theme.accent_primary)
+                            .with_underline()
+                            .with_link(id)
+                    },
                 )
             } else {
                 Style::fg(theme.fg1)
@@ -4598,7 +4656,12 @@ fn draw_unicode_showcase(
 
     // Header
     let header_style = Style::fg(theme.accent_primary).with_bold();
-    buffer.draw_text(x + 2, y + 1, "Unicode & Grapheme Pool Showcase", header_style);
+    buffer.draw_text(
+        x + 2,
+        y + 1,
+        "Unicode & Grapheme Pool Showcase",
+        header_style,
+    );
 
     // Divider line
     let divider: String = "─".repeat(w.saturating_sub(4) as usize);
@@ -4638,7 +4701,12 @@ fn draw_unicode_showcase(
 
     // Section 4: ZWJ Emoji Sequences (requires grapheme pool)
     if row + 2 < y + h {
-        buffer.draw_text(x + 2, row, "ZWJ Emoji Sequences (multi-codepoint):", label_style);
+        buffer.draw_text(
+            x + 2,
+            row,
+            "ZWJ Emoji Sequences (multi-codepoint):",
+            label_style,
+        );
         row += 1;
         buffer.draw_text_with_pool(pool, x + 4, row, unicode::EMOJI_ZWJ, content_style);
         row += 2;
@@ -4646,7 +4714,12 @@ fn draw_unicode_showcase(
 
     // Section 5: Combining Marks
     if row + 3 < y + h {
-        buffer.draw_text(x + 2, row, "Combining Marks (base + diacritic):", label_style);
+        buffer.draw_text(
+            x + 2,
+            row,
+            "Combining Marks (base + diacritic):",
+            label_style,
+        );
         row += 1;
         buffer.draw_text(x + 4, row, "Input:   ", dim_style);
         buffer.draw_text_with_pool(pool, x + 13, row, unicode::COMBINING_MARKS, content_style);
@@ -4785,9 +4858,30 @@ fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Sty
             }
             // Keywords
             let keywords = [
-                "fn ", "let ", "mut ", "pub ", "use ", "impl ", "struct ", "enum ", "const ",
-                "static ", "mod ", "trait ", "where ", "async ", "await ", "match ", "if ",
-                "else ", "for ", "while ", "loop ", "return ", "break ", "continue ",
+                "fn ",
+                "let ",
+                "mut ",
+                "pub ",
+                "use ",
+                "impl ",
+                "struct ",
+                "enum ",
+                "const ",
+                "static ",
+                "mod ",
+                "trait ",
+                "where ",
+                "async ",
+                "await ",
+                "match ",
+                "if ",
+                "else ",
+                "for ",
+                "while ",
+                "loop ",
+                "return ",
+                "break ",
+                "continue ",
             ];
             for kw in keywords {
                 if trimmed.starts_with(kw) || trimmed.contains(&format!(" {kw}")) {
@@ -4826,7 +4920,11 @@ fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Sty
 /// Convert HSV to RGB color.
 ///
 /// H: 0.0-360.0, S: 0.0-1.0, V: 0.0-1.0
-#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::many_single_char_names,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Rgba {
     let c = v * s;
     let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
@@ -4899,7 +4997,7 @@ fn draw_preview_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, 
     // === Section 1: Animated Gradient Orb using PixelBuffer ===
     let orb_size = content_w.min(content_h * 2).min(24); // Each cell is ~2x1 pixels
     let orb_pixel_w = orb_size * 2; // 2 pixels per cell width
-    let orb_pixel_h = orb_size;     // 1 pixel per cell height (quadrant blocks)
+    let orb_pixel_h = orb_size; // 1 pixel per cell height (quadrant blocks)
 
     let mut orb_buf = PixelBuffer::new(orb_pixel_w, orb_pixel_h);
 
@@ -4966,7 +5064,13 @@ fn draw_preview_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, 
         }
 
         // Render sparkline using Unicode shade characters
-        buffer.draw_grayscale_buffer_unicode(content_x, chart_y, &chart_buf, theme.accent_primary, theme.bg0);
+        buffer.draw_grayscale_buffer_unicode(
+            content_x,
+            chart_y,
+            &chart_buf,
+            theme.accent_primary,
+            theme.bg0,
+        );
 
         // Chart label
         let fps_label = format!("{fps:.0} FPS");
@@ -5073,7 +5177,10 @@ fn draw_logs_panel(
     let visible_rows = content_h.min(u32::try_from(app.logs.len()).unwrap_or(0));
 
     // Scroll to show most recent logs (display from bottom up)
-    let start_idx = app.logs.len().saturating_sub(usize::try_from(visible_rows).unwrap_or(0));
+    let start_idx = app
+        .logs
+        .len()
+        .saturating_sub(usize::try_from(visible_rows).unwrap_or(0));
 
     for (row_offset, log) in app.logs.iter().skip(start_idx).enumerate() {
         let row = u32::try_from(row_offset).unwrap_or(0);
@@ -5881,9 +5988,9 @@ renderer.present()?;
         /// Test cases with expected display widths.
         pub const WIDTH_TEST_CASES: &[(&str, &str, usize)] = &[
             ("ASCII", "Hello", 5),
-            ("CJK", "漢字", 4), // 2 chars × width 2
-            ("Emoji", "🎉👍", 4),   // 2 emoji × width 2
-            ("Mixed", "A漢B", 4), // 1 + 2 + 1
+            ("CJK", "漢字", 4),            // 2 chars × width 2
+            ("Emoji", "🎉👍", 4),          // 2 emoji × width 2
+            ("Mixed", "A漢B", 4),          // 1 + 2 + 1
             ("Combining", "a\u{0301}", 1), // Base + combining = width 1
         ];
     }
@@ -6654,7 +6761,10 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         clock.tick(true); // Paused
         assert!(clock.dt > 0.0, "dt should still be computed when paused");
-        assert!((clock.t - 0.0).abs() < f32::EPSILON, "t should not advance when paused");
+        assert!(
+            (clock.t - 0.0).abs() < f32::EPSILON,
+            "t should not advance when paused"
+        );
     }
 
     #[test]
@@ -6663,8 +6773,14 @@ mod tests {
         // Simulate a long gap by manually setting last_instant far in the past
         // This tests the MAX_DT clamping
         clock.tick(false);
-        assert!(clock.dt <= AnimationClock::MAX_DT, "dt should be clamped to MAX_DT");
-        assert!(clock.dt >= AnimationClock::MIN_DT, "dt should be at least MIN_DT");
+        assert!(
+            clock.dt <= AnimationClock::MAX_DT,
+            "dt should be clamped to MAX_DT"
+        );
+        assert!(
+            clock.dt >= AnimationClock::MIN_DT,
+            "dt should be at least MIN_DT"
+        );
     }
 
     #[test]
@@ -6817,8 +6933,10 @@ mod tests {
         // After tick, frame_count is 1, so metrics should be recomputed
         assert_eq!(app.frame_count, 1);
         // Metrics values change with frame count
-        assert!(app.metrics.memory_bytes != initial_metrics.memory_bytes
-            || app.metrics.cells_changed != initial_metrics.cells_changed);
+        assert!(
+            app.metrics.memory_bytes != initial_metrics.memory_bytes
+                || app.metrics.cells_changed != initial_metrics.cells_changed
+        );
     }
 
     #[test]

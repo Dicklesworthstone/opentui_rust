@@ -327,19 +327,47 @@ mod tests {
     #[test]
     fn test_hyperlinks_via_term_program() {
         // WezTerm
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "WezTerm", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "WezTerm",
+            false
+        ));
         // Alacritty
-        assert!(Capabilities::detect_hyperlinks("alacritty", "Alacritty", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "alacritty",
+            "Alacritty",
+            false
+        ));
         // kitty
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "kitty", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "kitty",
+            false
+        ));
         // ghostty
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "ghostty", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "ghostty",
+            false
+        ));
         // iTerm
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "iTerm.app", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "iTerm.app",
+            false
+        ));
         // Apple Terminal
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "Apple_Terminal", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "Apple_Terminal",
+            false
+        ));
         // Hyper
-        assert!(Capabilities::detect_hyperlinks("xterm-256color", "Hyper", false));
+        assert!(Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "Hyper",
+            false
+        ));
     }
 
     #[test]
@@ -365,8 +393,16 @@ mod tests {
     #[test]
     fn test_hyperlinks_false_for_unknown() {
         // Unknown terminal with no special env vars
-        assert!(!Capabilities::detect_hyperlinks("xterm-256color", "", false));
-        assert!(!Capabilities::detect_hyperlinks("screen-256color", "", false));
+        assert!(!Capabilities::detect_hyperlinks(
+            "xterm-256color",
+            "",
+            false
+        ));
+        assert!(!Capabilities::detect_hyperlinks(
+            "screen-256color",
+            "",
+            false
+        ));
         assert!(!Capabilities::detect_hyperlinks("linux", "", false));
         assert!(!Capabilities::detect_hyperlinks("vt100", "", false));
         // Empty values
@@ -380,11 +416,23 @@ mod tests {
         // kitty
         assert!(Capabilities::detect_sync("xterm-256color", "kitty", false));
         // Alacritty
-        assert!(Capabilities::detect_sync("xterm-256color", "Alacritty", false));
+        assert!(Capabilities::detect_sync(
+            "xterm-256color",
+            "Alacritty",
+            false
+        ));
         // WezTerm
-        assert!(Capabilities::detect_sync("xterm-256color", "WezTerm", false));
+        assert!(Capabilities::detect_sync(
+            "xterm-256color",
+            "WezTerm",
+            false
+        ));
         // ghostty
-        assert!(Capabilities::detect_sync("xterm-256color", "ghostty", false));
+        assert!(Capabilities::detect_sync(
+            "xterm-256color",
+            "ghostty",
+            false
+        ));
     }
 
     #[test]
@@ -415,8 +463,16 @@ mod tests {
         assert!(!Capabilities::detect_sync("tmux-256color", "", false));
         assert!(!Capabilities::detect_sync("linux", "", false));
         // Note: iTerm and Apple_Terminal don't support sync output
-        assert!(!Capabilities::detect_sync("xterm-256color", "iTerm.app", false));
-        assert!(!Capabilities::detect_sync("xterm-256color", "Apple_Terminal", false));
+        assert!(!Capabilities::detect_sync(
+            "xterm-256color",
+            "iTerm.app",
+            false
+        ));
+        assert!(!Capabilities::detect_sync(
+            "xterm-256color",
+            "Apple_Terminal",
+            false
+        ));
     }
 
     #[test]
