@@ -69,3 +69,25 @@ fn hello_example_runs() {
         "hello example output missing expected text"
     );
 }
+
+/// Validates that the `demo_showcase` binary compiles.
+///
+/// The demo is a flagship deliverable and must not silently stop compiling.
+/// CI will fail quickly if the binary breaks.
+#[test]
+fn demo_showcase_compiles() {
+    // Check that the binary target exists
+    assert!(
+        Path::new("src/bin/demo_showcase.rs").exists(),
+        "demo_showcase.rs not found - binary target missing"
+    );
+
+    let output = run_cargo(&["build", "--all-features", "--bin", "demo_showcase"]);
+
+    assert!(
+        output.status.success(),
+        "demo_showcase binary failed to compile:\n\n{}\n\n\
+         This is a critical failure - the demo is a flagship deliverable.",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
