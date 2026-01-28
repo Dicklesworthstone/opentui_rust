@@ -91,14 +91,13 @@ impl PixelBuffer {
     /// Create from raw RGBA data.
     ///
     /// # Panics
-    /// Panics if `pixels.len() != width * height`.
+    /// Panics if `pixels.len() != width * height` or if dimensions would overflow.
     #[must_use]
     pub fn from_pixels(width: u32, height: u32, pixels: Vec<Rgba>) -> Self {
-        assert_eq!(
-            pixels.len(),
-            (width as usize) * (height as usize),
-            "pixel count mismatch"
-        );
+        let expected_size = (width as usize)
+            .checked_mul(height as usize)
+            .expect("dimensions overflow");
+        assert_eq!(pixels.len(), expected_size, "pixel count mismatch");
         Self {
             width,
             height,
