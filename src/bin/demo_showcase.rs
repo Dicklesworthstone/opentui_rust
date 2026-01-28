@@ -18,7 +18,7 @@
 #![allow(unsafe_code)]
 
 use opentui::GraphemePool;
-use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
+use opentui::buffer::{ClipRect, GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::event::{LogLevel as OpentuiLogLevel, set_log_callback};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_size};
@@ -3761,12 +3761,38 @@ fn run_headless_smoke(config: &Config) {
     let mut frame_stats: Vec<FrameStats> =
         Vec::with_capacity(usize::try_from(frame_count).unwrap_or(64));
 
+    // Track tour step transitions for determinism testing
+    let mut tour_step_history: Vec<(u64, usize, String)> = Vec::new();
+
+    // Fixed dt for deterministic headless timing (simulate 60fps)
+    let fixed_dt: f32 = 1.0 / 60.0; // ~16.67ms per frame
+
     // Run frames through the render pipeline
     for frame in 0..frame_count {
         // Update app state
         app.frame_count = frame;
-        app.clock.tick(false); // Advance time (not paused)
+        // Use fixed dt for deterministic timing instead of real time
+        app.clock.dt = fixed_dt;
+        app.clock.t += fixed_dt;
         app.update_metrics();
+
+        // Tick tour if active (advances based on timing)
+        let step_before = app.tour_runner.as_ref().map(|r| r.step_idx);
+        app.tick_tour();
+        let step_after = app.tour_runner.as_ref().map(|r| r.step_idx);
+
+        // Record step transitions
+        if let (Some(before), Some(after)) = (step_before, step_after) {
+            if before != after {
+                let title = TOUR_SCRIPT.get(after).map_or("unknown", |s| s.title);
+                tour_step_history.push((frame, after, title.to_string()));
+            }
+        } else if step_before.is_none() && step_after.is_some() {
+            // Tour just started
+            let after = step_after.unwrap();
+            let title = TOUR_SCRIPT.get(after).map_or("unknown", |s| s.title);
+            tour_step_history.push((frame, after, title.to_string()));
+        }
 
         // Clear and render to current buffer
         headless_draw_frame(&mut current_buffer, &app);
@@ -3825,6 +3851,50 @@ fn run_headless_smoke(config: &Config) {
             format!("[{}]", items.join(", "))
         };
 
+        // Format tour state if tour was active
+        let tour_state_json = if config.start_in_tour {
+            let final_step = app.tour_runner.as_ref().map(|r| r.step_idx).unwrap_or(0);
+            let final_title = TOUR_SCRIPT
+                .get(final_step)
+                .map_or("unknown", |s| s.title);
+            let completed = app
+                .tour_runner
+                .as_ref()
+                .map(|r| r.completed)
+                .unwrap_or(false);
+            let steps_json: Vec<String> = tour_step_history
+                .iter()
+                .map(|(frame, idx, title)| {
+                    format!(
+                        r#"{{"frame":{},"step_idx":{},"title":"{}"}}"#,
+                        frame,
+                        idx,
+                        title.replace('"', "\\\"")
+                    )
+                })
+                .collect();
+            format!(
+                r#",
+  "tour_state": {{
+    "active": true,
+    "completed": {},
+    "final_step_idx": {},
+    "final_step_title": "{}",
+    "total_steps": {},
+    "step_transitions": [
+      {}
+    ]
+  }}"#,
+                completed,
+                final_step,
+                final_title.replace('"', "\\\""),
+                TOUR_SCRIPT.len(),
+                steps_json.join(",\n      ")
+            )
+        } else {
+            String::new()
+        };
+
         let json = format!(
             r#"{{
   "config": {{
@@ -3857,7 +3927,7 @@ fn run_headless_smoke(config: &Config) {
   }},
   "frame_stats": [
     {}
-  ]
+  ]{}
 }}"#,
             config.fps_cap,
             config.seed,
@@ -3879,7 +3949,8 @@ fn run_headless_smoke(config: &Config) {
             last_dirty_cells,
             top_bar_text.replace('\\', "\\\\").replace('"', "\\\""),
             section_name,
-            frame_stats_json.join(",\n    ")
+            frame_stats_json.join(",\n    "),
+            tour_state_json
         );
 
         println!("{json}");
@@ -4984,6 +5055,63 @@ fn draw_palette_overlay(
 ///
 /// The spotlight effect dims the entire screen except for the target panel,
 /// creating a "punch-out" effect that draws the viewer's attention.
+/// Draw spotlight effect: dim everything except the target rect.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn draw_spotlight_effect(
+    buffer: &mut OptimizedBuffer,
+    panels: &PanelLayout,
+    theme: &Theme,
+    target_rect: &Rect,
+) {
+    use opentui::Cell;
+
+    // Dim the entire screen with a semi-transparent overlay
+    let dim_color = Rgba::new(0.0, 0.0, 0.0, 0.4);
+
+    // Draw dim overlay for areas outside the target rect
+    for y in 0..panels.screen.h {
+        for x in 0..panels.screen.w {
+            // Check if this cell is outside the target rect
+            let in_target = (x as i32) >= target_rect.x
+                && (x as i32) < target_rect.x + target_rect.w as i32
+                && (y as i32) >= target_rect.y
+                && (y as i32) < target_rect.y + target_rect.h as i32;
+
+            if !in_target {
+                // Blend dim color over existing content
+                if let Some(cell) = buffer.get(x, y) {
+                    let new_bg = dim_color.blend_over(cell.bg);
+                    let mut new_cell = *cell;
+                    new_cell.bg = new_bg;
+                    buffer.set(x, y, new_cell);
+                }
+            }
+        }
+    }
+
+    // Draw a highlight border around the target rect
+    let border_color = theme.accent_primary;
+    let border_style = Style::fg(border_color).with_bold();
+
+    // Top and bottom borders
+    for x in target_rect.x.max(0) as u32
+        ..(target_rect.x + target_rect.w as i32).min(panels.screen.w as i32) as u32
+    {
+        if target_rect.y >= 0 && (target_rect.y as u32) < panels.screen.h {
+            buffer.set(x, target_rect.y as u32, Cell::new('─', border_style));
+        }
+        let bottom_y = target_rect.y + target_rect.h as i32 - 1;
+        if bottom_y >= 0 && (bottom_y as u32) < panels.screen.h {
+            buffer.set(x, bottom_y as u32, Cell::new('─', border_style));
+        }
+    }
+}
+
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
