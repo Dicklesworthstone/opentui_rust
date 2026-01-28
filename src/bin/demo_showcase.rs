@@ -3470,7 +3470,7 @@ fn run_interactive(config: &Config) -> io::Result<()> {
                             // Only process left-button clicks
                             if mouse.button == MouseButton::Left {
                                 if let Some(hit_id) = renderer.hit_test(mouse.x, mouse.y) {
-                                    let action = app.hit_to_action(hit_id, mouse.kind);
+                                    let action = App::hit_to_action(hit_id, mouse.kind);
                                     app.apply_action(&action);
                                 }
                             }
@@ -3519,6 +3519,58 @@ fn run_interactive(config: &Config) -> io::Result<()> {
     Ok(())
 }
 
+/// Data needed for the inspector/debug panel.
+#[derive(Clone, Debug)]
+struct InspectorData {
+    /// Render stats from the renderer.
+    fps: f32,
+    frame_time_ms: f32,
+    cells_updated: usize,
+    buffer_bytes: usize,
+    hitgrid_bytes: usize,
+    total_bytes: usize,
+    /// Terminal capabilities.
+    truecolor: bool,
+    sync_output: bool,
+    hyperlinks: bool,
+    mouse: bool,
+    focus: bool,
+    bracketed_paste: bool,
+    /// Demo mode flags.
+    tour_active: bool,
+    threaded: bool,
+    fps_cap: u32,
+}
+
+impl InspectorData {
+    /// Gather inspector data from renderer and app.
+    fn gather(
+        stats: &opentui::RenderStats,
+        caps: &opentui::terminal::Capabilities,
+        app: &App,
+        threaded: bool,
+        fps_cap: u32,
+    ) -> Self {
+        Self {
+            fps: stats.fps,
+            frame_time_ms: stats.last_frame_time.as_secs_f32() * 1000.0,
+            cells_updated: stats.last_frame_cells,
+            buffer_bytes: stats.buffer_bytes,
+            hitgrid_bytes: stats.hitgrid_bytes,
+            total_bytes: stats.total_bytes,
+            truecolor: caps.has_true_color(),
+            sync_output: caps.sync_output,
+            hyperlinks: caps.hyperlinks,
+            mouse: caps.mouse,
+            focus: caps.focus,
+            bracketed_paste: caps.bracketed_paste,
+            tour_active: app.mode == AppMode::Tour,
+            threaded,
+            fps_cap,
+        }
+    }
+}
+
 /// Draw a single frame using the render pass system.
 ///
 /// Render passes (back-to-front):
@@ -3527,8 +3579,8 @@ fn run_interactive(config: &Config) -> io::Result<()> {
 /// 3. Panels - sidebar, editor, preview
 /// 4. Overlays - modals (placeholder)
 /// 5. Toasts - notifications (placeholder)
-/// 6. Debug - performance stats (placeholder)
-fn draw_frame(renderer: &mut Renderer, app: &App) {
+/// 6. Debug - performance stats
+fn draw_frame(renderer: &mut Renderer, app: &App, inspector: Option<&InspectorData>) {
     let (width, height) = renderer.size();
     let panels = PanelLayout::compute(width, height);
     let theme = app.ui_theme.tokens();
@@ -3556,17 +3608,24 @@ fn draw_frame(renderer: &mut Renderer, app: &App) {
     // === Pass 5: Toasts ===
     draw_pass_toasts(buffer, &panels, &theme, app);
 
-    // === Pass 6: Debug (placeholder) ===
-    // Will show FPS, frame time, etc.
+    // === Pass 6: Debug/Inspector Panel ===
+    if app.show_debug {
+        if let Some(data) = inspector {
+            draw_pass_debug(buffer, &panels, &theme, data);
+        }
+    }
 
     // === Pass 7: Register hit areas ===
     register_hit_areas(renderer, &panels, app);
 }
 
 /// Register hit areas for mouse interaction.
-#[allow(clippy::cast_sign_loss)] // Panel coordinates are always positive
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // UI coordinates fit in u32
 fn register_hit_areas(renderer: &mut Renderer, panels: &PanelLayout, app: &App) {
-    use hit_ids::*;
+    use hit_ids::{
+        PALETTE_ITEM_BASE, PANEL_EDITOR, PANEL_LOGS, PANEL_PREVIEW, PANEL_SIDEBAR,
+        SIDEBAR_ROW_BASE,
+    };
 
     // Register panel focus areas
     if !panels.sidebar.is_empty() {
