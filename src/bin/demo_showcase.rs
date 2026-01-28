@@ -6478,26 +6478,23 @@ const fn is_tty() -> bool {
 }
 
 /// Set stdin to non-blocking mode on Unix.
+///
+/// NOTE: On macOS, setting stdin non-blocking on a PTY can affect stdout too,
+/// causing `WouldBlock` errors on writes. Since we use `select()` for timeout
+/// handling, we don't actually need non-blocking stdin - `select()` tells us
+/// when data is available, and a blocking read will succeed immediately.
 #[cfg(unix)]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)] // Return type needed for API consistency
 fn set_stdin_nonblocking() -> io::Result<()> {
-    use std::os::unix::io::AsRawFd;
-    let fd = io::stdin().as_raw_fd();
-    // SAFETY: fcntl with F_GETFL/F_SETFL is safe on a valid file descriptor.
-    // stdin is always a valid file descriptor.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags == -1 {
-            return Err(io::Error::last_os_error());
-        }
-        if libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == -1 {
-            return Err(io::Error::last_os_error());
-        }
-    }
+    // Disabled: On macOS PTYs, non-blocking mode affects both stdin and stdout,
+    // causing stdout writes to return WouldBlock. We use select() for timeouts
+    // so blocking stdin is fine.
     Ok(())
 }
 
 /// Stub for non-Unix platforms.
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps, clippy::missing_const_for_fn)] // Return type needed for API consistency
 fn set_stdin_nonblocking() -> io::Result<()> {
     // Non-blocking stdin not supported on this platform.
     Ok(())
