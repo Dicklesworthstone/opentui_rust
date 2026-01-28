@@ -20,7 +20,9 @@ use std::io::Write;
 fn test_e2e_basic_render_cycle() {
     let mut harness = E2EHarness::new("render_cycle", "basic_cycle", 40, 10);
 
-    harness.log().info("init", "Starting basic render cycle test");
+    harness
+        .log()
+        .info("init", "Starting basic render cycle test");
 
     // Step 1: Initialize buffers (simulating Renderer)
     let mut front_buffer = OptimizedBuffer::new(40, 10);
@@ -32,22 +34,24 @@ fn test_e2e_basic_render_cycle() {
     back_buffer.draw_text(0, 0, "Hello, OpenTUI!", Style::fg(Rgba::GREEN));
     back_buffer.draw_text(0, 1, "Frame 1", Style::fg(Rgba::WHITE));
 
-    harness.log().info("draw", "Drew initial content to back buffer");
+    harness
+        .log()
+        .info("draw", "Drew initial content to back buffer");
 
     // Step 3: Compute diff and verify first frame behavior
     let diff1 = BufferDiff::compute(&front_buffer, &back_buffer);
 
     harness.log().info(
         "diff",
-        format!(
-            "First frame diff: {} cells changed",
-            diff1.change_count
-        ),
+        format!("First frame diff: {} cells changed", diff1.change_count),
     );
 
     // First frame should have changes (back buffer has content, front is empty)
     assert!(diff1.change_count > 0, "First frame should have changes");
-    assert!(!diff1.changed_cells.is_empty(), "Changed cells list should not be empty");
+    assert!(
+        !diff1.changed_cells.is_empty(),
+        "Changed cells list should not be empty"
+    );
 
     // Verify "Hello, OpenTUI!" is in the changed region (15 characters at row 0)
     let row0_changes: Vec<_> = diff1
@@ -55,7 +59,10 @@ fn test_e2e_basic_render_cycle() {
         .iter()
         .filter(|(_, y)| *y == 0)
         .collect();
-    assert!(row0_changes.len() >= 15, "Row 0 should have at least 15 changed cells for 'Hello, OpenTUI!'");
+    assert!(
+        row0_changes.len() >= 15,
+        "Row 0 should have at least 15 changed cells for 'Hello, OpenTUI!'"
+    );
 
     // Step 4: Swap buffers (simulate present)
     std::mem::swap(&mut front_buffer, &mut back_buffer);
@@ -65,17 +72,16 @@ fn test_e2e_basic_render_cycle() {
     back_buffer.draw_text(0, 0, "Hello, OpenTUI!", Style::fg(Rgba::GREEN));
     back_buffer.draw_text(0, 1, "Frame 2", Style::fg(Rgba::WHITE)); // Changed content
 
-    harness.log().info("draw", "Drew Frame 2 content (modified)");
+    harness
+        .log()
+        .info("draw", "Drew Frame 2 content (modified)");
 
     // Step 5: Compute diff for second frame
     let diff2 = BufferDiff::compute(&front_buffer, &back_buffer);
 
     harness.log().info(
         "diff",
-        format!(
-            "Second frame diff: {} cells changed",
-            diff2.change_count
-        ),
+        format!("Second frame diff: {} cells changed", diff2.change_count),
     );
 
     // Second frame should only have changes where content differs ("Frame 1" -> "Frame 2")
@@ -117,7 +123,9 @@ fn test_e2e_basic_render_cycle() {
 fn test_e2e_first_frame_full_output() {
     let mut harness = E2EHarness::new("render_cycle", "first_frame_full", 20, 5);
 
-    harness.log().info("init", "Testing first frame full output");
+    harness
+        .log()
+        .info("init", "Testing first frame full output");
 
     // Create buffers
     let front_buffer = OptimizedBuffer::new(20, 5);
@@ -142,7 +150,10 @@ fn test_e2e_first_frame_full_output() {
 
     harness.log().info(
         "verify",
-        format!("First frame has {} changes (expected >= {})", diff.change_count, total_drawn_cells),
+        format!(
+            "First frame has {} changes (expected >= {})",
+            diff.change_count, total_drawn_cells
+        ),
     );
 
     harness.finish(true);
@@ -154,7 +165,9 @@ fn test_e2e_first_frame_full_output() {
 fn test_e2e_subsequent_frames_diff_only() {
     let mut harness = E2EHarness::new("render_cycle", "diff_only", 30, 5);
 
-    harness.log().info("init", "Testing subsequent frames diff-only output");
+    harness
+        .log()
+        .info("init", "Testing subsequent frames diff-only output");
 
     // Create initial state
     let mut front_buffer = OptimizedBuffer::new(30, 5);
@@ -183,11 +196,7 @@ fn test_e2e_subsequent_frames_diff_only() {
     );
 
     // Verify static content row has no changes
-    let row0_changes: Vec<_> = diff
-        .changed_cells
-        .iter()
-        .filter(|(_, y)| *y == 0)
-        .collect();
+    let row0_changes: Vec<_> = diff.changed_cells.iter().filter(|(_, y)| *y == 0).collect();
     assert!(row0_changes.is_empty(), "Static row should have no changes");
 
     harness.finish(true);
@@ -199,7 +208,9 @@ fn test_e2e_subsequent_frames_diff_only() {
 fn test_e2e_force_redraw_full_output() {
     let mut harness = E2EHarness::new("render_cycle", "force_redraw", 20, 5);
 
-    harness.log().info("init", "Testing force redraw full output");
+    harness
+        .log()
+        .info("init", "Testing force redraw full output");
 
     // Create identical buffers
     let mut front_buffer = OptimizedBuffer::new(20, 5);
@@ -211,7 +222,10 @@ fn test_e2e_force_redraw_full_output() {
 
     // Normal diff should show no changes
     let diff = BufferDiff::compute(&front_buffer, &back_buffer);
-    assert_eq!(diff.change_count, 0, "Identical buffers should have no diff");
+    assert_eq!(
+        diff.change_count, 0,
+        "Identical buffers should have no diff"
+    );
 
     harness.log().info("verify", "Identical buffers: no diff");
 
@@ -268,11 +282,7 @@ fn test_e2e_clear_and_draw() {
     assert!(diff.change_count > 0, "Clear + draw should produce changes");
 
     // Verify first cell is different
-    let first_row_changes: Vec<_> = diff
-        .changed_cells
-        .iter()
-        .filter(|(_, y)| *y == 0)
-        .collect();
+    let first_row_changes: Vec<_> = diff.changed_cells.iter().filter(|(_, y)| *y == 0).collect();
     assert!(
         !first_row_changes.is_empty(),
         "Row 0 should have changes after clear + draw"
@@ -287,7 +297,9 @@ fn test_e2e_clear_and_draw() {
 fn test_e2e_ansi_cursor_positioning() {
     let mut harness = E2EHarness::new("render_cycle", "cursor_positioning", 40, 10);
 
-    harness.log().info("init", "Testing ANSI cursor positioning");
+    harness
+        .log()
+        .info("init", "Testing ANSI cursor positioning");
 
     // Capture ANSI output
     let mut output: Vec<u8> = Vec::new();
@@ -304,10 +316,9 @@ fn test_e2e_ansi_cursor_positioning() {
 
     let output_str = String::from_utf8_lossy(&output);
 
-    harness.log().info(
-        "ansi",
-        format!("Output length: {} bytes", output.len()),
-    );
+    harness
+        .log()
+        .info("ansi", format!("Output length: {} bytes", output.len()));
 
     // Parse and verify sequences
     let mut mock = MockTerminal::new(40, 10);
@@ -315,10 +326,9 @@ fn test_e2e_ansi_cursor_positioning() {
 
     let cursor_moves = mock.cursor_moves();
 
-    harness.log().info(
-        "verify",
-        format!("Cursor moves: {:?}", cursor_moves),
-    );
+    harness
+        .log()
+        .info("verify", format!("Cursor moves: {:?}", cursor_moves));
 
     // Should have cursor position sequences
     assert!(
@@ -354,10 +364,7 @@ fn test_e2e_ansi_color_sequences() {
 
     harness.log().info(
         "ansi",
-        format!(
-            "Output: {}",
-            output_str.replace('\x1b', "ESC")
-        ),
+        format!("Output: {}", output_str.replace('\x1b', "ESC")),
     );
 
     // Verify red foreground (255, 0, 0)
@@ -373,7 +380,10 @@ fn test_e2e_ansi_color_sequences() {
     );
 
     // Verify the character 'X' is present
-    assert!(output_str.contains('X'), "Output should contain the cell character");
+    assert!(
+        output_str.contains('X'),
+        "Output should contain the cell character"
+    );
 
     harness.finish(true);
     eprintln!("[TEST] PASS: E2E ANSI color sequences work");
@@ -384,7 +394,9 @@ fn test_e2e_ansi_color_sequences() {
 fn test_e2e_ansi_text_attributes() {
     let mut harness = E2EHarness::new("render_cycle", "text_attributes", 40, 10);
 
-    harness.log().info("init", "Testing ANSI text attribute sequences");
+    harness
+        .log()
+        .info("init", "Testing ANSI text attribute sequences");
 
     // Create cells with various attributes
     let bold_style = Style::bold();
@@ -474,11 +486,7 @@ fn test_e2e_ansi_reset_on_cleanup() {
         let mut writer = AnsiWriter::new(&mut output);
 
         // Set some attributes using builder
-        let styled = Style::builder()
-            .fg(Rgba::RED)
-            .bold()
-            .underline()
-            .build();
+        let styled = Style::builder().fg(Rgba::RED).bold().underline().build();
         let styled_cell = opentui::cell::Cell::new('S', styled);
         writer.write_cell(&styled_cell);
 
@@ -510,7 +518,9 @@ fn test_e2e_ansi_reset_on_cleanup() {
 fn test_e2e_render_cycle_with_graphemes() {
     let mut harness = E2EHarness::new("render_cycle", "graphemes", 40, 10);
 
-    harness.log().info("init", "Testing render cycle with graphemes");
+    harness
+        .log()
+        .info("init", "Testing render cycle with graphemes");
 
     let mut grapheme_pool = GraphemePool::new();
 
@@ -559,10 +569,9 @@ fn test_e2e_render_cycle_with_graphemes() {
 
     let output_str = String::from_utf8_lossy(&output);
 
-    harness.log().info(
-        "ansi",
-        format!("Output length: {} bytes", output.len()),
-    );
+    harness
+        .log()
+        .info("ansi", format!("Output length: {} bytes", output.len()));
 
     // Verify content is in output
     assert!(
@@ -579,7 +588,9 @@ fn test_e2e_render_cycle_with_graphemes() {
 fn test_e2e_diff_threshold_decision() {
     let mut harness = E2EHarness::new("render_cycle", "diff_threshold", 20, 10);
 
-    harness.log().info("init", "Testing diff threshold for full redraw");
+    harness
+        .log()
+        .info("init", "Testing diff threshold for full redraw");
 
     let total_cells = 20 * 10;
 

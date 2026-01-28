@@ -6,7 +6,9 @@
 //! - Paste events (bracketed paste mode)
 //! - Timing simulation (instant, realistic WPM, stress testing)
 
-use opentui::input::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use opentui::input::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 
 /// Timing mode for input simulation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -118,7 +120,12 @@ impl InputSequence {
         let mut seq = Self::new();
         // Press at start position
         seq.events.push(TimedInputEvent {
-            event: InputEvent::Mouse(MouseEvent::new(from.0, from.1, button, MouseEventKind::Press)),
+            event: InputEvent::Mouse(MouseEvent::new(
+                from.0,
+                from.1,
+                button,
+                MouseEventKind::Press,
+            )),
             delay_ms: 0,
         });
         // Generate intermediate move events
@@ -225,7 +232,12 @@ impl InputSequence {
     #[must_use]
     pub fn scroll_up(mut self, x: u32, y: u32) -> Self {
         self.events.push(TimedInputEvent {
-            event: InputEvent::Mouse(MouseEvent::new(x, y, MouseButton::None, MouseEventKind::ScrollUp)),
+            event: InputEvent::Mouse(MouseEvent::new(
+                x,
+                y,
+                MouseButton::None,
+                MouseEventKind::ScrollUp,
+            )),
             delay_ms: self.default_delay_ms,
         });
         self
@@ -235,7 +247,12 @@ impl InputSequence {
     #[must_use]
     pub fn scroll_down(mut self, x: u32, y: u32) -> Self {
         self.events.push(TimedInputEvent {
-            event: InputEvent::Mouse(MouseEvent::new(x, y, MouseButton::None, MouseEventKind::ScrollDown)),
+            event: InputEvent::Mouse(MouseEvent::new(
+                x,
+                y,
+                MouseButton::None,
+                MouseEventKind::ScrollDown,
+            )),
             delay_ms: self.default_delay_ms,
         });
         self
@@ -345,10 +362,7 @@ impl InputSequence {
 
     /// Convert to high-level Event types.
     pub fn to_terminal_events(&self) -> Vec<Event> {
-        self.events
-            .iter()
-            .map(|e| e.event.clone().into())
-            .collect()
+        self.events.iter().map(|e| e.event.clone().into()).collect()
     }
 
     /// Get total simulated time in milliseconds.
@@ -717,18 +731,14 @@ mod tests {
 
     #[test]
     fn test_scroll_events() {
-        let seq = InputSequence::new()
-            .scroll_up(10, 5)
-            .scroll_down(10, 5);
+        let seq = InputSequence::new().scroll_up(10, 5).scroll_down(10, 5);
 
         assert_eq!(seq.len(), 2);
     }
 
     #[test]
     fn test_focus_events() {
-        let seq = InputSequence::new()
-            .focus_gained()
-            .focus_lost();
+        let seq = InputSequence::new().focus_gained().focus_lost();
 
         assert_eq!(seq.len(), 2);
     }

@@ -9,7 +9,7 @@
 mod common;
 
 use common::harness::E2EHarness;
-use common::input_sim::{sequence_to_ansi, InputSequence};
+use common::input_sim::{InputSequence, sequence_to_ansi};
 use opentui::input::{InputParser, KeyCode, KeyModifiers, MouseButton};
 
 // ============================================================================
@@ -20,7 +20,9 @@ use opentui::input::{InputParser, KeyCode, KeyModifiers, MouseButton};
 #[test]
 fn test_e2e_workflow_type_delete_undo() {
     let mut harness = E2EHarness::new("workflows", "type_delete_undo", 80, 24);
-    harness.log().info("init", "Testing type → delete → undo workflow");
+    harness
+        .log()
+        .info("init", "Testing type → delete → undo workflow");
 
     let mut parser = InputParser::new();
 
@@ -30,7 +32,9 @@ fn test_e2e_workflow_type_delete_undo() {
         .ctrl_key(KeyCode::Char('z')); // Undo
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("workflow", format!("Sequence has {} events", seq.len()));
+    harness
+        .log()
+        .info("workflow", format!("Sequence has {} events", seq.len()));
 
     // Parse and count events
     let mut events = Vec::new();
@@ -47,7 +51,9 @@ fn test_e2e_workflow_type_delete_undo() {
 
     // Verify event count: 5 chars + backspace + Ctrl+Z = 7
     assert_eq!(events.len(), 7);
-    harness.log().info("verify", format!("Parsed {} events", events.len()));
+    harness
+        .log()
+        .info("verify", format!("Parsed {} events", events.len()));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Type → delete → undo workflow works");
@@ -77,7 +83,9 @@ fn test_e2e_workflow_navigation() {
         match parser.parse(&ansi[offset..]) {
             Ok((event, consumed)) => {
                 let key = event.key().expect("Should be key event");
-                assert!(key.code.is_navigation() || matches!(key.code, KeyCode::Home | KeyCode::End));
+                assert!(
+                    key.code.is_navigation() || matches!(key.code, KeyCode::Home | KeyCode::End)
+                );
                 count += 1;
                 offset += consumed;
             }
@@ -86,7 +94,9 @@ fn test_e2e_workflow_navigation() {
     }
 
     assert_eq!(count, 5);
-    harness.log().info("verify", "Navigation workflow parsed correctly");
+    harness
+        .log()
+        .info("verify", "Navigation workflow parsed correctly");
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Navigation workflow works");
@@ -128,7 +138,9 @@ fn test_e2e_workflow_selection() {
     }
 
     assert_eq!(events.len(), 4);
-    harness.log().info("verify", "Selection workflow with Shift modifier works");
+    harness
+        .log()
+        .info("verify", "Selection workflow with Shift modifier works");
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Selection workflow works");
@@ -150,7 +162,9 @@ fn test_e2e_workflow_copy_paste() {
         .ctrl_key(KeyCode::Char('v')); // Paste
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("workflow", format!("Sequence: {} bytes", ansi.len()));
+    harness
+        .log()
+        .info("workflow", format!("Sequence: {} bytes", ansi.len()));
 
     let mut count = 0;
     let mut offset = 0;
@@ -207,7 +221,9 @@ fn test_e2e_workflow_undo_redo() {
     }
 
     assert_eq!(count, 5);
-    harness.log().info("verify", "Undo/redo workflow parsed correctly");
+    harness
+        .log()
+        .info("verify", "Undo/redo workflow parsed correctly");
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Undo/redo workflow works");
@@ -221,7 +237,9 @@ fn test_e2e_workflow_undo_redo() {
 #[test]
 fn test_e2e_workflow_scroll_click_drag() {
     let mut harness = E2EHarness::new("workflows", "scroll_click_drag", 80, 24);
-    harness.log().info("init", "Testing scroll → click → drag workflow");
+    harness
+        .log()
+        .info("init", "Testing scroll → click → drag workflow");
 
     let mut parser = InputParser::new();
 
@@ -233,7 +251,9 @@ fn test_e2e_workflow_scroll_click_drag() {
         .drag((10, 15), (30, 15));
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("workflow", format!("Sequence: {} events", seq.len()));
+    harness
+        .log()
+        .info("workflow", format!("Sequence: {} events", seq.len()));
 
     let mut mouse_events = 0;
     let mut offset = 0;
@@ -250,8 +270,14 @@ fn test_e2e_workflow_scroll_click_drag() {
     }
 
     // 2 scrolls + 2 clicks (press/release) + 7 drag events (press + 5 moves + release)
-    assert!(mouse_events >= 10, "Should have multiple mouse events: got {}", mouse_events);
-    harness.log().info("verify", format!("Parsed {} mouse events", mouse_events));
+    assert!(
+        mouse_events >= 10,
+        "Should have multiple mouse events: got {}",
+        mouse_events
+    );
+    harness
+        .log()
+        .info("verify", format!("Parsed {} mouse events", mouse_events));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Scroll → click → drag workflow works");
@@ -261,7 +287,9 @@ fn test_e2e_workflow_scroll_click_drag() {
 #[test]
 fn test_e2e_workflow_context_menu() {
     let mut harness = E2EHarness::new("workflows", "context_menu", 80, 24);
-    harness.log().info("init", "Testing right-click context menu workflow");
+    harness
+        .log()
+        .info("init", "Testing right-click context menu workflow");
 
     let mut parser = InputParser::new();
 
@@ -297,12 +325,13 @@ fn test_e2e_workflow_context_menu() {
     let last_key = events[4].key().expect("Last should be key");
     // Enter key generates '\r' which is parsed as Ctrl+M
     assert!(
-        last_key.code == KeyCode::Enter
-            || (last_key.code == KeyCode::Char('m') && last_key.ctrl()),
+        last_key.code == KeyCode::Enter || (last_key.code == KeyCode::Char('m') && last_key.ctrl()),
         "Last key should be Enter or Ctrl+M (both are 0x0D)"
     );
 
-    harness.log().info("verify", "Context menu workflow parsed correctly");
+    harness
+        .log()
+        .info("verify", "Context menu workflow parsed correctly");
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Context menu workflow works");
@@ -372,7 +401,9 @@ fn test_e2e_workflow_search() {
         .shift_key(KeyCode::F(3)); // Prev result
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("workflow", format!("Sequence: {} events", seq.len()));
+    harness
+        .log()
+        .info("workflow", format!("Sequence: {} events", seq.len()));
 
     let mut count = 0;
     let mut offset = 0;
@@ -388,7 +419,9 @@ fn test_e2e_workflow_search() {
 
     // Ctrl+F + 4 chars + Enter + F3 + Shift+F3 = 8
     assert_eq!(count, 8);
-    harness.log().info("verify", format!("Search workflow: {} events", count));
+    harness
+        .log()
+        .info("verify", format!("Search workflow: {} events", count));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Search workflow works");
@@ -407,9 +440,7 @@ fn test_e2e_workflow_resize() {
     let mut parser = InputParser::new();
 
     // Workflow: Resize to 120x50, then type
-    let seq = InputSequence::new()
-        .resize(120, 50)
-        .key(KeyCode::Char('x'));
+    let seq = InputSequence::new().resize(120, 50).key(KeyCode::Char('x'));
 
     let ansi = sequence_to_ansi(&seq);
 
@@ -432,7 +463,10 @@ fn test_e2e_workflow_resize() {
     assert_eq!(resize.width, 120);
     assert_eq!(resize.height, 50);
 
-    harness.log().info("verify", format!("Resize to {}x{}", resize.width, resize.height));
+    harness.log().info(
+        "verify",
+        format!("Resize to {}x{}", resize.width, resize.height),
+    );
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Resize workflow works");
@@ -459,7 +493,9 @@ fn test_e2e_workflow_file_editing() {
         .ctrl_key(KeyCode::Char('v')); // Paste
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("workflow", format!("File editing: {} events", seq.len()));
+    harness
+        .log()
+        .info("workflow", format!("File editing: {} events", seq.len()));
 
     let mut count = 0;
     let mut offset = 0;
@@ -484,7 +520,9 @@ fn test_e2e_workflow_file_editing() {
 #[test]
 fn test_e2e_workflow_rapid_burst() {
     let mut harness = E2EHarness::new("workflows", "rapid_burst", 80, 24);
-    harness.log().info("init", "Testing rapid burst input (stress test)");
+    harness
+        .log()
+        .info("init", "Testing rapid burst input (stress test)");
 
     let mut parser = InputParser::new();
 
@@ -498,7 +536,9 @@ fn test_e2e_workflow_rapid_burst() {
     }
 
     let ansi = sequence_to_ansi(&seq);
-    harness.log().info("stress", format!("Burst: {} bytes", ansi.len()));
+    harness
+        .log()
+        .info("stress", format!("Burst: {} bytes", ansi.len()));
 
     let mut key_count = 0;
     let mut mouse_count = 0;

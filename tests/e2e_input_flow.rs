@@ -7,10 +7,12 @@ mod common;
 
 use common::harness::E2EHarness;
 use common::input_sim::{
-    event_to_ansi, key_to_ansi, mouse_to_sgr, paste_to_ansi, sequence_to_ansi, InputSequence,
-    TimingMode,
+    InputSequence, TimingMode, event_to_ansi, key_to_ansi, mouse_to_sgr, paste_to_ansi,
+    sequence_to_ansi,
 };
-use opentui::input::{Event, InputParser, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use opentui::input::{
+    Event, InputParser, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 
 // ============================================================================
 // Keyboard Input Flow Tests
@@ -28,7 +30,9 @@ fn test_e2e_single_keypress() {
     let seq = InputSequence::keystroke(KeyCode::Char('a'), KeyModifiers::empty());
     let ansi = sequence_to_ansi(&seq);
 
-    harness.log().info("input", format!("ANSI bytes: {:?}", ansi));
+    harness
+        .log()
+        .info("input", format!("ANSI bytes: {:?}", ansi));
 
     // Parse
     let (event, consumed) = parser.parse(&ansi).expect("Should parse");
@@ -59,7 +63,9 @@ fn test_e2e_modifier_combinations() {
     // Ctrl+C
     let ctrl_c = KeyEvent::with_ctrl(KeyCode::Char('c'));
     let ansi = key_to_ansi(&ctrl_c);
-    harness.log().info("input", format!("Ctrl+C ANSI: {:?}", ansi));
+    harness
+        .log()
+        .info("input", format!("Ctrl+C ANSI: {:?}", ansi));
 
     let (event, _) = parser.parse(&ansi).expect("Should parse Ctrl+C");
     let key = event.key().expect("Should be key event");
@@ -69,7 +75,9 @@ fn test_e2e_modifier_combinations() {
     // Alt+X
     let alt_x = KeyEvent::with_alt(KeyCode::Char('x'));
     let ansi = key_to_ansi(&alt_x);
-    harness.log().info("input", format!("Alt+X ANSI: {:?}", ansi));
+    harness
+        .log()
+        .info("input", format!("Alt+X ANSI: {:?}", ansi));
 
     let (event, _) = parser.parse(&ansi).expect("Should parse Alt+X");
     let key = event.key().expect("Should be key event");
@@ -134,7 +142,9 @@ fn test_e2e_special_keys() {
         let (event, _) = parser.parse(&ansi).expect("Should parse");
         let key = event.key().expect("Should be key event");
         assert_eq!(key.code, expected_code, "Key code mismatch for {:?}", ansi);
-        harness.log().info("verify", format!("{:?} parsed correctly", expected_code));
+        harness
+            .log()
+            .info("verify", format!("{:?} parsed correctly", expected_code));
     }
 
     harness.finish(true);
@@ -145,7 +155,9 @@ fn test_e2e_special_keys() {
 #[test]
 fn test_e2e_unicode_input() {
     let mut harness = E2EHarness::new("input_flow", "unicode_input", 80, 24);
-    harness.log().info("init", "Testing Unicode character input");
+    harness
+        .log()
+        .info("init", "Testing Unicode character input");
 
     let mut parser = InputParser::new();
 
@@ -185,7 +197,9 @@ fn test_e2e_escape_handling() {
         result.is_err(),
         "Standalone ESC should be Incomplete (could be start of sequence)"
     );
-    harness.log().info("verify", "Standalone ESC returns Incomplete");
+    harness
+        .log()
+        .info("verify", "Standalone ESC returns Incomplete");
 
     // Double escape
     let (event, consumed) = parser.parse(b"\x1b\x1b").expect("Should parse double ESC");
@@ -213,7 +227,9 @@ fn test_e2e_escape_handling() {
 #[test]
 fn test_e2e_mouse_click_position() {
     let mut harness = E2EHarness::new("input_flow", "mouse_click_position", 80, 24);
-    harness.log().info("init", "Testing mouse click position accuracy");
+    harness
+        .log()
+        .info("init", "Testing mouse click position accuracy");
 
     let mut parser = InputParser::new();
 
@@ -221,7 +237,10 @@ fn test_e2e_mouse_click_position() {
     let click = MouseEvent::new(15, 10, MouseButton::Left, MouseEventKind::Press);
     let ansi = mouse_to_sgr(&click);
 
-    harness.log().info("input", format!("SGR bytes: {:?}", String::from_utf8_lossy(&ansi)));
+    harness.log().info(
+        "input",
+        format!("SGR bytes: {:?}", String::from_utf8_lossy(&ansi)),
+    );
 
     let (event, _) = parser.parse(&ansi).expect("Should parse");
     let mouse = event.mouse().expect("Should be mouse event");
@@ -231,7 +250,9 @@ fn test_e2e_mouse_click_position() {
     assert_eq!(mouse.button, MouseButton::Left);
     assert_eq!(mouse.kind, MouseEventKind::Press);
 
-    harness.log().info("verify", format!("Position: ({}, {})", mouse.x, mouse.y));
+    harness
+        .log()
+        .info("verify", format!("Position: ({}, {})", mouse.x, mouse.y));
     harness.finish(true);
     eprintln!("[TEST] PASS: Mouse click position works");
 }
@@ -248,7 +269,9 @@ fn test_e2e_mouse_drag_sequence() {
     let seq = InputSequence::mouse_drag((5, 5), (20, 15), MouseButton::Left);
     let ansi = sequence_to_ansi(&seq);
 
-    harness.log().info("input", format!("Drag sequence has {} events", seq.len()));
+    harness
+        .log()
+        .info("input", format!("Drag sequence has {} events", seq.len()));
 
     // Parse all events
     let mut events = Vec::new();
@@ -263,10 +286,15 @@ fn test_e2e_mouse_drag_sequence() {
         }
     }
 
-    harness.log().info("parse", format!("Parsed {} events", events.len()));
+    harness
+        .log()
+        .info("parse", format!("Parsed {} events", events.len()));
 
     // Verify sequence: Press, Move(s), Release
-    assert!(events.len() >= 3, "Should have at least press, move, release");
+    assert!(
+        events.len() >= 3,
+        "Should have at least press, move, release"
+    );
 
     // First should be Press
     let first = events.first().unwrap().mouse().unwrap();
@@ -310,7 +338,9 @@ fn test_e2e_scroll_wheel() {
 #[test]
 fn test_e2e_mouse_boundary_positions() {
     let mut harness = E2EHarness::new("input_flow", "mouse_boundaries", 80, 24);
-    harness.log().info("init", "Testing mouse position at boundaries");
+    harness
+        .log()
+        .info("init", "Testing mouse position at boundaries");
 
     let mut parser = InputParser::new();
 
@@ -321,10 +351,15 @@ fn test_e2e_mouse_boundary_positions() {
     harness.log().info("verify", "Origin (0,0) works");
 
     // Large coordinates
-    let (event, _) = parser.parse(b"\x1b[<0;1000;500M").expect("Should parse large coords");
+    let (event, _) = parser
+        .parse(b"\x1b[<0;1000;500M")
+        .expect("Should parse large coords");
     let mouse = event.mouse().unwrap();
     assert_eq!((mouse.x, mouse.y), (999, 499));
-    harness.log().info("verify", format!("Large coords ({}, {}) work", mouse.x, mouse.y));
+    harness.log().info(
+        "verify",
+        format!("Large coords ({}, {}) work", mouse.x, mouse.y),
+    );
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Mouse boundary positions work");
@@ -334,12 +369,16 @@ fn test_e2e_mouse_boundary_positions() {
 #[test]
 fn test_e2e_mouse_modifiers() {
     let mut harness = E2EHarness::new("input_flow", "mouse_modifiers", 80, 24);
-    harness.log().info("init", "Testing mouse with keyboard modifiers");
+    harness
+        .log()
+        .info("init", "Testing mouse with keyboard modifiers");
 
     let mut parser = InputParser::new();
 
     // Shift+Click: button 0 + shift(4) = 4
-    let (event, _) = parser.parse(b"\x1b[<4;10;5M").expect("Should parse shift+click");
+    let (event, _) = parser
+        .parse(b"\x1b[<4;10;5M")
+        .expect("Should parse shift+click");
     let mouse = event.mouse().unwrap();
     assert!(mouse.shift);
     assert!(!mouse.ctrl);
@@ -347,13 +386,17 @@ fn test_e2e_mouse_modifiers() {
     harness.log().info("verify", "Shift+Click works");
 
     // Ctrl+Click: button 0 + ctrl(16) = 16
-    let (event, _) = parser.parse(b"\x1b[<16;10;5M").expect("Should parse ctrl+click");
+    let (event, _) = parser
+        .parse(b"\x1b[<16;10;5M")
+        .expect("Should parse ctrl+click");
     let mouse = event.mouse().unwrap();
     assert!(mouse.ctrl);
     harness.log().info("verify", "Ctrl+Click works");
 
     // Alt+Click: button 0 + alt(8) = 8
-    let (event, _) = parser.parse(b"\x1b[<8;10;5M").expect("Should parse alt+click");
+    let (event, _) = parser
+        .parse(b"\x1b[<8;10;5M")
+        .expect("Should parse alt+click");
     let mouse = event.mouse().unwrap();
     assert!(mouse.alt);
     harness.log().info("verify", "Alt+Click works");
@@ -370,7 +413,9 @@ fn test_e2e_mouse_modifiers() {
 #[test]
 fn test_e2e_bracketed_paste_detection() {
     let mut harness = E2EHarness::new("input_flow", "bracketed_paste", 80, 24);
-    harness.log().info("init", "Testing bracketed paste detection");
+    harness
+        .log()
+        .info("init", "Testing bracketed paste detection");
 
     let mut parser = InputParser::new();
 
@@ -378,7 +423,9 @@ fn test_e2e_bracketed_paste_detection() {
     let content = "Hello, World!";
     let ansi = paste_to_ansi(content);
 
-    harness.log().info("input", format!("Paste ANSI length: {} bytes", ansi.len()));
+    harness
+        .log()
+        .info("input", format!("Paste ANSI length: {} bytes", ansi.len()));
 
     // First parse enters paste mode
     let result = parser.parse(&ansi);
@@ -389,7 +436,9 @@ fn test_e2e_bracketed_paste_detection() {
     let paste = event.paste().expect("Should be paste event");
     assert_eq!(paste.content(), content);
 
-    harness.log().info("verify", format!("Paste content: {}", paste.content()));
+    harness
+        .log()
+        .info("verify", format!("Paste content: {}", paste.content()));
     harness.finish(true);
     eprintln!("[TEST] PASS: Bracketed paste detection works");
 }
@@ -406,7 +455,9 @@ fn test_e2e_large_paste() {
     let content: String = "x".repeat(15_000);
     let ansi = paste_to_ansi(&content);
 
-    harness.log().info("input", format!("Large paste: {} bytes", ansi.len()));
+    harness
+        .log()
+        .info("input", format!("Large paste: {} bytes", ansi.len()));
 
     // Parse
     let _ = parser.parse(&ansi); // Enter paste mode
@@ -415,7 +466,9 @@ fn test_e2e_large_paste() {
 
     // Note: MAX_PASTE_BUFFER_SIZE is 10MB, so this should fit
     assert_eq!(paste.content().len(), 15_000);
-    harness.log().info("verify", format!("Paste length: {} chars", paste.len()));
+    harness
+        .log()
+        .info("verify", format!("Paste length: {} chars", paste.len()));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Large paste handling works");
@@ -425,7 +478,9 @@ fn test_e2e_large_paste() {
 #[test]
 fn test_e2e_paste_with_unicode() {
     let mut harness = E2EHarness::new("input_flow", "paste_unicode", 80, 24);
-    harness.log().info("init", "Testing paste with Unicode content");
+    harness
+        .log()
+        .info("init", "Testing paste with Unicode content");
 
     let mut parser = InputParser::new();
 
@@ -437,7 +492,9 @@ fn test_e2e_paste_with_unicode() {
     let paste = event.paste().expect("Should be paste event");
 
     assert_eq!(paste.content(), content);
-    harness.log().info("verify", format!("Unicode paste: {}", paste.content()));
+    harness
+        .log()
+        .info("verify", format!("Unicode paste: {}", paste.content()));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Paste with Unicode works");
@@ -461,7 +518,9 @@ fn test_e2e_paste_binary_data() {
 
     // Note: from_utf8_lossy may replace invalid UTF-8
     assert!(!paste.is_empty());
-    harness.log().info("verify", format!("Binary paste length: {}", paste.len()));
+    harness
+        .log()
+        .info("verify", format!("Binary paste length: {}", paste.len()));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Paste binary data works");
@@ -502,12 +561,17 @@ fn test_e2e_resize_event() {
     let mut parser = InputParser::new();
 
     // Resize to 120x50: CSI 8;50;120 t
-    let (event, _) = parser.parse(b"\x1b[8;50;120t").expect("Should parse resize");
+    let (event, _) = parser
+        .parse(b"\x1b[8;50;120t")
+        .expect("Should parse resize");
     let resize = event.resize().expect("Should be resize event");
 
     assert_eq!(resize.width, 120);
     assert_eq!(resize.height, 50);
-    harness.log().info("verify", format!("Resize: {}x{}", resize.width, resize.height));
+    harness.log().info(
+        "verify",
+        format!("Resize: {}x{}", resize.width, resize.height),
+    );
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Resize event works");
@@ -521,7 +585,9 @@ fn test_e2e_resize_event() {
 #[test]
 fn test_e2e_partial_sequences() {
     let mut harness = E2EHarness::new("input_flow", "partial_sequences", 80, 24);
-    harness.log().info("init", "Testing partial/interrupted sequences");
+    harness
+        .log()
+        .info("init", "Testing partial/interrupted sequences");
 
     let mut parser = InputParser::new();
 
@@ -533,7 +599,9 @@ fn test_e2e_partial_sequences() {
     // Incomplete CSI with params but no terminator
     let result = parser.parse(b"\x1b[1;2");
     assert!(result.is_err());
-    harness.log().info("verify", "Incomplete params returns error");
+    harness
+        .log()
+        .info("verify", "Incomplete params returns error");
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Partial sequences handled correctly");
@@ -543,14 +611,18 @@ fn test_e2e_partial_sequences() {
 #[test]
 fn test_e2e_invalid_sequences() {
     let mut harness = E2EHarness::new("input_flow", "invalid_sequences", 80, 24);
-    harness.log().info("init", "Testing invalid/malformed sequences");
+    harness
+        .log()
+        .info("init", "Testing invalid/malformed sequences");
 
     let mut parser = InputParser::new();
 
     // Unknown CSI terminator
     let result = parser.parse(b"\x1b[999Z");
     assert!(result.is_err());
-    harness.log().info("verify", "Unknown CSI terminator returns error");
+    harness
+        .log()
+        .info("verify", "Unknown CSI terminator returns error");
 
     // Invalid UTF-8 continuation
     let result = parser.parse(&[0x80]);
@@ -565,7 +637,9 @@ fn test_e2e_invalid_sequences() {
 #[test]
 fn test_e2e_rapid_input() {
     let mut harness = E2EHarness::new("input_flow", "rapid_input", 80, 24);
-    harness.log().info("init", "Testing rapid input (100+ events)");
+    harness
+        .log()
+        .info("init", "Testing rapid input (100+ events)");
 
     let mut parser = InputParser::new();
 
@@ -573,7 +647,9 @@ fn test_e2e_rapid_input() {
     let seq = InputSequence::type_text(&"a".repeat(200)).stress_mode();
     let ansi = sequence_to_ansi(&seq);
 
-    harness.log().info("input", format!("Rapid input: {} bytes", ansi.len()));
+    harness
+        .log()
+        .info("input", format!("Rapid input: {} bytes", ansi.len()));
 
     // Parse all events
     let mut count = 0;
@@ -589,7 +665,9 @@ fn test_e2e_rapid_input() {
     }
 
     assert_eq!(count, 200, "Should parse all 200 events");
-    harness.log().info("verify", format!("Parsed {} events", count));
+    harness
+        .log()
+        .info("verify", format!("Parsed {} events", count));
 
     harness.finish(true);
     eprintln!("[TEST] PASS: Rapid input handled correctly");
@@ -599,7 +677,9 @@ fn test_e2e_rapid_input() {
 #[test]
 fn test_e2e_typing_speed_simulation() {
     let mut harness = E2EHarness::new("input_flow", "typing_speed", 80, 24);
-    harness.log().info("init", "Testing typing speed simulation");
+    harness
+        .log()
+        .info("init", "Testing typing speed simulation");
 
     // 60 WPM = 300 chars/min = 200ms per char average
     let seq = InputSequence::type_text("hello world").with_wpm(60);
@@ -609,7 +689,9 @@ fn test_e2e_typing_speed_simulation() {
     // Total time should be approximately 11 chars * 200ms = 2200ms
     // But first char has no delay, so ~2000ms
     let total_time = seq.total_time_ms();
-    harness.log().info("timing", format!("Total simulated time: {}ms", total_time));
+    harness
+        .log()
+        .info("timing", format!("Total simulated time: {}ms", total_time));
 
     // The actual time calculation depends on implementation
     // Just verify it's non-zero for realistic mode
@@ -623,7 +705,9 @@ fn test_e2e_typing_speed_simulation() {
 #[test]
 fn test_e2e_sequence_chaining() {
     let mut harness = E2EHarness::new("input_flow", "sequence_chaining", 80, 24);
-    harness.log().info("init", "Testing sequence building and chaining");
+    harness
+        .log()
+        .info("init", "Testing sequence building and chaining");
 
     // Build complex sequence
     let seq = InputSequence::new()
@@ -635,7 +719,9 @@ fn test_e2e_sequence_chaining() {
 
     // Count events
     let events = seq.to_terminal_events();
-    harness.log().info("build", format!("Built {} events", events.len()));
+    harness
+        .log()
+        .info("build", format!("Built {} events", events.len()));
 
     // Verify event types
     assert!(matches!(events[0], Event::Key(_)));
@@ -653,7 +739,9 @@ fn test_e2e_sequence_chaining() {
 #[test]
 fn test_e2e_modified_special_keys() {
     let mut harness = E2EHarness::new("input_flow", "modified_special_keys", 80, 24);
-    harness.log().info("init", "Testing modified special keys (Shift+Arrow, etc.)");
+    harness
+        .log()
+        .info("init", "Testing modified special keys (Shift+Arrow, etc.)");
 
     let mut parser = InputParser::new();
 
@@ -665,7 +753,9 @@ fn test_e2e_modified_special_keys() {
     harness.log().info("verify", "Shift+Up works");
 
     // Ctrl+Shift+End: ESC [ 1 ; 6 F
-    let (event, _) = parser.parse(b"\x1b[1;6F").expect("Should parse Ctrl+Shift+End");
+    let (event, _) = parser
+        .parse(b"\x1b[1;6F")
+        .expect("Should parse Ctrl+Shift+End");
     let key = event.key().unwrap();
     assert_eq!(key.code, KeyCode::End);
     assert!(key.shift());
@@ -673,7 +763,9 @@ fn test_e2e_modified_special_keys() {
     harness.log().info("verify", "Ctrl+Shift+End works");
 
     // All modifiers: Ctrl+Shift+Alt+Home: ESC [ 1 ; 8 H
-    let (event, _) = parser.parse(b"\x1b[1;8H").expect("Should parse all mods+Home");
+    let (event, _) = parser
+        .parse(b"\x1b[1;8H")
+        .expect("Should parse all mods+Home");
     let key = event.key().unwrap();
     assert_eq!(key.code, KeyCode::Home);
     assert!(key.shift());

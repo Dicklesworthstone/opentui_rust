@@ -513,6 +513,89 @@ jobs:
             target/test-artifacts/
           retention-days: 7
 
+  demo-smoke:
+    name: Demo Smoke (${{ matrix.size }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        size: ["80x24", "132x43", "40x12", "200x60"]
+        include:
+          - size: "80x24"
+            description: "Standard terminal"
+          - size: "132x43"
+            description: "Wide terminal"
+          - size: "40x12"
+            description: "Minimal terminal"
+          - size: "200x60"
+            description: "Large terminal"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: demo-smoke
+
+      - name: Build demo_showcase
+        run: cargo build --release --bin demo_showcase
+
+      - name: Run headless demo smoke test
+        id: smoke
+        run: |
+          mkdir -p target/demo-smoke
+          OUTPUT="target/demo-smoke/${{ matrix.size }}.json"
+
+          # Run headless demo with JSON output
+          if cargo run --release --bin demo_showcase -- \
+              --headless-smoke \
+              --tour \
+              --exit-after-tour \
+              --headless-size ${{ matrix.size }} \
+              --seed 12345 \
+              --max-frames 1000 \
+              --headless-dump-json > "$OUTPUT" 2>&1; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Validate JSON output
+          if ! jq empty "$OUTPUT" 2>/dev/null; then
+            echo "Invalid JSON output"
+            cat "$OUTPUT"
+            exit 1
+          fi
+
+          # Extract stats
+          FRAMES=$(jq -r '.frames_rendered // 0' "$OUTPUT")
+          LAYOUT=$(jq -r '.layout_mode // "unknown"' "$OUTPUT")
+          echo "frames=$FRAMES" >> $GITHUB_OUTPUT
+          echo "layout=$LAYOUT" >> $GITHUB_OUTPUT
+
+      - name: Show smoke test results
+        if: always()
+        run: |
+          echo "## Demo Smoke: ${{ matrix.size }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Size:** ${{ matrix.size }} (${{ matrix.description }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.smoke.outputs.status || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Frames:** ${{ steps.smoke.outputs.frames || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Layout:** ${{ steps.smoke.outputs.layout || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload smoke test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-smoke-${{ matrix.size }}
+          path: target/demo-smoke/
+          retention-days: 7
+
   pty-tests:
     name: PTY Tests
     runs-on: ubuntu-latest

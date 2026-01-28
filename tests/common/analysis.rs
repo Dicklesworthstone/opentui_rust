@@ -162,7 +162,11 @@ impl DetectedSequence {
             kind,
             offset,
             length: raw.len(),
-            raw_hex: raw.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "),
+            raw_hex: raw
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" "),
         }
     }
 }
@@ -237,7 +241,8 @@ impl PairValidation {
                 status.opener_count,
                 status.closer.display_name(),
                 status.closer_count
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         if !self.balanced.is_empty() {
@@ -249,7 +254,8 @@ impl PairValidation {
                     status.opener.display_name(),
                     status.closer.display_name(),
                     status.opener_count
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
 
@@ -441,12 +447,21 @@ impl SequenceReport {
         let pairs: &[(SequenceKind, SequenceKind)] = &[
             (SequenceKind::AltScreenEnter, SequenceKind::AltScreenLeave),
             (SequenceKind::CursorHide, SequenceKind::CursorShow),
-            (SequenceKind::MouseButtonEnable, SequenceKind::MouseButtonDisable),
-            (SequenceKind::MouseMotionEnable, SequenceKind::MouseMotionDisable),
+            (
+                SequenceKind::MouseButtonEnable,
+                SequenceKind::MouseButtonDisable,
+            ),
+            (
+                SequenceKind::MouseMotionEnable,
+                SequenceKind::MouseMotionDisable,
+            ),
             (SequenceKind::MouseAllEnable, SequenceKind::MouseAllDisable),
             (SequenceKind::MouseSgrEnable, SequenceKind::MouseSgrDisable),
             (SequenceKind::SyncOutputBegin, SequenceKind::SyncOutputEnd),
-            (SequenceKind::BracketedPasteEnable, SequenceKind::BracketedPasteDisable),
+            (
+                SequenceKind::BracketedPasteEnable,
+                SequenceKind::BracketedPasteDisable,
+            ),
             (SequenceKind::FocusEnable, SequenceKind::FocusDisable),
         ];
 
@@ -473,7 +488,10 @@ impl SequenceReport {
             }
         }
 
-        PairValidation { balanced, unbalanced }
+        PairValidation {
+            balanced,
+            unbalanced,
+        }
     }
 
     /// Find sequences that were expected but not found.
@@ -524,7 +542,8 @@ impl SequenceReport {
                 seq.offset,
                 seq.kind.display_name(),
                 seq.raw_hex
-            ).unwrap();
+            )
+            .unwrap();
         }
         if self.timeline.len() > 20 {
             writeln!(output, "  ... and {} more", self.timeline.len() - 20).unwrap();
@@ -566,7 +585,11 @@ impl ExpectationResult {
         let missing = report.find_missing(expected);
         let unexpected = report.find_unexpected(expected);
         let passed = missing.is_empty() && unexpected.is_empty();
-        Self { missing, unexpected, passed }
+        Self {
+            missing,
+            unexpected,
+            passed,
+        }
     }
 
     /// Generate human-readable result.
@@ -720,15 +743,27 @@ mod tests {
 
     #[test]
     fn test_sequence_kind_display_names() {
-        assert_eq!(SequenceKind::AltScreenEnter.display_name(), "ALT_SCREEN_ENTER");
+        assert_eq!(
+            SequenceKind::AltScreenEnter.display_name(),
+            "ALT_SCREEN_ENTER"
+        );
         assert_eq!(SequenceKind::CursorHide.display_name(), "CURSOR_HIDE");
-        assert_eq!(SequenceKind::SyncOutputBegin.display_name(), "SYNC_OUTPUT_BEGIN");
+        assert_eq!(
+            SequenceKind::SyncOutputBegin.display_name(),
+            "SYNC_OUTPUT_BEGIN"
+        );
     }
 
     #[test]
     fn test_sequence_pair_relationships() {
-        assert_eq!(SequenceKind::AltScreenEnter.pair(), Some(SequenceKind::AltScreenLeave));
-        assert_eq!(SequenceKind::CursorHide.pair(), Some(SequenceKind::CursorShow));
+        assert_eq!(
+            SequenceKind::AltScreenEnter.pair(),
+            Some(SequenceKind::AltScreenLeave)
+        );
+        assert_eq!(
+            SequenceKind::CursorHide.pair(),
+            Some(SequenceKind::CursorShow)
+        );
         assert_eq!(SequenceKind::EraseDisplay.pair(), None);
     }
 }

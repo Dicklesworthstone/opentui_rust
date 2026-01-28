@@ -1723,7 +1723,7 @@ pub struct TourStep {
     pub spotlight: Option<&'static str>,
 }
 
-/// The canonical tour script - 12 steps proving all major features.
+/// The canonical tour script - 13 steps proving all major features.
 pub const TOUR_SCRIPT: &[TourStep] = &[
     // 1. Welcome
     TourStep {
@@ -1773,15 +1773,23 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Editor),
         spotlight: Some("editor"),
     },
-    // 7. Theme System
+    // 7. Theme System (warning)
     TourStep {
-        title: "Theme System",
-        description: "4 built-in themes with full color tokens.\nPress Ctrl+N to cycle themes.",
+        title: "Theme Demo",
+        description: "⚠️ Screen will change to LIGHT THEME in 3 seconds!\nThis demonstrates the theme system.",
+        duration_ms: 3000,
+        action: TourAction::None,
+        spotlight: None,
+    },
+    // 8. Theme System (actual change)
+    TourStep {
+        title: "Light Theme Active",
+        description: "Now showing Paper (light) theme.\nPress Ctrl+N anytime to cycle between 4 themes.",
         duration_ms: 4000,
         action: TourAction::CycleTheme,
         spotlight: None,
     },
-    // 8. Unicode & Grapheme Pool
+    // 9. Unicode & Grapheme Pool
     TourStep {
         title: "Unicode & Graphemes",
         description: "CJK, emoji, ZWJ sequences rendered correctly.\nGrapheme pool handles multi-codepoint chars.",
@@ -1789,7 +1797,7 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Unicode),
         spotlight: Some("preview"),
     },
-    // 9. Preview Panel
+    // 10. Preview Panel
     TourStep {
         title: "Preview: Alpha Blending",
         description: "Porter-Duff compositing for translucent layers.\nReal RGBA blending, not dithering.",
@@ -1797,7 +1805,7 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Preview),
         spotlight: Some("preview"),
     },
-    // 10. Logs Panel
+    // 11. Logs Panel
     TourStep {
         title: "Logs & Hyperlinks",
         description: "Event stream with OSC 8 hyperlinks.\nClick links to open in browser.",
@@ -1805,7 +1813,7 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Logs),
         spotlight: Some("logs"),
     },
-    // 11. Performance
+    // 12. Performance
     TourStep {
         title: "Performance Stats",
         description: "Diff rendering: only changed cells written.\nTypically <1KB per frame after first.",
@@ -1813,7 +1821,7 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Performance),
         spotlight: Some("preview"),
     },
-    // 12. Finale
+    // 13. Finale
     TourStep {
         title: "Tour Complete!",
         description: "You've seen the core features.\nPress Esc to explore freely.",
@@ -6771,7 +6779,7 @@ renderer.present()?;
             "22:05:15",
             LogLevel::Info,
             "tour",
-            "Starting guided tour (12 steps)",
+            "Starting guided tour (13 steps)",
             None,
         ),
         LogEntry::new_static(
