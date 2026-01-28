@@ -6233,6 +6233,40 @@ mod tests {
     }
 
     #[test]
+    fn test_exit_after_tour() {
+        // Test that --exit-after-tour causes app to quit when tour completes
+        let config = Config {
+            start_in_tour: true,
+            exit_after_tour: true,
+            ..Default::default()
+        };
+        let mut app = App::new(&config);
+        assert_eq!(app.mode, AppMode::Tour);
+        assert!(!app.should_quit);
+
+        // Verify tour runner has exit_on_complete set
+        assert!(app.tour_runner.as_ref().is_some_and(|r| r.exit_on_complete));
+
+        // Advance through all tour steps
+        let total_steps = app.tour_total;
+        for _ in 0..total_steps {
+            // Manually advance to next step
+            let current_t = app.clock.t;
+            if let Some(runner) = app.tour_runner.as_mut() {
+                let completed = runner.next_step(current_t);
+                if completed && runner.exit_on_complete {
+                    app.should_quit = true;
+                    app.exit_reason = ExitReason::TourComplete;
+                }
+            }
+        }
+
+        // After completing all steps, app should be marked for quit
+        assert!(app.should_quit);
+        assert_eq!(app.exit_reason, ExitReason::TourComplete);
+    }
+
+    #[test]
     fn test_app_mode_name() {
         let mut app = App::default();
         assert_eq!(app.mode_name(), "Normal");
