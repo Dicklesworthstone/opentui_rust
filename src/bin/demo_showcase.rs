@@ -3293,6 +3293,7 @@ fn extract_buffer_row(buffer: &OptimizedBuffer, y: u32, start_x: u32, max_len: u
 /// - Runs N frames through all render passes
 /// - Computes `BufferDiff` between frames to verify diffing works
 /// - Outputs standard success format for CI (or JSON if `--headless-dump-json`)
+#[allow(clippy::too_many_lines)]
 fn run_headless_smoke(config: &Config) {
     use opentui::renderer::BufferDiff;
 
@@ -4003,7 +4004,8 @@ fn draw_pass_overlays(
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
 )]
 fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &Theme, app: &App) {
     if app.toasts.is_empty() {
@@ -4145,7 +4147,8 @@ fn draw_pass_toasts(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
 )]
 fn draw_pass_debug(
     buffer: &mut OptimizedBuffer,
