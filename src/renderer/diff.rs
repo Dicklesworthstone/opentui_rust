@@ -55,6 +55,13 @@ impl BufferDiff {
     /// Compare two buffers and find differences.
     #[must_use]
     pub fn compute(old: &OptimizedBuffer, new: &OptimizedBuffer) -> Self {
+        assert!(
+            old.size() == new.size(),
+            "Buffer size mismatch in diff: old={:?}, new={:?}",
+            old.size(),
+            new.size()
+        );
+
         let (width, height) = old.size();
         let total_cells = (width as usize).saturating_mul(height as usize);
         let reserve = (total_cells / 8).max(32).min(total_cells);
