@@ -3646,8 +3646,10 @@ fn install_log_routing() {
         if let Ok(mut q) = queue.lock() {
             q.push_back(entry);
             // Keep queue bounded to avoid unbounded memory growth.
+            // Track dropped entries so we can notify the user.
             while q.len() > LOG_QUEUE_CAPACITY {
                 q.pop_front();
+                dropped_log_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
     });
@@ -3674,6 +3676,17 @@ fn current_timestamp() -> String {
 /// Call this once per frame to move runtime log entries from the shared queue
 /// into `App.logs` for display in the logs panel.
 fn drain_log_queue(app: &mut App) {
+    // Check for dropped logs and report them
+    let dropped = dropped_log_count().swap(0, std::sync::atomic::Ordering::Relaxed);
+    if dropped > 0 {
+        app.add_log(content::LogEntry::new_runtime(
+            current_timestamp(),
+            content::LogLevel::Warn,
+            "logs".to_string(),
+            format!("{dropped} log entries dropped (queue overflow)"),
+        ));
+    }
+
     if let Ok(mut queue) = log_queue().lock() {
         for entry in queue.drain(..) {
             app.add_log(entry);
@@ -6835,6 +6848,7 @@ renderer.present()?;
         /// Compute metrics deterministically from frame count and target FPS.
         ///
         /// No randomness - results are reproducible for tour mode and tests.
+        /// Uses modulo to prevent precision loss with very large frame counts.
         #[must_use]
         #[allow(
             clippy::cast_precision_loss,
@@ -6842,18 +6856,22 @@ renderer.present()?;
             clippy::cast_sign_loss
         )] // Acceptable for demo metrics - values are bounded
         pub fn compute(frame: u64, target_fps: u32) -> Self {
-            let frame_f = frame as f32;
-            let target_fps_f = target_fps as f32;
+            // Use modulo to keep frame value in f32's precise range (< 2^24)
+            // This prevents precision loss after billions of frames while
+            // maintaining deterministic behavior within the cycle
+            const FRAME_CYCLE: u64 = 10_000_000; // ~46 hours at 60fps
+            let frame_mod = (frame % FRAME_CYCLE) as f32;
+            let target_fps_f = (target_fps.max(1)) as f32;
 
             // Simulate slight FPS variation (deterministic sine wave)
-            let fps_variation = (frame_f * 0.1).sin() * 2.0;
+            let fps_variation = (frame_mod * 0.1).sin() * 2.0;
             let fps = ((target_fps_f + fps_variation) as u32).clamp(1, 120);
 
-            // Frame time derived from FPS
-            let frame_time_ms = 1000.0 / fps as f32;
+            // Frame time derived from FPS (guard against division by zero)
+            let frame_time_ms = 1000.0 / (fps as f32).max(1.0);
 
             // CPU usage: slow sine wave (5-25%)
-            let cpu_base = (frame_f * 0.02).sin().mul_add(10.0, 15.0);
+            let cpu_base = (frame_mod * 0.02).sin().mul_add(10.0, 15.0);
             let cpu_percent = cpu_base.clamp(0.0, 100.0) as u8;
 
             // Memory: slowly growing counter with periodic resets
