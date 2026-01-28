@@ -775,3 +775,630 @@ fn ansi_to_readable(bytes: &[u8]) -> String {
     }
     result
 }
+
+// ============================================================================
+// Event Types and Phase Tracking
+// ============================================================================
+
+/// Event type for structured logging - provides semantic meaning to log entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventType {
+    /// Test starting - includes initial config and setup info.
+    TestStart,
+    /// Test phase transition (setup -> execute -> verify -> teardown).
+    PhaseChange,
+    /// A discrete step within a test.
+    Step,
+    /// An assertion being checked.
+    Assertion,
+    /// An error occurred.
+    Error,
+    /// Test finished - includes summary stats.
+    TestEnd,
+    /// Input was sent to the terminal.
+    Input,
+    /// Output was rendered.
+    Render,
+    /// Buffer state captured.
+    BufferCapture,
+    /// Timing/performance metric.
+    Metric,
+}
+
+impl std::fmt::Display for EventType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TestStart => write!(f, "test_start"),
+            Self::PhaseChange => write!(f, "phase_change"),
+            Self::Step => write!(f, "step"),
+            Self::Assertion => write!(f, "assertion"),
+            Self::Error => write!(f, "error"),
+            Self::TestEnd => write!(f, "test_end"),
+            Self::Input => write!(f, "input"),
+            Self::Render => write!(f, "render"),
+            Self::BufferCapture => write!(f, "buffer_capture"),
+            Self::Metric => write!(f, "metric"),
+        }
+    }
+}
+
+/// Test phase for tracking progress through a test.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TestPhase {
+    /// Initial setup phase.
+    #[default]
+    Setup,
+    /// Main test execution phase.
+    Execute,
+    /// Verification/assertion phase.
+    Verify,
+    /// Cleanup/teardown phase.
+    Teardown,
+}
+
+impl std::fmt::Display for TestPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Setup => write!(f, "setup"),
+            Self::Execute => write!(f, "execute"),
+            Self::Verify => write!(f, "verify"),
+            Self::Teardown => write!(f, "teardown"),
+        }
+    }
+}
+
+/// Extended log entry with event type and phase tracking.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExtendedLogEntry {
+    /// Monotonic step ID for ordering.
+    pub step_id: u64,
+    /// Unix timestamp in milliseconds.
+    pub ts_ms: u64,
+    /// Duration since test start.
+    pub elapsed_ms: u64,
+    /// Test name.
+    pub test_name: String,
+    /// Event type.
+    pub event_type: EventType,
+    /// Log level.
+    pub level: LogLevel,
+    /// Current test phase.
+    pub phase: TestPhase,
+    /// Sequence number within the phase.
+    pub sequence_num: u32,
+    /// Human-readable message.
+    pub message: String,
+    /// Optional context data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<serde_json::Value>,
+}
+
+impl ExtendedLogEntry {
+    fn new(
+        start_time: Instant,
+        test_name: &str,
+        event_type: EventType,
+        level: LogLevel,
+        phase: TestPhase,
+        sequence_num: u32,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            step_id: next_step_id(),
+            ts_ms: unix_millis(),
+            elapsed_ms: millis_to_u64(start_time.elapsed().as_millis()),
+            test_name: test_name.to_string(),
+            event_type,
+            level,
+            phase,
+            sequence_num,
+            message: message.into(),
+            context: None,
+        }
+    }
+
+    fn with_context<T: Serialize>(mut self, ctx: &T) -> Self {
+        self.context = serde_json::to_value(ctx).ok();
+        self
+    }
+}
+
+/// Extended structured logger with event types and phase tracking.
+pub struct ExtendedLogger {
+    writer: Option<BufWriter<File>>,
+    start_time: Instant,
+    min_level: LogLevel,
+    test_name: String,
+    current_phase: TestPhase,
+    sequence_num: u32,
+    entries: Vec<ExtendedLogEntry>,
+    assertion_count: u32,
+    assertion_passed: u32,
+}
+
+impl ExtendedLogger {
+    /// Create a new extended logger for a test.
+    pub fn new(log_path: &Path, test_name: &str) -> Self {
+        let writer = File::create(log_path).ok().map(BufWriter::new);
+        Self {
+            writer,
+            start_time: Instant::now(),
+            min_level: LogLevel::from_env(),
+            test_name: test_name.to_string(),
+            current_phase: TestPhase::Setup,
+            sequence_num: 0,
+            entries: Vec::new(),
+            assertion_count: 0,
+            assertion_passed: 0,
+        }
+    }
+
+    /// Create a disabled logger (no-op).
+    pub fn disabled() -> Self {
+        Self {
+            writer: None,
+            start_time: Instant::now(),
+            min_level: LogLevel::Error,
+            test_name: String::new(),
+            current_phase: TestPhase::Setup,
+            sequence_num: 0,
+            entries: Vec::new(),
+            assertion_count: 0,
+            assertion_passed: 0,
+        }
+    }
+
+    /// Log a test start event.
+    pub fn test_start<T: Serialize>(&mut self, context: &T) {
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::TestStart,
+            LogLevel::Info,
+            phase,
+            seq,
+            "Test started",
+        )
+        .with_context(context);
+        self.log(entry);
+    }
+
+    /// Log a test end event.
+    pub fn test_end(&mut self, passed: bool) {
+        #[derive(Serialize)]
+        struct TestEndContext {
+            passed: bool,
+            duration_ms: u64,
+            assertions_total: u32,
+            assertions_passed: u32,
+        }
+
+        let context = TestEndContext {
+            passed,
+            duration_ms: millis_to_u64(self.start_time.elapsed().as_millis()),
+            assertions_total: self.assertion_count,
+            assertions_passed: self.assertion_passed,
+        };
+
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::TestEnd,
+            if passed { LogLevel::Info } else { LogLevel::Error },
+            phase,
+            seq,
+            format!("Test {}", if passed { "PASSED" } else { "FAILED" }),
+        )
+        .with_context(&context);
+        self.log(entry);
+    }
+
+    /// Transition to a new phase.
+    pub fn set_phase(&mut self, phase: TestPhase) {
+        let old_phase = self.current_phase;
+        self.current_phase = phase;
+        self.sequence_num = 0;
+
+        let (start_time, test_name, _, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::PhaseChange,
+            LogLevel::Debug,
+            phase,
+            seq,
+            format!("Phase: {old_phase} -> {phase}"),
+        );
+        self.log(entry);
+    }
+
+    /// Log a step within the current phase.
+    pub fn step(&mut self, message: impl Into<String>) {
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Step,
+            LogLevel::Info,
+            phase,
+            seq,
+            message,
+        );
+        self.log(entry);
+    }
+
+    /// Log a step with context data.
+    pub fn step_with_context<T: Serialize>(&mut self, message: impl Into<String>, context: &T) {
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Step,
+            LogLevel::Info,
+            phase,
+            seq,
+            message,
+        )
+        .with_context(context);
+        self.log(entry);
+    }
+
+    /// Log an assertion result.
+    pub fn assertion(&mut self, passed: bool, expected: &str, actual: &str, message: &str) {
+        self.assertion_count += 1;
+        if passed {
+            self.assertion_passed += 1;
+        }
+
+        #[derive(Serialize)]
+        struct AssertionContext<'a> {
+            expected: &'a str,
+            actual: &'a str,
+            passed: bool,
+        }
+
+        let context = AssertionContext {
+            expected,
+            actual,
+            passed,
+        };
+
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Assertion,
+            if passed { LogLevel::Debug } else { LogLevel::Error },
+            phase,
+            seq,
+            message,
+        )
+        .with_context(&context);
+        self.log(entry);
+    }
+
+    /// Log an error.
+    pub fn error(&mut self, message: impl Into<String>) {
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Error,
+            LogLevel::Error,
+            phase,
+            seq,
+            message,
+        );
+        self.log(entry);
+    }
+
+    /// Log an error with context.
+    pub fn error_with_context<T: Serialize>(&mut self, message: impl Into<String>, context: &T) {
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Error,
+            LogLevel::Error,
+            phase,
+            seq,
+            message,
+        )
+        .with_context(context);
+        self.log(entry);
+    }
+
+    /// Log input being sent.
+    pub fn input(&mut self, bytes: &[u8], description: &str) {
+        #[derive(Serialize)]
+        struct InputContext {
+            bytes_len: usize,
+            hex: String,
+        }
+
+        let context = InputContext {
+            bytes_len: bytes.len(),
+            hex: hex_encode(bytes),
+        };
+
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Input,
+            LogLevel::Debug,
+            phase,
+            seq,
+            description,
+        )
+        .with_context(&context);
+        self.log(entry);
+    }
+
+    /// Log a timing metric.
+    pub fn metric(&mut self, name: &str, value_ms: u64) {
+        #[derive(Serialize)]
+        struct MetricContext {
+            metric_name: String,
+            value_ms: u64,
+        }
+
+        let context = MetricContext {
+            metric_name: name.to_string(),
+            value_ms,
+        };
+
+        let (start_time, test_name, phase, seq) = self.entry_context();
+        let entry = ExtendedLogEntry::new(
+            start_time,
+            &test_name,
+            EventType::Metric,
+            LogLevel::Info,
+            phase,
+            seq,
+            format!("Metric: {name} = {value_ms}ms"),
+        )
+        .with_context(&context);
+        self.log(entry);
+    }
+
+    fn next_sequence(&mut self) -> u32 {
+        self.sequence_num += 1;
+        self.sequence_num
+    }
+
+    /// Helper to get common entry fields, avoiding borrow checker issues.
+    fn entry_context(&mut self) -> (Instant, String, TestPhase, u32) {
+        let seq = self.next_sequence();
+        (self.start_time, self.test_name.clone(), self.current_phase, seq)
+    }
+
+    fn log(&mut self, entry: ExtendedLogEntry) {
+        if !entry.level.should_log(self.min_level) {
+            return;
+        }
+
+        // Print to stderr for immediate visibility
+        eprintln!(
+            "[{:06}ms] {:5} [{}] [{}] {}",
+            entry.elapsed_ms,
+            entry.level.to_string().to_uppercase(),
+            entry.phase,
+            entry.event_type,
+            entry.message
+        );
+
+        // Write to file
+        if let Some(ref mut writer) = self.writer {
+            if let Ok(json) = serde_json::to_string(&entry) {
+                let _ = writeln!(writer, "{json}");
+            }
+        }
+
+        self.entries.push(entry);
+    }
+
+    /// Flush the log buffer.
+    pub fn flush(&mut self) {
+        if let Some(ref mut writer) = self.writer {
+            let _ = writer.flush();
+        }
+    }
+
+    /// Get all entries.
+    pub fn entries(&self) -> &[ExtendedLogEntry] {
+        &self.entries
+    }
+}
+
+impl Drop for ExtendedLogger {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
+// ============================================================================
+// Ergonomic Macros for E2E Test Logging
+// ============================================================================
+
+/// Log a message with context using the extended logger.
+///
+/// # Examples
+///
+/// ```ignore
+/// e2e_log!(harness, info, "Sending keystroke", { "key": "Enter" });
+/// e2e_log!(harness, debug, "Buffer state captured");
+/// ```
+#[macro_export]
+macro_rules! e2e_log {
+    ($harness:expr, $level:ident, $msg:expr) => {
+        $harness.extended_log().$level($msg)
+    };
+    ($harness:expr, $level:ident, $msg:expr, $ctx:expr) => {
+        $harness.extended_log().step_with_context($msg, &$ctx)
+    };
+}
+
+/// Assert with automatic logging to the extended logger.
+///
+/// # Examples
+///
+/// ```ignore
+/// e2e_assert!(harness, cell.char() == 'X', "Cell content mismatch");
+/// e2e_assert!(harness, actual == expected, "Values differ", expected, actual);
+/// ```
+#[macro_export]
+macro_rules! e2e_assert {
+    ($harness:expr, $cond:expr, $msg:expr) => {{
+        let passed = $cond;
+        $harness
+            .extended_log()
+            .assertion(passed, "true", &format!("{}", passed), $msg);
+        assert!(passed, "{}", $msg);
+    }};
+    ($harness:expr, $cond:expr, $msg:expr, $expected:expr, $actual:expr) => {{
+        let passed = $cond;
+        $harness.extended_log().assertion(
+            passed,
+            &format!("{:?}", $expected),
+            &format!("{:?}", $actual),
+            $msg,
+        );
+        assert!(passed, "{}: expected {:?}, got {:?}", $msg, $expected, $actual);
+    }};
+}
+
+/// Log a test step with optional context.
+///
+/// # Examples
+///
+/// ```ignore
+/// e2e_step!(harness, "Initializing buffer");
+/// e2e_step!(harness, "Sending input", { "key": "Enter", "modifiers": [] });
+/// ```
+#[macro_export]
+macro_rules! e2e_step {
+    ($harness:expr, $msg:expr) => {
+        $harness.extended_log().step($msg)
+    };
+    ($harness:expr, $msg:expr, $ctx:expr) => {
+        $harness.extended_log().step_with_context($msg, &$ctx)
+    };
+}
+
+/// Set the test phase.
+///
+/// # Examples
+///
+/// ```ignore
+/// e2e_phase!(harness, Execute);
+/// e2e_phase!(harness, Verify);
+/// ```
+#[macro_export]
+macro_rules! e2e_phase {
+    ($harness:expr, $phase:ident) => {
+        $harness
+            .extended_log()
+            .set_phase($crate::common::harness::TestPhase::$phase)
+    };
+}
+
+// ============================================================================
+// Extended E2E Harness with Phase Tracking
+// ============================================================================
+
+impl E2EHarness {
+    /// Create an extended logger for this harness.
+    ///
+    /// Note: This creates a new logger. For most uses, prefer the built-in
+    /// structured_log methods which are already integrated.
+    pub fn create_extended_logger(&self) -> ExtendedLogger {
+        let log_path = self.artifact_logger.artifact_dir.join("extended.jsonl");
+        if self.artifact_logger.config.enabled {
+            ExtendedLogger::new(&log_path, &format!("{}::{}", self.artifact_logger.suite, self.artifact_logger.test))
+        } else {
+            ExtendedLogger::disabled()
+        }
+    }
+}
+
+// ============================================================================
+// Tests for Extended Logging
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_type_display() {
+        assert_eq!(EventType::TestStart.to_string(), "test_start");
+        assert_eq!(EventType::Step.to_string(), "step");
+        assert_eq!(EventType::Assertion.to_string(), "assertion");
+    }
+
+    #[test]
+    fn test_test_phase_display() {
+        assert_eq!(TestPhase::Setup.to_string(), "setup");
+        assert_eq!(TestPhase::Execute.to_string(), "execute");
+        assert_eq!(TestPhase::Verify.to_string(), "verify");
+        assert_eq!(TestPhase::Teardown.to_string(), "teardown");
+    }
+
+    #[test]
+    fn test_extended_logger_phases() {
+        let mut logger = ExtendedLogger::disabled();
+        assert_eq!(logger.current_phase, TestPhase::Setup);
+
+        logger.set_phase(TestPhase::Execute);
+        assert_eq!(logger.current_phase, TestPhase::Execute);
+
+        logger.set_phase(TestPhase::Verify);
+        assert_eq!(logger.current_phase, TestPhase::Verify);
+    }
+
+    #[test]
+    fn test_extended_logger_assertions() {
+        let mut logger = ExtendedLogger::disabled();
+
+        logger.assertion(true, "expected", "actual", "Test assertion");
+        assert_eq!(logger.assertion_count, 1);
+        assert_eq!(logger.assertion_passed, 1);
+
+        logger.assertion(false, "expected", "different", "Failed assertion");
+        assert_eq!(logger.assertion_count, 2);
+        assert_eq!(logger.assertion_passed, 1);
+    }
+
+    #[test]
+    fn test_log_level_ordering() {
+        assert!(LogLevel::Error.should_log(LogLevel::Debug));
+        assert!(LogLevel::Warn.should_log(LogLevel::Debug));
+        assert!(!LogLevel::Debug.should_log(LogLevel::Warn));
+    }
+
+    #[test]
+    fn test_extended_log_entry_serialization() {
+        let entry = ExtendedLogEntry {
+            step_id: 1,
+            ts_ms: 1234567890,
+            elapsed_ms: 100,
+            test_name: "test_example".to_string(),
+            event_type: EventType::Step,
+            level: LogLevel::Info,
+            phase: TestPhase::Execute,
+            sequence_num: 1,
+            message: "Test message".to_string(),
+            context: None,
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"event_type\":\"step\""));
+        assert!(json.contains("\"phase\":\"execute\""));
+        assert!(json.contains("\"level\":\"info\""));
+    }
+}

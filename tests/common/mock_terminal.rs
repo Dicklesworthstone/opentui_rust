@@ -44,7 +44,7 @@ impl MockTerminal {
             output: Vec::with_capacity(4096),
             width,
             height,
-            capabilities: Capabilities::full(),
+            capabilities: Capabilities::default(),
         }
     }
 
@@ -63,7 +63,7 @@ impl MockTerminal {
     #[must_use]
     pub fn no_color(width: u16, height: u16) -> Self {
         let mut caps = Capabilities::default();
-        caps.color_support = ColorSupport::None;
+        caps.color = ColorSupport::None;
         Self::with_capabilities(width, height, caps)
     }
 
@@ -71,7 +71,7 @@ impl MockTerminal {
     #[must_use]
     pub fn color_256(width: u16, height: u16) -> Self {
         let mut caps = Capabilities::default();
-        caps.color_support = ColorSupport::Extended;
+        caps.color = ColorSupport::Extended;
         Self::with_capabilities(width, height, caps)
     }
 
@@ -364,7 +364,7 @@ impl<'a> AnsiSequenceParser<'a> {
     fn parse_csi(&mut self) -> Option<AnsiSequence> {
         self.advance(); // consume '['
 
-        let start = self.pos;
+        let _start = self.pos;
 
         // Check for private mode (?)
         let private = self.peek() == Some(b'?');
@@ -458,7 +458,7 @@ impl<'a> AnsiSequenceParser<'a> {
         }
     }
 
-    fn interpret_sgr(&mut self, params: &[u32]) -> Option<AnsiSequence> {
+    fn interpret_sgr(&self, params: &[u32]) -> Option<AnsiSequence> {
         if params.is_empty() || params == [0] {
             return Some(AnsiSequence::Reset);
         }
@@ -558,7 +558,7 @@ impl<'a> AnsiSequenceParser<'a> {
         Some(AnsiSequence::Unknown(self.data[start - 2..].to_vec()))
     }
 
-    fn interpret_osc(&mut self, content: &[u8]) -> Option<AnsiSequence> {
+    fn interpret_osc(&self, content: &[u8]) -> Option<AnsiSequence> {
         let s = String::from_utf8_lossy(content);
 
         if let Some(rest) = s.strip_prefix("2;") {

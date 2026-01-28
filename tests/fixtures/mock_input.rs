@@ -4,7 +4,7 @@
 //! for controlled test scenarios. Supports keyboard events, mouse events,
 //! and raw byte sequences.
 
-use opentui::input::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use opentui::input::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PasteEvent};
 use std::collections::VecDeque;
 
 /// A mock input provider that delivers scripted input events.
@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 /// ```ignore
 /// let mut input = MockInput::new();
 /// input.queue_key('a');
-/// input.queue_key_with_modifiers('c', KeyModifiers::CONTROL);
+/// input.queue_key_with_modifiers('c', KeyModifiers::CTRL);
 /// input.queue_mouse_click(10, 5, MouseButton::Left);
 ///
 /// while let Some(event) = input.next_event() {
@@ -52,7 +52,7 @@ impl MockInput {
     pub fn queue_key(&mut self, c: char) {
         self.events.push_back(Event::Key(KeyEvent::new(
             KeyCode::Char(c),
-            KeyModifiers::NONE,
+            KeyModifiers::empty(),
         )));
     }
 
@@ -64,10 +64,10 @@ impl MockInput {
         )));
     }
 
-    /// Queue a special key press (Enter, Escape, etc.).
+    /// Queue a special key press (Enter, Esc, etc.).
     pub fn queue_special_key(&mut self, key: KeyCode) {
         self.events
-            .push_back(Event::Key(KeyEvent::new(key, KeyModifiers::NONE)));
+            .push_back(Event::Key(KeyEvent::new(key, KeyModifiers::empty())));
     }
 
     /// Queue a special key with modifiers.
@@ -77,61 +77,58 @@ impl MockInput {
     }
 
     /// Queue a mouse click event.
-    pub fn queue_mouse_click(&mut self, x: u16, y: u16, button: MouseButton) {
+    pub fn queue_mouse_click(&mut self, x: u32, y: u32, button: MouseButton) {
         self.events.push_back(Event::Mouse(MouseEvent {
             x,
             y,
             button,
             kind: MouseEventKind::Press,
-            modifiers: KeyModifiers::NONE,
+            shift: false,
+            ctrl: false,
+            alt: false,
         }));
     }
 
     /// Queue a mouse release event.
-    pub fn queue_mouse_release(&mut self, x: u16, y: u16, button: MouseButton) {
+    pub fn queue_mouse_release(&mut self, x: u32, y: u32, button: MouseButton) {
         self.events.push_back(Event::Mouse(MouseEvent {
             x,
             y,
             button,
             kind: MouseEventKind::Release,
-            modifiers: KeyModifiers::NONE,
+            shift: false,
+            ctrl: false,
+            alt: false,
         }));
     }
 
     /// Queue a mouse move event.
-    pub fn queue_mouse_move(&mut self, x: u16, y: u16) {
+    pub fn queue_mouse_move(&mut self, x: u32, y: u32) {
         self.events.push_back(Event::Mouse(MouseEvent {
             x,
             y,
             button: MouseButton::None,
             kind: MouseEventKind::Move,
-            modifiers: KeyModifiers::NONE,
-        }));
-    }
-
-    /// Queue a mouse drag event.
-    pub fn queue_mouse_drag(&mut self, x: u16, y: u16, button: MouseButton) {
-        self.events.push_back(Event::Mouse(MouseEvent {
-            x,
-            y,
-            button,
-            kind: MouseEventKind::Drag,
-            modifiers: KeyModifiers::NONE,
+            shift: false,
+            ctrl: false,
+            alt: false,
         }));
     }
 
     /// Queue a mouse scroll event.
-    pub fn queue_mouse_scroll(&mut self, x: u16, y: u16, direction: ScrollDirection) {
-        let button = match direction {
-            ScrollDirection::Up => MouseButton::ScrollUp,
-            ScrollDirection::Down => MouseButton::ScrollDown,
+    pub fn queue_mouse_scroll(&mut self, x: u32, y: u32, direction: ScrollDirection) {
+        let kind = match direction {
+            ScrollDirection::Up => MouseEventKind::ScrollUp,
+            ScrollDirection::Down => MouseEventKind::ScrollDown,
         };
         self.events.push_back(Event::Mouse(MouseEvent {
             x,
             y,
-            button,
-            kind: MouseEventKind::Press,
-            modifiers: KeyModifiers::NONE,
+            button: MouseButton::None,
+            kind,
+            shift: false,
+            ctrl: false,
+            alt: false,
         }));
     }
 
@@ -147,7 +144,7 @@ impl MockInput {
 
     /// Queue a paste event.
     pub fn queue_paste(&mut self, text: impl Into<String>) {
-        self.events.push_back(Event::Paste(text.into()));
+        self.events.push_back(Event::Paste(PasteEvent::new(text.into())));
     }
 
     /// Queue a string as individual key events.
@@ -280,7 +277,7 @@ impl InputSequenceBuilder {
 
     /// Add Escape key.
     pub fn escape(mut self) -> Self {
-        self.input.queue_special_key(KeyCode::Escape);
+        self.input.queue_special_key(KeyCode::Esc);
         self
     }
 
@@ -317,7 +314,7 @@ impl InputSequenceBuilder {
     /// Add Ctrl+key combination.
     pub fn ctrl(mut self, c: char) -> Self {
         self.input
-            .queue_key_with_modifiers(c, KeyModifiers::CONTROL);
+            .queue_key_with_modifiers(c, KeyModifiers::CTRL);
         self
     }
 
@@ -334,27 +331,28 @@ impl InputSequenceBuilder {
     }
 
     /// Add mouse click.
-    pub fn click(mut self, x: u16, y: u16) -> Self {
+    pub fn click(mut self, x: u32, y: u32) -> Self {
         self.input.queue_mouse_click(x, y, MouseButton::Left);
         self
     }
 
     /// Add right click.
-    pub fn right_click(mut self, x: u16, y: u16) -> Self {
+    pub fn right_click(mut self, x: u32, y: u32) -> Self {
         self.input.queue_mouse_click(x, y, MouseButton::Right);
         self
     }
 
-    /// Add mouse drag from one point to another.
-    pub fn drag(mut self, from: (u16, u16), to: (u16, u16)) -> Self {
+    /// Add mouse drag from one point to another (press, move, release).
+    pub fn drag(mut self, from: (u32, u32), to: (u32, u32)) -> Self {
         self.input.queue_mouse_click(from.0, from.1, MouseButton::Left);
-        self.input.queue_mouse_drag(to.0, to.1, MouseButton::Left);
+        // Simulate drag with move events
+        self.input.queue_mouse_move(to.0, to.1);
         self.input.queue_mouse_release(to.0, to.1, MouseButton::Left);
         self
     }
 
     /// Add scroll.
-    pub fn scroll(mut self, x: u16, y: u16, direction: ScrollDirection) -> Self {
+    pub fn scroll(mut self, x: u32, y: u32, direction: ScrollDirection) -> Self {
         self.input.queue_mouse_scroll(x, y, direction);
         self
     }
@@ -466,7 +464,7 @@ mod tests {
         input.queue_paste("clipboard content");
 
         let event = input.next_event().unwrap();
-        assert!(matches!(event, Event::Paste(s) if s == "clipboard content"));
+        assert!(matches!(event, Event::Paste(ref p) if p.content == "clipboard content"));
     }
 
     #[test]
