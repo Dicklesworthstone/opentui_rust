@@ -139,7 +139,9 @@ impl GraphemePool {
     #[must_use]
     pub fn alloc(&mut self, grapheme: &str) -> GraphemeId {
         let width = crate::unicode::display_width(grapheme);
-        let slot = Slot::new(grapheme.to_owned(), width as u8);
+        // Saturate width to u8 range, then GraphemeId::new() will saturate to 127
+        let width_u8 = width.min(u8::MAX as usize) as u8;
+        let slot = Slot::new(grapheme.to_owned(), width_u8);
 
         let pool_id = if let Some(free_id) = self.free_list.pop() {
             // Reuse a freed slot
@@ -153,7 +155,7 @@ impl GraphemePool {
             id
         };
 
-        GraphemeId::new(pool_id, width as u8)
+        GraphemeId::new(pool_id, width_u8)
     }
 
     /// Intern a grapheme, returning an existing ID if already allocated.

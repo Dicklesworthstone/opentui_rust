@@ -58,16 +58,25 @@ impl GraphemeId {
     const WIDTH_MASK: u32 = 0x7F << Self::WIDTH_SHIFT;
     const ID_MASK: u32 = 0x00FF_FFFF;
 
+    /// Maximum width value that can be stored (7 bits = 127).
+    pub const MAX_WIDTH: u8 = 127;
+
     /// Create a new grapheme ID with cached width.
     ///
     /// # Arguments
     ///
     /// * `pool_id` - The pool slot index (must be <= 0x00FF_FFFF)
-    /// * `width` - Display width to cache (must be <= 127)
+    /// * `width` - Display width to cache (saturates to 127 if larger)
     #[must_use]
     pub const fn new(pool_id: u32, width: u8) -> Self {
-        // Note: debug_assert! not available in const fn, validation happens at pool level
-        Self((pool_id & Self::ID_MASK) | ((width as u32) << Self::WIDTH_SHIFT))
+        // Saturate width to 127 to prevent silent truncation
+        // (only 7 bits available in the encoding)
+        let safe_width = if width > Self::MAX_WIDTH {
+            Self::MAX_WIDTH
+        } else {
+            width
+        };
+        Self((pool_id & Self::ID_MASK) | ((safe_width as u32) << Self::WIDTH_SHIFT))
     }
 
     /// Create an invalid/placeholder grapheme ID.
@@ -435,6 +444,23 @@ mod tests {
         // Values beyond 24 bits should be masked
         let id = GraphemeId::new(0x01FF_FFFF, 2);
         assert_eq!(id.pool_id(), 0x00FF_FFFF); // Upper bits masked
+    }
+
+    #[test]
+    fn test_grapheme_id_width_saturation() {
+        // Width > 127 should saturate to 127 (only 7 bits available)
+        let id128 = GraphemeId::new(1, 128);
+        assert_eq!(id128.width(), 127, "width 128 should saturate to 127");
+
+        let id255 = GraphemeId::new(1, 255);
+        assert_eq!(id255.width(), 127, "width 255 should saturate to 127");
+
+        // Width <= 127 should be preserved
+        let id127 = GraphemeId::new(1, 127);
+        assert_eq!(id127.width(), 127);
+
+        let id0 = GraphemeId::new(1, 0);
+        assert_eq!(id0.width(), 0);
     }
 
     #[test]
