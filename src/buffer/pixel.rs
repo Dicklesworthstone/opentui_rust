@@ -67,6 +67,27 @@ impl PixelBuffer {
         }
     }
 
+    /// Compute pixel index with overflow protection.
+    ///
+    /// Returns `None` if:
+    /// - Coordinates are out of bounds
+    /// - Index calculation would overflow
+    #[inline]
+    fn pixel_index(&self, x: u32, y: u32) -> Option<usize> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        // Use checked arithmetic to prevent overflow on large dimensions
+        let row_offset = (y as usize).checked_mul(self.width as usize)?;
+        let idx = row_offset.checked_add(x as usize)?;
+        // Bounds check (should always pass given x/y bounds, but defense in depth)
+        if idx < self.pixels.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
     /// Create from raw RGBA data.
     ///
     /// # Panics
@@ -88,17 +109,13 @@ impl PixelBuffer {
     /// Get pixel at (x, y).
     #[must_use]
     pub fn get(&self, x: u32, y: u32) -> Option<Rgba> {
-        if x < self.width && y < self.height {
-            Some(self.pixels[(y * self.width + x) as usize])
-        } else {
-            None
-        }
+        self.pixel_index(x, y).map(|idx| self.pixels[idx])
     }
 
     /// Set pixel at (x, y).
     pub fn set(&mut self, x: u32, y: u32, color: Rgba) {
-        if x < self.width && y < self.height {
-            self.pixels[(y * self.width + x) as usize] = color;
+        if let Some(idx) = self.pixel_index(x, y) {
+            self.pixels[idx] = color;
         }
     }
 
@@ -131,20 +148,31 @@ impl GrayscaleBuffer {
         }
     }
 
-    /// Get intensity at (x, y).
-    #[must_use]
-    pub fn get(&self, x: u32, y: u32) -> Option<f32> {
-        if x < self.width && y < self.height {
-            Some(self.values[(y * self.width + x) as usize])
+    /// Compute pixel index with overflow protection.
+    #[inline]
+    fn pixel_index(&self, x: u32, y: u32) -> Option<usize> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let row_offset = (y as usize).checked_mul(self.width as usize)?;
+        let idx = row_offset.checked_add(x as usize)?;
+        if idx < self.values.len() {
+            Some(idx)
         } else {
             None
         }
     }
 
+    /// Get intensity at (x, y).
+    #[must_use]
+    pub fn get(&self, x: u32, y: u32) -> Option<f32> {
+        self.pixel_index(x, y).map(|idx| self.values[idx])
+    }
+
     /// Set intensity at (x, y).
     pub fn set(&mut self, x: u32, y: u32, value: f32) {
-        if x < self.width && y < self.height {
-            self.values[(y * self.width + x) as usize] = value.clamp(0.0, 1.0);
+        if let Some(idx) = self.pixel_index(x, y) {
+            self.values[idx] = value.clamp(0.0, 1.0);
         }
     }
 }

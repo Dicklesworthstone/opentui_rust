@@ -22,6 +22,21 @@ impl HitGrid {
         }
     }
 
+    /// Compute cell index with overflow protection.
+    #[inline]
+    fn cell_index(&self, x: u32, y: u32) -> Option<usize> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let row_offset = (y as usize).checked_mul(self.width as usize)?;
+        let idx = row_offset.checked_add(x as usize)?;
+        if idx < self.cells.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
     /// Clear all hit areas.
     pub fn clear(&mut self) {
         self.cells.fill(None);
@@ -31,8 +46,7 @@ impl HitGrid {
     pub fn register(&mut self, x: u32, y: u32, width: u32, height: u32, id: u32) {
         for row in y..y.saturating_add(height).min(self.height) {
             for col in x..x.saturating_add(width).min(self.width) {
-                let idx = (row * self.width + col) as usize;
-                if idx < self.cells.len() {
+                if let Some(idx) = self.cell_index(col, row) {
                     self.cells[idx] = Some(id);
                 }
             }
@@ -42,11 +56,7 @@ impl HitGrid {
     /// Test which ID is at a position.
     #[must_use]
     pub fn test(&self, x: u32, y: u32) -> Option<u32> {
-        if x >= self.width || y >= self.height {
-            return None;
-        }
-        let idx = (y * self.width + x) as usize;
-        self.cells.get(idx).copied().flatten()
+        self.cell_index(x, y).and_then(|idx| self.cells[idx])
     }
 
     /// Resize the grid, clearing all hit areas.
