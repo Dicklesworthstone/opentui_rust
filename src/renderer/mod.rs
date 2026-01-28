@@ -242,6 +242,46 @@ impl Renderer {
         &self.grapheme_pool
     }
 
+    /// Get detected terminal capabilities.
+    ///
+    /// Capabilities include color support level, hyperlink support,
+    /// synchronized output, mouse tracking, and other terminal features.
+    /// Applications can use this to adapt their rendering or show
+    /// capability status in an inspector panel.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use opentui::Renderer;
+    ///
+    /// let renderer = Renderer::new(80, 24)?;
+    /// let caps = renderer.capabilities();
+    ///
+    /// if caps.hyperlinks {
+    ///     // Register clickable links
+    /// }
+    /// if caps.sync_output {
+    ///     // Synchronized output available, no flicker
+    /// }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    #[must_use]
+    pub fn capabilities(&self) -> &crate::terminal::Capabilities {
+        self.terminal.capabilities()
+    }
+
+    /// Get mutable access to terminal capabilities.
+    ///
+    /// This allows manually overriding detected capabilities, which can be
+    /// useful for testing different terminal configurations or forcing
+    /// specific behavior.
+    ///
+    /// **Note:** Generally prefer the immutable [`capabilities`](Self::capabilities)
+    /// accessor unless you have a specific need to modify capability flags.
+    pub fn capabilities_mut(&mut self) -> &mut crate::terminal::Capabilities {
+        self.terminal.capabilities_mut()
+    }
+
     /// Set background color.
     pub fn set_background(&mut self, color: Rgba) {
         self.background = color;

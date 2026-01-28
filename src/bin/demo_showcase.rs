@@ -1569,10 +1569,21 @@ pub struct App {
     // Animation state
     /// Animation clock for timing animations.
     pub clock: AnimationClock,
+
+    // Content state (wired from DemoContent)
+    /// Index of current file in editor (into content.files).
+    pub current_file_idx: usize,
+    /// Log entries (starts with `seed_logs`, can grow).
+    pub logs: Vec<content::LogEntry>,
+    /// Target FPS for metrics computation.
+    pub target_fps: u32,
+    /// Current computed metrics (updated each frame).
+    pub metrics: content::Metrics,
 }
 
 impl Default for App {
     fn default() -> Self {
+        let demo_content = content::DemoContent::default();
         Self {
             mode: AppMode::Normal,
             focus: Focus::Sidebar,
@@ -1589,14 +1600,30 @@ impl Default for App {
             tour_total: TourState::STEPS.len(),
             overlays: OverlayManager::default(),
             clock: AnimationClock::new(),
+            // Content state (from default DemoContent)
+            current_file_idx: 0,
+            logs: demo_content.seed_logs.to_vec(),
+            target_fps: demo_content.metric_params.target_fps,
+            metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
         }
     }
 }
 
 impl App {
-    /// Create a new app instance from config.
+    /// Create a new app instance from config with default content.
     #[must_use]
     pub fn new(config: &Config) -> Self {
+        Self::with_content(config, &content::DemoContent::default())
+    }
+
+    /// Create a new app instance from config and custom demo content.
+    ///
+    /// This allows the demo to boot with rich content immediately visible:
+    /// - Initial editor buffer with syntax-highlighted code
+    /// - Log backlog for scrolling demonstration
+    /// - Deterministic metrics for charts and animations
+    #[must_use]
+    pub fn with_content(config: &Config, demo_content: &content::DemoContent) -> Self {
         Self {
             max_frames: config.max_frames,
             mode: if config.start_in_tour {
@@ -1604,8 +1631,67 @@ impl App {
             } else {
                 AppMode::Normal
             },
+            // Content wiring
+            current_file_idx: 0,
+            logs: demo_content.seed_logs.to_vec(),
+            target_fps: demo_content.metric_params.target_fps,
+            metrics: content::Metrics::compute(0, demo_content.metric_params.target_fps),
             ..Self::default()
         }
+    }
+
+    /// Get the current editor file content.
+    #[must_use]
+    pub fn current_file(&self) -> Option<&'static content::DemoFile> {
+        content::DEFAULT_FILES.get(self.current_file_idx)
+    }
+
+    /// Get the current file name for display.
+    #[must_use]
+    pub fn current_file_name(&self) -> &'static str {
+        self.current_file().map_or("untitled.txt", |f| f.name)
+    }
+
+    /// Get the current file content for the editor.
+    #[must_use]
+    pub fn current_file_content(&self) -> &'static str {
+        self.current_file().map_or("", |f| f.text)
+    }
+
+    /// Get the current file language for syntax highlighting.
+    #[must_use]
+    pub fn current_file_language(&self) -> content::Language {
+        self.current_file()
+            .map(|f| f.language)
+            .unwrap_or_default()
+    }
+
+    /// Switch to the next file in the file list.
+    pub const fn next_file(&mut self) {
+        if !content::DEFAULT_FILES.is_empty() {
+            self.current_file_idx = (self.current_file_idx + 1) % content::DEFAULT_FILES.len();
+        }
+    }
+
+    /// Switch to the previous file in the file list.
+    pub const fn prev_file(&mut self) {
+        if !content::DEFAULT_FILES.is_empty() {
+            self.current_file_idx = if self.current_file_idx == 0 {
+                content::DEFAULT_FILES.len() - 1
+            } else {
+                self.current_file_idx - 1
+            };
+        }
+    }
+
+    /// Add a log entry to the log stream.
+    pub fn add_log(&mut self, entry: content::LogEntry) {
+        self.logs.push(entry);
+    }
+
+    /// Update metrics for the current frame.
+    pub fn update_metrics(&mut self) {
+        self.metrics = content::Metrics::compute(self.frame_count, self.target_fps);
     }
 
     /// Handle an input event and return the resulting action.
@@ -1765,6 +1851,9 @@ impl App {
         self.clock.tick(self.paused);
 
         self.frame_count = self.frame_count.wrapping_add(1);
+
+        // Update deterministic metrics for this frame
+        self.update_metrics();
 
         // Clear force redraw flag after use
         self.force_redraw = false;
@@ -3368,6 +3457,143 @@ renderer.present()?;
             } else {
                 format!("{}B", self.memory_bytes)
             }
+        }
+    }
+
+    // ========================================================================
+    // Demo Content Wiring Types
+    // ========================================================================
+
+    /// A file for the editor panel with name, language hint, and content.
+    #[derive(Clone, Debug)]
+    pub struct DemoFile {
+        /// Display name (e.g., "main.rs").
+        pub name: &'static str,
+        /// Language hint for syntax highlighting.
+        pub language: Language,
+        /// File content.
+        pub text: &'static str,
+    }
+
+    /// Language hint for syntax highlighting.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub enum Language {
+        /// Rust source code.
+        #[default]
+        Rust,
+        /// Markdown text.
+        Markdown,
+        /// Plain text (no highlighting).
+        Plain,
+    }
+
+    impl Language {
+        /// Get the file extension for this language.
+        #[must_use]
+        pub const fn extension(self) -> &'static str {
+            match self {
+                Self::Rust => "rs",
+                Self::Markdown => "md",
+                Self::Plain => "txt",
+            }
+        }
+    }
+
+    /// Hyperlink URLs bundled for easy access.
+    #[derive(Clone, Debug)]
+    pub struct DemoLinks {
+        /// Repository URL.
+        pub repo: &'static str,
+        /// Source directory URL.
+        pub source: &'static str,
+        /// Documentation URL.
+        pub docs: &'static str,
+        /// Unicode reference URL.
+        pub unicode_ref: &'static str,
+    }
+
+    impl Default for DemoLinks {
+        fn default() -> Self {
+            Self {
+                repo: links::REPO,
+                source: links::SOURCE,
+                docs: links::RUST_DOCS,
+                unicode_ref: links::UNICODE_TR11,
+            }
+        }
+    }
+
+    /// Parameters for deterministic metrics computation.
+    #[derive(Clone, Copy, Debug)]
+    pub struct MetricParams {
+        /// Target FPS for the demo.
+        pub target_fps: u32,
+    }
+
+    impl Default for MetricParams {
+        fn default() -> Self {
+            Self { target_fps: 60 }
+        }
+    }
+
+    /// Complete demo content bundle.
+    ///
+    /// This struct provides all the content needed to initialize the demo
+    /// into a believable "project workspace" state.
+    #[derive(Clone, Debug)]
+    pub struct DemoContent {
+        /// Files available in the editor (first is primary).
+        pub files: &'static [DemoFile],
+        /// Hyperlinks for OSC 8 integration.
+        pub links: DemoLinks,
+        /// Initial log entries (seed backlog).
+        pub seed_logs: &'static [LogEntry],
+        /// Parameters for metrics computation.
+        pub metric_params: MetricParams,
+    }
+
+    /// Default demo files for the editor.
+    pub const DEFAULT_FILES: &[DemoFile] = &[
+        DemoFile {
+            name: "cache.rs",
+            language: Language::Rust,
+            text: EDITOR_SAMPLE_RUST,
+        },
+        DemoFile {
+            name: "README.md",
+            language: Language::Markdown,
+            text: EDITOR_SAMPLE_MARKDOWN,
+        },
+    ];
+
+    impl Default for DemoContent {
+        fn default() -> Self {
+            Self {
+                files: DEFAULT_FILES,
+                links: DemoLinks::default(),
+                seed_logs: LOG_ENTRIES,
+                metric_params: MetricParams::default(),
+            }
+        }
+    }
+
+    impl DemoContent {
+        /// Get the primary editor file (first in list).
+        #[must_use]
+        pub const fn primary_file(&self) -> Option<&DemoFile> {
+            self.files.first()
+        }
+
+        /// Get the number of seed log entries.
+        #[must_use]
+        pub const fn log_count(&self) -> usize {
+            self.seed_logs.len()
+        }
+
+        /// Compute metrics for a given frame.
+        #[must_use]
+        pub fn compute_metrics(&self, frame: u64) -> Metrics {
+            Metrics::compute(frame, self.metric_params.target_fps)
         }
     }
 

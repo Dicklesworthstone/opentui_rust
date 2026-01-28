@@ -65,6 +65,8 @@ pub use ansi::ColorMode;
 pub use buffer::OptimizedBuffer;
 pub use highlight::{HighlightedBuffer, Theme, ThemeRegistry, Token, TokenKind, TokenizerRegistry};
 pub use renderer::{RenderStats, Renderer, RendererOptions};
-pub use terminal::{RawModeGuard, Terminal, enable_raw_mode, is_tty, terminal_size};
+pub use terminal::{
+    Capabilities, ColorSupport, RawModeGuard, Terminal, enable_raw_mode, is_tty, terminal_size,
+};
 pub use text::{EditBuffer, EditorView, TextBuffer, TextBufferView, VisualCursor, WrapMode};
 pub use unicode::{WidthMethod, set_width_method};
