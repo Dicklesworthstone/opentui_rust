@@ -1300,4 +1300,377 @@ mod tests {
         assert_eq!(edit.text(), "New");
         assert_eq!(edit.cursor().offset, 0); // Reset to start
     }
+
+    // =============================================
+    // Comprehensive Undo/Redo Tests (bd-gzb6)
+    // =============================================
+
+    // --- Basic undo/redo ---
+
+    #[test]
+    fn test_undo_single_insert_restores_empty() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        assert_eq!(edit.text(), "Hello");
+
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_undo_single_delete_restores_text() {
+        let mut edit = EditBuffer::with_text("Hello");
+        edit.move_to(0, 5);
+        edit.delete_backward();
+        edit.commit();
+        assert_eq!(edit.text(), "Hell");
+
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "Hello");
+    }
+
+    #[test]
+    fn test_undo_redo_roundtrip() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+
+        edit.undo();
+        assert_eq!(edit.text(), "");
+
+        edit.redo();
+        assert_eq!(edit.text(), "Hello");
+    }
+
+    #[test]
+    fn test_multiple_undos() {
+        let mut edit = EditBuffer::new();
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+        edit.insert("C");
+        edit.commit();
+        assert_eq!(edit.text(), "ABC");
+
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "AB");
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "A");
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_multiple_redos() {
+        let mut edit = EditBuffer::new();
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+        edit.insert("C");
+        edit.commit();
+
+        edit.undo();
+        edit.undo();
+        edit.undo();
+        assert_eq!(edit.text(), "");
+
+        assert!(edit.redo());
+        assert_eq!(edit.text(), "A");
+        assert!(edit.redo());
+        assert_eq!(edit.text(), "AB");
+        assert!(edit.redo());
+        assert_eq!(edit.text(), "ABC");
+    }
+
+    // --- Commit behavior ---
+
+    #[test]
+    fn test_commit_groups_edits() {
+        let mut edit = EditBuffer::new();
+        // Multiple inserts before commit = one undo group
+        edit.insert("H");
+        edit.insert("e");
+        edit.insert("l");
+        edit.insert("l");
+        edit.insert("o");
+        edit.commit();
+        assert_eq!(edit.text(), "Hello");
+
+        // One undo should revert all five inserts
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_empty_commit_is_harmless() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+
+        // Commit with no changes since last commit
+        edit.commit();
+        edit.commit();
+
+        // Undo should still work
+        assert!(edit.undo());
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_multiple_commit_groups() {
+        let mut edit = EditBuffer::new();
+        edit.insert("First");
+        edit.commit();
+        edit.insert(" Second");
+        edit.commit();
+        edit.insert(" Third");
+        edit.commit();
+
+        assert_eq!(edit.text(), "First Second Third");
+
+        edit.undo(); // Removes " Third"
+        assert_eq!(edit.text(), "First Second");
+        edit.undo(); // Removes " Second"
+        assert_eq!(edit.text(), "First");
+        edit.undo(); // Removes "First"
+        assert_eq!(edit.text(), "");
+    }
+
+    // --- can_undo / can_redo ---
+
+    #[test]
+    fn test_can_undo_empty_history() {
+        let edit = EditBuffer::new();
+        assert!(!edit.can_undo());
+    }
+
+    #[test]
+    fn test_can_undo_after_commit() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        assert!(edit.can_undo());
+    }
+
+    #[test]
+    fn test_can_redo_empty() {
+        let edit = EditBuffer::new();
+        assert!(!edit.can_redo());
+    }
+
+    #[test]
+    fn test_can_redo_after_undo() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        edit.undo();
+        assert!(edit.can_redo());
+    }
+
+    #[test]
+    fn test_cannot_redo_after_new_edit() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        edit.undo();
+        assert!(edit.can_redo());
+
+        // New edit clears redo stack
+        edit.insert("World");
+        edit.commit();
+        assert!(!edit.can_redo());
+    }
+
+    // --- Edge cases ---
+
+    #[test]
+    fn test_undo_returns_false_on_empty_history() {
+        let mut edit = EditBuffer::new();
+        assert!(!edit.undo());
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_redo_returns_false_on_empty_redo_stack() {
+        let mut edit = EditBuffer::new();
+        assert!(!edit.redo());
+    }
+
+    #[test]
+    fn test_new_edit_clears_redo_stack() {
+        let mut edit = EditBuffer::new();
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+
+        edit.undo(); // Back to "A"
+        assert!(edit.can_redo());
+
+        edit.insert("C");
+        edit.commit();
+        assert!(!edit.can_redo());
+        assert_eq!(edit.text(), "AC");
+    }
+
+    #[test]
+    fn test_undo_multiline_delete() {
+        let mut edit = EditBuffer::with_text("Line1\nLine2\nLine3");
+        // Select and delete "Line2\n"
+        edit.set_cursor_by_offset(6); // Start of "Line2"
+        edit.delete_forward(); // L
+        edit.delete_forward(); // i
+        edit.delete_forward(); // n
+        edit.delete_forward(); // e
+        edit.delete_forward(); // 2
+        edit.delete_forward(); // \n
+        edit.commit();
+        assert_eq!(edit.text(), "Line1\nLine3");
+
+        edit.undo();
+        assert_eq!(edit.text(), "Line1\nLine2\nLine3");
+    }
+
+    // --- History depth limits ---
+
+    #[test]
+    fn test_history_depth_limit() {
+        let mut edit = EditBuffer::with_max_history_depth(3);
+
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+        edit.insert("C");
+        edit.commit();
+        edit.insert("D");
+        edit.commit();
+        assert_eq!(edit.text(), "ABCD");
+
+        // With max depth 3, oldest entry should be pruned
+        // We should only be able to undo 3 times
+        assert!(edit.undo()); // "ABC"
+        assert!(edit.undo()); // "AB"
+        assert!(edit.undo()); // "A"
+        // Fourth undo should fail (oldest entry pruned)
+        assert!(!edit.undo());
+        assert_eq!(edit.text(), "A");
+    }
+
+    #[test]
+    fn test_set_max_history_depth() {
+        let mut edit = EditBuffer::new();
+        edit.set_max_history_depth(2);
+        assert_eq!(edit.max_history_depth(), 2);
+
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+        edit.insert("C");
+        edit.commit();
+
+        // Only 2 undos should work
+        assert!(edit.undo());
+        assert!(edit.undo());
+        assert!(!edit.undo());
+    }
+
+    #[test]
+    fn test_clear_history() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        assert!(edit.can_undo());
+
+        edit.clear_history();
+        assert!(!edit.can_undo());
+        assert!(!edit.can_redo());
+        assert_eq!(edit.text(), "Hello"); // Text preserved
+    }
+
+    #[test]
+    fn test_clear_history_clears_redo() {
+        let mut edit = EditBuffer::new();
+        edit.insert("Hello");
+        edit.commit();
+        edit.undo();
+        assert!(edit.can_redo());
+
+        edit.clear_history();
+        assert!(!edit.can_redo());
+    }
+
+    // --- Undo with different edit types ---
+
+    #[test]
+    fn test_undo_delete_backward() {
+        let mut edit = EditBuffer::with_text("ABC");
+        edit.set_cursor_by_offset(3); // End
+        edit.delete_backward();
+        edit.commit();
+        assert_eq!(edit.text(), "AB");
+
+        edit.undo();
+        assert_eq!(edit.text(), "ABC");
+    }
+
+    #[test]
+    fn test_undo_delete_forward() {
+        let mut edit = EditBuffer::with_text("ABC");
+        edit.set_cursor_by_offset(0); // Start
+        edit.delete_forward();
+        edit.commit();
+        assert_eq!(edit.text(), "BC");
+
+        edit.undo();
+        assert_eq!(edit.text(), "ABC");
+    }
+
+    #[test]
+    fn test_undo_redo_complex_sequence() {
+        let mut edit = EditBuffer::new();
+
+        edit.insert("Hello");
+        edit.commit();
+        edit.insert(" World");
+        edit.commit();
+        assert_eq!(edit.text(), "Hello World");
+
+        edit.undo();
+        assert_eq!(edit.text(), "Hello");
+
+        // Insert something new (clears redo)
+        edit.insert(" Rust");
+        edit.commit();
+        assert_eq!(edit.text(), "Hello Rust");
+
+        // Can't redo " World" anymore
+        assert!(!edit.can_redo());
+
+        // Can still undo
+        edit.undo();
+        assert_eq!(edit.text(), "Hello");
+        edit.undo();
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_undo_redo_preserves_text_integrity() {
+        let mut edit = EditBuffer::new();
+        let text = "The quick brown fox";
+        edit.insert(text);
+        edit.commit();
+
+        // Undo and redo multiple times
+        for _ in 0..5 {
+            edit.undo();
+            assert_eq!(edit.text(), "");
+            edit.redo();
+            assert_eq!(edit.text(), text);
+        }
+    }
 }
