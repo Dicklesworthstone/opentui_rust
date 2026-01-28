@@ -20,6 +20,9 @@
 use opentui::buffer::OptimizedBuffer;
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size};
+// TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
+#[allow(unused_imports)]
+use opentui::text::{EditBuffer, EditorView, WrapMode};
 use opentui::{Renderer, RendererOptions, Rgba, Style};
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -1196,6 +1199,271 @@ impl TourState {
     }
 }
 
+// ============================================================================
+// Tour Runner (Script Executor)
+// ============================================================================
+
+/// Action that a tour step can trigger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TourAction {
+    /// No action, just show the message.
+    None,
+    /// Change focus to a specific panel.
+    SetFocus(Focus),
+    /// Navigate to a specific section.
+    SetSection(Section),
+    /// Open the help overlay.
+    OpenHelp,
+    /// Open the command palette.
+    OpenPalette,
+    /// Close any open overlay.
+    CloseOverlay,
+    /// Cycle to the next theme.
+    CycleTheme,
+    /// Show the debug overlay.
+    ShowDebug,
+}
+
+/// A single tour step with timing and action.
+#[derive(Clone, Copy, Debug)]
+pub struct TourStep {
+    /// Step title shown in the tour overlay.
+    pub title: &'static str,
+    /// Step description/explanation.
+    pub description: &'static str,
+    /// Duration in milliseconds before auto-advancing.
+    pub duration_ms: u32,
+    /// Action to execute when step begins.
+    pub action: TourAction,
+    /// Spotlight target (panel name for highlighting).
+    pub spotlight: Option<&'static str>,
+}
+
+/// The canonical tour script - 12 steps proving all major features.
+pub const TOUR_SCRIPT: &[TourStep] = &[
+    // 1. Welcome
+    TourStep {
+        title: "Welcome to OpenTUI!",
+        description: "This tour demonstrates the key features.\nDiff rendering eliminates flicker.",
+        duration_ms: 4000,
+        action: TourAction::None,
+        spotlight: None,
+    },
+    // 2. Sidebar Navigation
+    TourStep {
+        title: "Sidebar Navigation",
+        description: "Scissor-clipped scrolling inside panel bounds.\nUse 1-6 or click to navigate.",
+        duration_ms: 4000,
+        action: TourAction::SetFocus(Focus::Sidebar),
+        spotlight: Some("sidebar"),
+    },
+    // 3. Focus & Hit Testing
+    TourStep {
+        title: "Focus & Hit Testing",
+        description: "Tab cycles focus between panels.\nClick anywhere for instant focus.",
+        duration_ms: 3500,
+        action: TourAction::SetFocus(Focus::Editor),
+        spotlight: Some("editor"),
+    },
+    // 4. Command Palette
+    TourStep {
+        title: "Command Palette",
+        description: "Glass overlay with alpha blending.\nCtrl+P to open anytime.",
+        duration_ms: 4000,
+        action: TourAction::OpenPalette,
+        spotlight: None,
+    },
+    // 5. Editor Panel
+    TourStep {
+        title: "Editor: Rope + Undo",
+        description: "Rope-backed text buffer for efficient edits.\nUndo/redo with Ctrl+Z/Y.",
+        duration_ms: 4000,
+        action: TourAction::CloseOverlay,
+        spotlight: Some("editor"),
+    },
+    // 6. Syntax Highlighting
+    TourStep {
+        title: "Syntax Highlighting",
+        description: "Built-in tokenizers for Rust and Markdown.\nTheme-aware token colors.",
+        duration_ms: 3500,
+        action: TourAction::SetSection(Section::Editor),
+        spotlight: Some("editor"),
+    },
+    // 7. Theme System
+    TourStep {
+        title: "Theme System",
+        description: "4 built-in themes with full color tokens.\nPress Ctrl+N to cycle themes.",
+        duration_ms: 4000,
+        action: TourAction::CycleTheme,
+        spotlight: None,
+    },
+    // 8. Unicode & Grapheme Pool
+    TourStep {
+        title: "Unicode & Graphemes",
+        description: "CJK, emoji, ZWJ sequences rendered correctly.\nGrapheme pool handles multi-codepoint chars.",
+        duration_ms: 4500,
+        action: TourAction::SetSection(Section::Unicode),
+        spotlight: Some("preview"),
+    },
+    // 9. Preview Panel
+    TourStep {
+        title: "Preview: Alpha Blending",
+        description: "Porter-Duff compositing for translucent layers.\nReal RGBA blending, not dithering.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Preview),
+        spotlight: Some("preview"),
+    },
+    // 10. Logs Panel
+    TourStep {
+        title: "Logs & Hyperlinks",
+        description: "Event stream with OSC 8 hyperlinks.\nClick links to open in browser.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Logs),
+        spotlight: Some("logs"),
+    },
+    // 11. Performance
+    TourStep {
+        title: "Performance Stats",
+        description: "Diff rendering: only changed cells written.\nTypically <1KB per frame after first.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Performance),
+        spotlight: Some("preview"),
+    },
+    // 12. Finale
+    TourStep {
+        title: "Tour Complete!",
+        description: "You've seen the core features.\nPress Esc to explore freely.",
+        duration_ms: 5000,
+        action: TourAction::None,
+        spotlight: None,
+    },
+];
+
+/// Tour runner that executes the script with deterministic timing.
+#[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)] // Tour state naturally has multiple flags
+pub struct TourRunner {
+    /// Current step index (0-based).
+    pub step_idx: usize,
+    /// Animation time when current step started.
+    pub step_started_t: f32,
+    /// Whether tour is currently paused.
+    pub paused: bool,
+    /// Whether to auto-advance steps (for unattended mode).
+    pub auto_advance: bool,
+    /// Whether to exit the app when tour completes.
+    pub exit_on_complete: bool,
+    /// Whether the tour has completed.
+    pub completed: bool,
+}
+
+impl Default for TourRunner {
+    fn default() -> Self {
+        Self {
+            step_idx: 0,
+            step_started_t: 0.0,
+            paused: false,
+            auto_advance: true,
+            exit_on_complete: false,
+            completed: false,
+        }
+    }
+}
+
+impl TourRunner {
+    /// Create a new tour runner with the given settings.
+    #[must_use]
+    pub const fn new(auto_advance: bool, exit_on_complete: bool) -> Self {
+        Self {
+            step_idx: 0,
+            step_started_t: 0.0,
+            paused: false,
+            auto_advance,
+            exit_on_complete,
+            completed: false,
+        }
+    }
+
+    /// Get the current tour step.
+    #[must_use]
+    pub fn current_step(&self) -> Option<&'static TourStep> {
+        TOUR_SCRIPT.get(self.step_idx)
+    }
+
+    /// Get the total number of steps.
+    #[must_use]
+    pub const fn total_steps(&self) -> usize {
+        TOUR_SCRIPT.len()
+    }
+
+    /// Check if there are more steps.
+    #[must_use]
+    pub const fn has_next(&self) -> bool {
+        self.step_idx < TOUR_SCRIPT.len() - 1
+    }
+
+    /// Advance to the next step. Returns true if this was the last step.
+    pub const fn next_step(&mut self, current_t: f32) -> bool {
+        if self.step_idx < TOUR_SCRIPT.len() - 1 {
+            self.step_idx += 1;
+            self.step_started_t = current_t;
+            false
+        } else {
+            self.completed = true;
+            true
+        }
+    }
+
+    /// Go back to the previous step.
+    pub const fn prev_step(&mut self, current_t: f32) {
+        if self.step_idx > 0 {
+            self.step_idx -= 1;
+            self.step_started_t = current_t;
+        }
+    }
+
+    /// Reset tour to the beginning.
+    pub const fn reset(&mut self, current_t: f32) {
+        self.step_idx = 0;
+        self.step_started_t = current_t;
+        self.completed = false;
+    }
+
+    /// Toggle pause state.
+    pub const fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
+    }
+
+    /// Check if auto-advance timer has elapsed for current step.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // duration_ms fits in f32 mantissa
+    pub fn should_auto_advance(&self, current_t: f32) -> bool {
+        if !self.auto_advance || self.paused || self.completed {
+            return false;
+        }
+        self.current_step().is_some_and(|step| {
+            let elapsed_ms = (current_t - self.step_started_t) * 1000.0;
+            elapsed_ms >= step.duration_ms as f32
+        })
+    }
+
+    /// Get progress through current step (0.0 to 1.0).
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // duration_ms fits in f32 mantissa
+    pub fn step_progress(&self, current_t: f32) -> f32 {
+        self.current_step().map_or(1.0, |step| {
+            let elapsed_ms = (current_t - self.step_started_t) * 1000.0;
+            (elapsed_ms / step.duration_ms as f32).clamp(0.0, 1.0)
+        })
+    }
+
+    /// Execute the action for the current step, returning actions to apply.
+    #[must_use]
+    pub fn execute_step_action(&self) -> Option<TourAction> {
+        self.current_step().map(|s| s.action)
+    }
+}
+
 /// Which overlay is currently active.
 #[derive(Clone, Debug)]
 pub enum Overlay {
@@ -1582,6 +1850,8 @@ pub struct App {
     pub tour_step: usize,
     /// Total tour steps.
     pub tour_total: usize,
+    /// Tour runner for script execution (when in tour mode).
+    pub tour_runner: Option<TourRunner>,
 
     // Overlay state
     /// Overlay manager for modal overlays.
@@ -1618,7 +1888,8 @@ impl Default for App {
             show_debug: false,
             force_redraw: false,
             tour_step: 0,
-            tour_total: TourState::STEPS.len(),
+            tour_total: TOUR_SCRIPT.len(),
+            tour_runner: None,
             overlays: OverlayManager::default(),
             clock: AnimationClock::new(),
             // Content state (from default DemoContent)
@@ -1645,6 +1916,13 @@ impl App {
     /// - Deterministic metrics for charts and animations
     #[must_use]
     pub fn with_content(config: &Config, demo_content: &content::DemoContent) -> Self {
+        // Initialize tour runner if starting in tour mode
+        let tour_runner = if config.start_in_tour {
+            Some(TourRunner::new(true, config.exit_after_tour))
+        } else {
+            None
+        };
+
         Self {
             max_frames: config.max_frames,
             mode: if config.start_in_tour {
@@ -1652,6 +1930,7 @@ impl App {
             } else {
                 AppMode::Normal
             },
+            tour_runner,
             // Content wiring
             current_file_idx: 0,
             logs: demo_content.seed_logs.to_vec(),
@@ -1713,6 +1992,97 @@ impl App {
     /// Update metrics for the current frame.
     pub fn update_metrics(&mut self) {
         self.metrics = content::Metrics::compute(self.frame_count, self.target_fps);
+    }
+
+    // ========================================================================
+    // Tour Mode Methods
+    // ========================================================================
+
+    /// Start the tour with optional auto-advance and exit settings.
+    pub fn start_tour(&mut self, auto_advance: bool, exit_on_complete: bool) {
+        self.mode = AppMode::Tour;
+        self.tour_step = 0;
+        self.tour_runner = Some(TourRunner::new(auto_advance, exit_on_complete));
+        self.overlays.open(Overlay::Tour(TourState::default()));
+
+        // Execute the first step's action
+        if let Some(runner) = &self.tour_runner {
+            if let Some(action) = runner.execute_step_action() {
+                self.apply_tour_action(action);
+            }
+        }
+    }
+
+    /// Stop the tour and return to normal mode.
+    pub const fn stop_tour(&mut self) {
+        self.mode = AppMode::Normal;
+        self.tour_runner = None;
+        self.overlays.close();
+    }
+
+    /// Advance to the next tour step.
+    pub fn tour_next_step(&mut self) {
+        let current_t = self.clock.t;
+
+        // Extract all values from runner before calling methods on self
+        let (completed, step_idx, action, exit_on_complete) = {
+            let Some(runner) = self.tour_runner.as_mut() else {
+                return;
+            };
+            let completed = runner.next_step(current_t);
+            let step_idx = runner.step_idx;
+            let action = runner.execute_step_action();
+            let exit_on_complete = runner.exit_on_complete;
+            (completed, step_idx, action, exit_on_complete)
+        };
+
+        // Now we can use self freely
+        self.tour_step = step_idx;
+
+        // Update overlay state
+        if let Some(Overlay::Tour(ref mut tour_state)) = self.overlays.active {
+            tour_state.step = step_idx;
+        }
+
+        // Execute the new step's action
+        if let Some(action) = action {
+            self.apply_tour_action(action);
+        }
+
+        // Check for completion
+        if completed && exit_on_complete {
+            self.should_quit = true;
+            self.exit_reason = ExitReason::TourComplete;
+        }
+    }
+
+    /// Go back to the previous tour step.
+    pub fn tour_prev_step(&mut self) {
+        let current_t = self.clock.t;
+
+        // Extract all values from runner before calling methods on self
+        let (step_idx, action) = {
+            let Some(runner) = self.tour_runner.as_mut() else {
+                return;
+            };
+            runner.prev_step(current_t);
+            let step_idx = runner.step_idx;
+            let action = runner.execute_step_action();
+            (step_idx, action)
+        };
+
+        // Now we can use self freely
+        self.tour_step = step_idx;
+
+        // Update overlay state
+        if let Some(Overlay::Tour(ref mut tour_state)) = self.overlays.active {
+            tour_state.step = step_idx;
+        }
+
+        // Execute the step's action
+        if let Some(action) = action {
+            self.apply_tour_action(action);
+        }
     }
 
     /// Handle an input event and return the resulting action.
@@ -1824,11 +2194,19 @@ impl App {
             Action::ToggleTour => {
                 if self.mode == AppMode::Tour {
                     self.mode = AppMode::Normal;
+                    self.tour_runner = None;
                     self.overlays.close();
                 } else {
                     self.mode = AppMode::Tour;
                     self.tour_step = 0;
+                    // Create tour runner with auto-advance but no exit-on-complete
+                    // (exit-on-complete is only set via --exit-after-tour CLI flag)
+                    self.tour_runner = Some(TourRunner::new(true, false));
                     self.overlays.open(Overlay::Tour(TourState::default()));
+                    // Execute first step's action immediately
+                    if let Some(action) = self.tour_runner.as_ref().and_then(TourRunner::execute_step_action) {
+                        self.apply_tour_action(action);
+                    }
                 }
             }
             Action::CloseOverlay => {
@@ -1882,8 +2260,13 @@ impl App {
         // Update overlay animations with dt from clock
         self.overlays.tick(self.clock.dt);
 
-        // If overlay finished closing, ensure mode is Normal
-        if !self.overlays.is_active() && self.mode != AppMode::Normal {
+        // Tour mode: tick the tour runner and apply actions
+        if self.mode == AppMode::Tour {
+            self.tick_tour();
+        }
+
+        // If overlay finished closing, ensure mode is Normal (but not during tour)
+        if !self.overlays.is_active() && self.mode != AppMode::Normal && self.mode != AppMode::Tour {
             // Overlay closed, sync mode
             self.mode = AppMode::Normal;
         }
@@ -1893,6 +2276,74 @@ impl App {
             if self.frame_count >= max {
                 self.should_quit = true;
                 self.exit_reason = ExitReason::MaxFrames;
+            }
+        }
+    }
+
+    /// Tick the tour runner and apply any resulting actions.
+    fn tick_tour(&mut self) {
+        let current_t = self.clock.t;
+
+        // Get mutable access to tour runner and extract needed data
+        let Some(runner) = self.tour_runner.as_mut() else {
+            return;
+        };
+
+        // Check for auto-advance
+        if runner.should_auto_advance(current_t) {
+            let is_last = runner.next_step(current_t);
+
+            // Extract values before releasing the borrow
+            let action = runner.execute_step_action();
+            let step_idx = runner.step_idx;
+            let exit_on_complete = runner.exit_on_complete;
+
+            // Sync tour_step for display
+            self.tour_step = step_idx;
+
+            // Execute the new step's action (now runner borrow is released)
+            if let Some(action) = action {
+                self.apply_tour_action(action);
+            }
+
+            // Handle tour completion
+            if is_last && exit_on_complete {
+                self.should_quit = true;
+                self.exit_reason = ExitReason::TourComplete;
+            }
+        }
+    }
+
+    /// Apply a tour action to the app state.
+    fn apply_tour_action(&mut self, action: TourAction) {
+        match action {
+            TourAction::None => {}
+            TourAction::SetFocus(focus) => {
+                self.focus = focus;
+            }
+            TourAction::SetSection(section) => {
+                self.section = section;
+            }
+            TourAction::OpenHelp => {
+                if self.mode != AppMode::Help {
+                    self.overlays.open(Overlay::Help(HelpState::default()));
+                }
+            }
+            TourAction::OpenPalette => {
+                if self.mode != AppMode::CommandPalette {
+                    let mut state = PaletteState::default();
+                    state.update_filter();
+                    self.overlays.open(Overlay::Palette(state));
+                }
+            }
+            TourAction::CloseOverlay => {
+                self.overlays.close();
+            }
+            TourAction::CycleTheme => {
+                self.ui_theme = self.ui_theme.next();
+            }
+            TourAction::ShowDebug => {
+                self.show_debug = true;
             }
         }
     }
