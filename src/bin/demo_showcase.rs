@@ -2924,7 +2924,7 @@ fn draw_pass_panels(buffer: &mut OptimizedBuffer, panels: &PanelLayout, theme: &
 
     // --- Editor panel ---
     if !panels.editor.is_empty() {
-        draw_editor_panel(buffer, &panels.editor, theme);
+        draw_editor_panel(buffer, &panels.editor, theme, app);
     }
 
     // --- Preview panel ---
@@ -3312,30 +3312,137 @@ fn draw_overlay_border(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme)
     buffer.draw_text(x + w - 1, y + h - 1, "╝", border_style);
 }
 
-/// Draw the editor panel content.
-fn draw_editor_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme) {
-    let center_x = u32::try_from(rect.x).unwrap_or(0) + rect.w / 2;
-    let center_y = u32::try_from(rect.y).unwrap_or(0) + rect.h / 2;
+/// Draw the editor panel content with file name, line numbers, and syntax coloring.
+///
+/// Features demonstrated:
+/// - File content display with line numbers
+/// - Basic syntax highlighting (keywords, comments, strings)
+/// - Focus border highlighting
+fn draw_editor_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
 
-    let welcome = "Welcome to OpenTUI Showcase!";
-    let welcome_len = u32::try_from(welcome.len()).unwrap_or(0);
-    let welcome_x = center_x.saturating_sub(welcome_len / 2);
-    buffer.draw_text(
-        welcome_x,
-        center_y.saturating_sub(1),
-        welcome,
-        Style::fg(theme.fg0).with_bold(),
-    );
+    let x = u32::try_from(rect.x).unwrap_or(0);
+    let y = u32::try_from(rect.y).unwrap_or(0);
+    let is_focused = app.focus == Focus::Editor;
 
-    let subtext = "Press Ctrl+Q to quit";
-    let subtext_len = u32::try_from(subtext.len()).unwrap_or(0);
-    let subtext_x = center_x.saturating_sub(subtext_len / 2);
-    buffer.draw_text(
-        subtext_x,
-        center_y.saturating_add(1),
-        subtext,
-        Style::fg(theme.fg2),
-    );
+    // Header bar with file name
+    let header_bg = if is_focused {
+        theme.accent_primary.with_alpha(0.3)
+    } else {
+        theme.bg1
+    };
+    for col in 0..rect.w {
+        buffer.draw_text(x + col, y, " ", Style::bg(header_bg));
+    }
+
+    // File name with language indicator
+    let file_name = app.current_file_name();
+    let lang_indicator = match app.current_file_language() {
+        content::Language::Rust => " [Rust]",
+        content::Language::Markdown => " [Markdown]",
+        content::Language::Plain => "",
+    };
+    let header_text = format!(" {file_name}{lang_indicator}");
+    let header_style = if is_focused {
+        Style::fg(theme.fg0).with_bg(header_bg).with_bold()
+    } else {
+        Style::fg(theme.fg1).with_bg(header_bg)
+    };
+    buffer.draw_text(x, y, &header_text, header_style);
+
+    // Calculate content area (below header)
+    let content_y = y + 1;
+    let content_h = rect.h.saturating_sub(1);
+    let gutter_width = 4_u32; // "NNN " format
+    let text_x = x + gutter_width;
+    let text_w = rect.w.saturating_sub(gutter_width);
+
+    // Get file content and display lines
+    let content = app.current_file_content();
+    let lines: Vec<&str> = content.lines().collect();
+    let language = app.current_file_language();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        let row = content_y + u32::try_from(line_idx).unwrap_or(0);
+        if row >= content_y + content_h {
+            break;
+        }
+
+        // Draw line number in gutter
+        let line_num = line_idx + 1;
+        let gutter_text = format!("{line_num:>3} ");
+        buffer.draw_text(x, row, &gutter_text, Style::fg(theme.fg2));
+
+        // Draw line content with basic syntax highlighting
+        let line_style = get_line_style(line, language, theme);
+        let display_line = if u32::try_from(line.len()).unwrap_or(0) > text_w {
+            let max_len = usize::try_from(text_w.saturating_sub(1)).unwrap_or(0);
+            let truncated = &line[..line.len().min(max_len)];
+            format!("{truncated}…")
+        } else {
+            (*line).to_string()
+        };
+        buffer.draw_text(text_x, row, &display_line, line_style);
+    }
+
+    // Focus indicator on left edge
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Get style for a line based on basic syntax analysis.
+fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Style {
+    let trimmed = line.trim();
+
+    match language {
+        content::Language::Rust => {
+            // Comment
+            if trimmed.starts_with("//") {
+                return Style::fg(theme.fg2);
+            }
+            // Keywords
+            let keywords = [
+                "fn ", "let ", "mut ", "pub ", "use ", "impl ", "struct ", "enum ", "const ",
+                "static ", "mod ", "trait ", "where ", "async ", "await ", "match ", "if ",
+                "else ", "for ", "while ", "loop ", "return ", "break ", "continue ",
+            ];
+            for kw in keywords {
+                if trimmed.starts_with(kw) || trimmed.contains(&format!(" {kw}")) {
+                    return Style::fg(theme.accent_primary);
+                }
+            }
+            // String literal
+            if trimmed.contains('"') {
+                return Style::fg(theme.accent_secondary);
+            }
+            Style::fg(theme.fg0)
+        }
+        content::Language::Markdown => {
+            // Heading
+            if trimmed.starts_with('#') {
+                return Style::fg(theme.accent_primary).with_bold();
+            }
+            // Code block
+            if trimmed.starts_with("```") {
+                return Style::fg(theme.fg2);
+            }
+            // Bold/italic markers
+            if trimmed.starts_with('*') || trimmed.starts_with('-') {
+                return Style::fg(theme.accent_secondary);
+            }
+            // Link
+            if trimmed.contains('[') && trimmed.contains("](") {
+                return Style::fg(theme.accent_primary);
+            }
+            Style::fg(theme.fg0)
+        }
+        content::Language::Plain => Style::fg(theme.fg0),
+    }
 }
 
 /// Draw the preview panel with border.
