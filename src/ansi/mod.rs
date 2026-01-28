@@ -301,44 +301,43 @@ pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()>
 
 /// Escape a URL for safe inclusion in OSC 8 hyperlink sequences.
 ///
-/// Control characters (0x00-0x1F, 0x7F) are percent-encoded to prevent
-/// escape sequence injection attacks. This is critical because an unescaped
-/// ESC (0x1B) or BEL (0x07) could terminate the OSC sequence early and
-/// allow arbitrary terminal command injection.
+/// Control characters are percent-encoded to prevent escape sequence injection:
+/// - C0 controls (U+0000-U+001F): Contains ESC (0x1B) and BEL (0x07)
+/// - DEL (U+007F)
+/// - C1 controls (U+0080-U+009F): Contains CSI (U+009B), ST (U+009C), OSC (U+009D)
 ///
-/// Non-ASCII bytes (UTF-8 sequences) are preserved unchanged.
+/// This is critical because unescaped control characters could terminate the
+/// OSC sequence early and allow arbitrary terminal command injection.
 #[must_use]
 pub fn escape_url_for_osc8(url: &str) -> String {
-    let bytes = url.as_bytes();
-    let mut escaped = Vec::with_capacity(bytes.len());
+    let mut escaped = String::with_capacity(url.len());
 
-    for &byte in bytes {
-        match byte {
-            // Control characters (C0 and DEL) must be percent-encoded
-            0x00..=0x1F | 0x7F => {
-                escaped.push(b'%');
+    for ch in url.chars() {
+        if ch.is_control() {
+            // Percent-encode all control characters (C0, DEL, and C1)
+            // This handles both single-byte ASCII controls and multi-byte C1 controls
+            for byte in ch.to_string().bytes() {
+                escaped.push('%');
                 // Use uppercase hex for RFC 3986 compatibility
                 let high = (byte >> 4) & 0x0F;
                 let low = byte & 0x0F;
                 escaped.push(if high < 10 {
-                    b'0' + high
+                    char::from(b'0' + high)
                 } else {
-                    b'A' + high - 10
+                    char::from(b'A' + high - 10)
                 });
                 escaped.push(if low < 10 {
-                    b'0' + low
+                    char::from(b'0' + low)
                 } else {
-                    b'A' + low - 10
+                    char::from(b'A' + low - 10)
                 });
             }
-            // All other bytes pass through unchanged (preserves UTF-8)
-            _ => escaped.push(byte),
+        } else {
+            escaped.push(ch);
         }
     }
 
-    // SAFETY: Input is valid UTF-8, we only modified single-byte control characters
-    // (0x00-0x1F, 0x7F) which are complete UTF-8 sequences, so output is valid UTF-8
-    String::from_utf8(escaped).expect("escape_url_for_osc8 produced invalid UTF-8")
+    escaped
 }
 
 /// Generate OSC 8 hyperlink start sequence.
@@ -683,6 +682,40 @@ mod tests {
         assert_eq!(
             esc_count, 2,
             "Hyperlink output should only have opening and closing ESC, not injected ones"
+        );
+    }
+
+    #[test]
+    fn test_osc8_c1_control_escaping() {
+        // C1 control characters (U+0080-U+009F) must also be escaped
+        // These are interpreted as control sequences by some terminals:
+        // - U+009B (CSI) is equivalent to ESC[
+        // - U+009C (ST) is equivalent to ESC\ (string terminator)
+        // - U+009D (OSC) is equivalent to ESC]
+
+        // CSI (U+009B) - Control Sequence Introducer
+        let url_with_csi = "http://evil\u{009B}2J";
+        let escaped = escape_url_for_osc8(url_with_csi);
+        assert!(
+            !escaped.contains('\u{009B}'),
+            "CSI (U+009B) must be escaped"
+        );
+        assert!(
+            escaped.contains("%C2%9B"),
+            "CSI should be percent-encoded as %C2%9B"
+        );
+
+        // ST (U+009C) - String Terminator
+        let url_with_st = "http://evil\u{009C}inject";
+        let escaped = escape_url_for_osc8(url_with_st);
+        assert!(!escaped.contains('\u{009C}'), "ST (U+009C) must be escaped");
+
+        // OSC (U+009D) - Operating System Command
+        let url_with_osc = "http://evil\u{009D}0;title\u{009C}";
+        let escaped = escape_url_for_osc8(url_with_osc);
+        assert!(
+            !escaped.contains('\u{009D}'),
+            "OSC (U+009D) must be escaped"
         );
     }
 }
