@@ -454,7 +454,7 @@ impl Config {
 }
 
 /// Parse a size string like "80x24" into (width, height).
-#[allow(clippy::missing_const_for_fn)] // str::split is not const
+#[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)] // str::split is not const
 fn parse_size(s: &str) -> Option<(u16, u16)> {
     let parts: Vec<&str> = s.split('x').collect();
     if parts.len() != 2 {
@@ -478,7 +478,6 @@ fn parse_size(s: &str) -> Option<(u16, u16)> {
 /// For threaded mode, we maintain a local hit grid and scissor stack
 /// since `ThreadedRenderer` doesn't provide these directly.
 #[allow(clippy::large_enum_variant)] // Renderer variants are intentionally different sizes
-#[allow(clippy::large_enum_variant)] // Variants are intentionally different sizes
 pub enum Backend {
     /// Direct (synchronous) renderer.
     Direct(Renderer),
@@ -491,8 +490,7 @@ pub enum Backend {
     },
 }
 
-#[allow(clippy::missing_errors_doc)] // Internal type, errors are obvious
-#[allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+#[allow(clippy::missing_errors_doc, clippy::must_use_candidate)] // Internal type, errors are obvious
 impl Backend {
     /// Create a new direct (synchronous) backend.
     pub fn new_direct(width: u32, height: u32, options: RendererOptions) -> io::Result<Self> {
@@ -586,6 +584,7 @@ impl Backend {
         }
     }
 
+    #[must_use]
     /// Get terminal capabilities.
     pub fn capabilities(&self) -> &Capabilities {
         match self {
@@ -595,6 +594,7 @@ impl Backend {
     }
 
     /// Register a hit area for mouse testing.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
     pub fn register_hit_area(&mut self, x: u32, y: u32, width: u32, height: u32, id: u32) {
         match self {
             Self::Direct(r) => r.register_hit_area(x, y, width, height, id),
@@ -679,7 +679,8 @@ impl Backend {
     }
 
     /// Get render stats (for inspector).
-    pub fn stats(&self) -> RenderStatsView {
+    #[must_use]
+    pub fn stats(&self) -> RenderStatsView<'_> {
         match self {
             Self::Direct(r) => RenderStatsView::Direct(r.stats()),
             Self::Threaded { renderer, .. } => RenderStatsView::Threaded(renderer.stats()),
@@ -709,6 +710,7 @@ pub enum RenderStatsView<'a> {
     Threaded(&'a opentui::renderer::ThreadedRenderStats),
 }
 
+#[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)]
 impl RenderStatsView<'_> {
     /// Get total frames rendered.
     pub fn frames(&self) -> u64 {
@@ -2153,7 +2155,7 @@ impl ToastManager {
 
     /// Create a new empty manager.
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // VecDeque::new() is not const
+    #[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)] // VecDeque::new() is not const
     pub fn new() -> Self {
         Self {
             toasts: VecDeque::new(),
@@ -3142,7 +3144,7 @@ impl App {
     }
 
     /// Update app state for a new frame.
-    #[allow(clippy::missing_const_for_fn)] // const fn with &mut self not stable
+    #[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)] // const fn with &mut self not stable
     pub fn tick(&mut self) {
         // Update animation clock first (respects pause state)
         self.clock.tick(self.paused);
@@ -6418,7 +6420,7 @@ fn draw_sidebar(
 
 /// Check if stdout is a TTY.
 #[cfg(unix)]
-#[allow(clippy::missing_const_for_fn)] // libc::isatty is not const
+#[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)] // libc::isatty is not const
 fn is_tty() -> bool {
     // SAFETY: isatty is safe to call with any file descriptor.
     unsafe { libc::isatty(libc::STDOUT_FILENO) != 0 }
@@ -6630,7 +6632,7 @@ renderer.present()?;
 
         /// Create a runtime log entry with owned strings.
         #[must_use]
-        #[allow(clippy::missing_const_for_fn)] // Cow::Owned is not const-constructable
+        #[allow(clippy::missing_const_for_fn, clippy::must_use_candidate)] // Cow::Owned is not const-constructable
         pub fn new_runtime(
             timestamp: String,
             level: LogLevel,
