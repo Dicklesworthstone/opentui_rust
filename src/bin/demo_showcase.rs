@@ -8099,4 +8099,160 @@ mod tests {
         };
         assert_eq!(m3.memory_display(), "500B");
     }
+
+    // ========================================================================
+    // Palette Scroll Offset Tests
+    // ========================================================================
+
+    /// Helper to calculate scroll offset for palette list.
+    /// This mirrors the logic in `draw_palette_overlay()`.
+    fn calculate_scroll_offset(selected: usize, max_visible: usize) -> usize {
+        if selected >= max_visible {
+            selected - max_visible + 1
+        } else {
+            0
+        }
+    }
+
+    /// Helper to check if an item at display index is selected.
+    /// This mirrors the logic in `draw_palette_overlay()`.
+    fn is_item_selected(display_index: usize, scroll_offset: usize, selected: usize) -> bool {
+        (display_index + scroll_offset) == selected
+    }
+
+    #[test]
+    fn test_scroll_offset_zero_when_selected_visible() {
+        // When selected item is within the visible range, offset should be 0
+        assert_eq!(calculate_scroll_offset(0, 5), 0);
+        assert_eq!(calculate_scroll_offset(1, 5), 0);
+        assert_eq!(calculate_scroll_offset(2, 5), 0);
+        assert_eq!(calculate_scroll_offset(3, 5), 0);
+        assert_eq!(calculate_scroll_offset(4, 5), 0);
+    }
+
+    #[test]
+    fn test_scroll_offset_scrolls_to_selected() {
+        // When selected >= max_visible, offset = selected - max_visible + 1
+        assert_eq!(calculate_scroll_offset(5, 5), 1); // selected=5, max=5 -> offset=1
+        assert_eq!(calculate_scroll_offset(6, 5), 2); // selected=6, max=5 -> offset=2
+        assert_eq!(calculate_scroll_offset(10, 5), 6); // selected=10, max=5 -> offset=6
+    }
+
+    #[test]
+    fn test_scroll_offset_at_list_end() {
+        // When selected is at the end of a longer list
+        let list_len = 20;
+        let max_visible = 5;
+
+        // Last item selected
+        let selected = list_len - 1; // 19
+        let offset = calculate_scroll_offset(selected, max_visible);
+        assert_eq!(offset, 15); // 19 - 5 + 1 = 15
+
+        // The visible range would be items 15..20 (indices 15, 16, 17, 18, 19)
+        // Item 19 should be at display position 4 (0-indexed)
+        assert!(is_item_selected(4, offset, selected));
+    }
+
+    #[test]
+    fn test_is_selected_uses_actual_index() {
+        // Verify the selection logic works correctly with scroll offset
+        let selected = 7;
+        let max_visible = 5;
+        let offset = calculate_scroll_offset(selected, max_visible); // offset = 3
+
+        // Display positions 0..5 map to actual indices 3..8
+        assert!(!is_item_selected(0, offset, selected)); // 0+3=3 != 7
+        assert!(!is_item_selected(1, offset, selected)); // 1+3=4 != 7
+        assert!(!is_item_selected(2, offset, selected)); // 2+3=5 != 7
+        assert!(!is_item_selected(3, offset, selected)); // 3+3=6 != 7
+        assert!(is_item_selected(4, offset, selected)); // 4+3=7 == 7 ✓
+    }
+
+    #[test]
+    fn test_scroll_handles_single_item() {
+        // When filtered list has only 1 item, max_visible = 1
+        let offset = calculate_scroll_offset(0, 1);
+        assert_eq!(offset, 0);
+
+        // The single item should be selected at display position 0
+        assert!(is_item_selected(0, offset, 0));
+    }
+
+    #[test]
+    fn test_scroll_handles_max_visible_equals_list_len() {
+        // When max_visible equals or exceeds list length, no scrolling needed
+        let list_len = 5;
+        let max_visible = 5;
+
+        // All positions should have offset 0
+        for selected in 0..list_len {
+            assert_eq!(calculate_scroll_offset(selected, max_visible), 0);
+        }
+    }
+
+    #[test]
+    fn test_scroll_handles_large_list() {
+        // Stress test with larger numbers
+        let max_visible = 10;
+
+        // Selected at position 50
+        let offset = calculate_scroll_offset(50, max_visible);
+        assert_eq!(offset, 41); // 50 - 10 + 1 = 41
+
+        // Selected at position 100
+        let offset = calculate_scroll_offset(100, max_visible);
+        assert_eq!(offset, 91); // 100 - 10 + 1 = 91
+    }
+
+    #[test]
+    fn test_palette_state_filter_updates() {
+        let mut state = PaletteState::default();
+
+        // Initially all commands visible
+        state.update_filter();
+        assert_eq!(state.filtered.len(), PaletteState::COMMANDS.len());
+
+        // Filter to "Toggle" - should match "Toggle Help", "Toggle Tour", "Toggle Debug"
+        state.query = "Toggle".to_string();
+        state.update_filter();
+        assert!(state.filtered.len() >= 2); // At least 2 toggle commands
+
+        // Filter to "Quit" - should match only one
+        state.query = "Quit".to_string();
+        state.update_filter();
+        assert!(state.filtered.len() >= 1);
+    }
+
+    #[test]
+    fn test_palette_state_navigation() {
+        let mut state = PaletteState::default();
+        state.update_filter();
+
+        // Start at 0
+        assert_eq!(state.selected, 0);
+
+        // Select down
+        state.select_next();
+        assert_eq!(state.selected, 1);
+
+        // Select up
+        state.select_prev();
+        assert_eq!(state.selected, 0);
+
+        // Select up at 0 should stay at 0 (saturating_sub)
+        state.select_prev();
+        assert_eq!(state.selected, 0);
+
+        // Go to last item
+        let last_idx = state.filtered.len() - 1;
+        for _ in 0..last_idx {
+            state.select_next();
+        }
+        assert_eq!(state.selected, last_idx);
+
+        // Select down at end should stay at end
+        state.select_next();
+        assert_eq!(state.selected, last_idx);
+    }
 }
