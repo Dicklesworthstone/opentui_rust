@@ -29,6 +29,7 @@ use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_s
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
+#[allow(unused_imports)] // Cell used only in tests
 use opentui::{Cell, CellContent, Renderer, RendererOptions, Rgba, Style};
 use std::collections::VecDeque;
 use std::ffi::OsString;

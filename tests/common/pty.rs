@@ -41,6 +41,32 @@ pub struct PtyResult {
 }
 
 impl PtyResult {
+    /// Generate a comprehensive sequence analysis report.
+    ///
+    /// This provides detailed analysis including:
+    /// - Sequence inventory with counts
+    /// - Timeline of sequences with byte offsets
+    /// - Paired sequence validation
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let result = spawn_pty(&config)?;
+    /// let report = result.sequence_report();
+    ///
+    /// // Validate paired sequences.
+    /// let validation = report.validate_pairs();
+    /// assert!(validation.all_paired(), "{}", validation.to_human_readable());
+    ///
+    /// // Check expectations.
+    /// let expected = ExpectedSequences::default_terminal_setup();
+    /// let missing = report.find_missing(&expected);
+    /// assert!(missing.is_empty());
+    /// ```
+    pub fn sequence_report(&self) -> super::analysis::SequenceReport {
+        super::analysis::SequenceReport::from_output(&self.output)
+    }
+
     /// Check if output contains a byte sequence.
     pub fn contains_sequence(&self, seq: &[u8]) -> bool {
         self.output.windows(seq.len()).any(|window| window == seq)
@@ -432,6 +458,7 @@ pub mod sequences {
 
 /// Log PTY result to artifacts using the new artifact system.
 pub fn log_pty_result(result: &PtyResult, test_name: &str) {
+    use super::analysis::SequenceReport;
     use super::artifacts::{ArtifactManager, SequenceAnalysis, output_to_readable};
 
     eprintln!("=== PTY Test: {test_name} ===");
@@ -464,9 +491,20 @@ pub fn log_pty_result(result: &PtyResult, test_name: &str) {
         let readable = output_to_readable(&result.output);
         artifacts.save_decoded_output(&readable);
 
-        // Save sequence analysis
+        // Save sequence analysis (legacy format for backwards compatibility)
         let analysis = SequenceAnalysis::from_output(&result.output);
         artifacts.save_sequence_analysis(&analysis);
+
+        // Save comprehensive sequence report (new format)
+        let report = SequenceReport::from_output(&result.output);
+        if let Ok(json) = report.to_json() {
+            artifacts.save_text("sequence_report.json", &json);
+        }
+        artifacts.save_text("sequence_report.txt", &report.to_human_readable());
+
+        // Save pair validation results
+        let validation = report.validate_pairs();
+        artifacts.save_text("pair_validation.txt", &validation.to_human_readable());
 
         // Save test info
         let info = format!(
