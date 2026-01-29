@@ -331,6 +331,10 @@ impl Renderer {
 
         self.scratch_buffer.clear();
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
+        // Emit cursor home to synchronize terminal cursor with writer's internal tracking.
+        // The writer starts tracking at (0,0), but the terminal cursor may be elsewhere
+        // (e.g., pending-wrap state at end of previous frame).
+        writer.write_str("\x1b[H");
 
         for y in 0..self.height {
             for x in 0..self.width {
