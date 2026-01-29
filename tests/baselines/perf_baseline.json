@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-01-28T00:00:00Z",
+  "machine_info": {
+    "os": "linux",
+    "note": "Initial baseline - update after first CI run"
+  },
+  "thresholds": {
+    "regression_threshold_percent": 20,
+    "improvement_threshold_percent": 10
+  },
+  "baselines": {
+    "rendering": {
+      "full_screen_clear_100x_ms": 50,
+      "full_screen_text_render_100x_ms": 100,
+      "diff_render_10pct_changes_ms": 20,
+      "diff_render_50pct_changes_ms": 50,
+      "diff_render_90pct_changes_ms": 80
+    },
+    "buffer_operations": {
+      "large_buffer_create_200x60_ms": 10,
+      "scissor_push_pop_1000x_ms": 20,
+      "opacity_stack_1000x_ms": 20,
+      "cell_iteration_full_buffer_ms": 30
+    },
+    "text_operations": {
+      "large_file_load_100kb_ms": 100,
+      "text_insert_1000_chars_ms": 50,
+      "undo_redo_100x_ms": 30,
+      "wrap_recalculation_ms": 50
+    },
+    "input_processing": {
+      "parse_1000_keystrokes_ms": 20,
+      "parse_1000_mouse_events_ms": 30,
+      "parse_large_paste_10kb_ms": 50
+    },
+    "e2e": {
+      "demo_showcase_tour_max_runtime_s": 30,
+      "demo_showcase_tour_min_fps": 15,
+      "demo_showcase_headless_smoke_max_ms": 5000
+    }
+  }
+}
