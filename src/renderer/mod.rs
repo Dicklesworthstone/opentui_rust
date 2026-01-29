@@ -132,6 +132,8 @@ pub struct Renderer {
     link_pool: LinkPool,
     grapheme_pool: crate::grapheme_pool::GraphemePool,
     scratch_buffer: Vec<u8>,
+    /// Reusable diff to avoid per-frame allocation.
+    cached_diff: BufferDiff,
 
     background: Rgba,
     force_redraw: bool,
@@ -162,6 +164,7 @@ impl Renderer {
             terminal.query_capabilities()?;
         }
 
+        let total_cells = (width as usize).saturating_mul(height as usize);
         Ok(Self {
             width,
             height,
@@ -172,11 +175,8 @@ impl Renderer {
             hit_scissor: ScissorStack::new(),
             link_pool: LinkPool::new(),
             grapheme_pool: crate::grapheme_pool::GraphemePool::new(),
-            scratch_buffer: Vec::with_capacity(
-                (width as usize)
-                    .saturating_mul(height as usize)
-                    .saturating_mul(20),
-            ),
+            scratch_buffer: Vec::with_capacity(total_cells.saturating_mul(20)),
+            cached_diff: BufferDiff::with_capacity(total_cells / 8),
             background: Rgba::BLACK,
             force_redraw: true,
             stats: RenderStats::default(),
@@ -301,15 +301,17 @@ impl Renderer {
         }
 
         let total_cells = (self.width as usize).saturating_mul(self.height as usize);
-        let diff = BufferDiff::compute(&self.front_buffer, &self.back_buffer);
+        // Use cached diff to avoid per-frame allocation
+        self.cached_diff
+            .compute_into(&self.front_buffer, &self.back_buffer);
 
-        if self.force_redraw || diff.should_full_redraw(total_cells) {
+        if self.force_redraw || self.cached_diff.should_full_redraw(total_cells) {
             self.present_force()?;
             self.update_stats(total_cells);
             self.force_redraw = false;
         } else {
-            self.present_diff(&diff)?;
-            self.update_stats(diff.change_count);
+            self.present_diff()?;
+            self.update_stats(self.cached_diff.change_count);
         }
 
         // Swap buffers
@@ -362,7 +364,7 @@ impl Renderer {
     }
 
     /// Present using diff detection.
-    fn present_diff(&mut self, diff: &BufferDiff) -> io::Result<()> {
+    fn present_diff(&mut self) -> io::Result<()> {
         if self.terminal.capabilities().sync_output {
             self.terminal.begin_sync()?;
         }
@@ -370,7 +372,7 @@ impl Renderer {
         self.scratch_buffer.clear();
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
-        for region in &diff.dirty_regions {
+        for region in &self.cached_diff.dirty_regions {
             for i in 0..region.width {
                 let x = region.x + i;
                 let y = region.y;
@@ -416,6 +418,8 @@ impl Renderer {
             .resize_with_pool(&mut self.grapheme_pool, width, height);
         self.hit_grid = HitGrid::new(width, height);
         self.hit_scissor.clear();
+        // Clear cached diff (it will grow as needed on next present)
+        self.cached_diff.clear();
         self.force_redraw = true;
         self.terminal.clear()
     }

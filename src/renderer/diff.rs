@@ -53,6 +53,28 @@ pub struct BufferDiff {
 }
 
 impl BufferDiff {
+    /// Create a new empty diff with pre-allocated capacity.
+    ///
+    /// Use with [`compute_into`](Self::compute_into) to avoid allocations
+    /// during the render loop.
+    #[must_use]
+    pub fn with_capacity(expected_changes: usize) -> Self {
+        Self {
+            changed_cells: Vec::with_capacity(expected_changes),
+            dirty_regions: Vec::with_capacity(expected_changes / 4),
+            change_count: 0,
+        }
+    }
+
+    /// Clear the diff for reuse without deallocating.
+    pub fn clear(&mut self) {
+        self.changed_cells.clear();
+        self.dirty_regions.clear();
+        self.change_count = 0;
+    }
+}
+
+impl BufferDiff {
     /// Compare two buffers and find differences.
     ///
     /// # Panics
@@ -72,6 +94,27 @@ impl BufferDiff {
     /// # Errors
     /// - [`Error::BufferSizeMismatch`] if buffers have different dimensions
     pub fn try_compute(old: &OptimizedBuffer, new: &OptimizedBuffer) -> Result<Self, Error> {
+        let (width, height) = old.size();
+        let total_cells = (width as usize).saturating_mul(height as usize);
+        let reserve = (total_cells / 8).max(32).min(total_cells);
+        let mut diff = Self::with_capacity(reserve);
+        diff.try_compute_into(old, new)?;
+        Ok(diff)
+    }
+
+    /// Compute diff into an existing struct, reusing allocations.
+    ///
+    /// This is the preferred method for render loops where allocation
+    /// overhead matters. Create one `BufferDiff` with [`with_capacity`](Self::with_capacity)
+    /// and reuse it each frame.
+    ///
+    /// # Errors
+    /// - [`Error::BufferSizeMismatch`] if buffers have different dimensions
+    pub fn try_compute_into(
+        &mut self,
+        old: &OptimizedBuffer,
+        new: &OptimizedBuffer,
+    ) -> Result<(), Error> {
         if old.size() != new.size() {
             return Err(Error::BufferSizeMismatch {
                 old_size: old.size(),
@@ -79,10 +122,11 @@ impl BufferDiff {
             });
         }
 
+        // Clear previous results without deallocating
+        self.changed_cells.clear();
+        self.dirty_regions.clear();
+
         let (width, height) = old.size();
-        let total_cells = (width as usize).saturating_mul(height as usize);
-        let reserve = (total_cells / 8).max(32).min(total_cells);
-        let mut changed_cells = Vec::with_capacity(reserve);
 
         // Use direct slice access for faster iteration
         // This avoids Option unwrapping overhead per cell
@@ -97,21 +141,26 @@ impl BufferDiff {
             for x in 0..width {
                 let idx = row_offset + x as usize;
                 // SAFETY: We're iterating within bounds since we use width/height from old buffer
-                // and both buffers have the same dimensions (checked at start of try_compute)
+                // and both buffers have the same dimensions (checked at start)
                 if !old_cells[idx].bits_eq(&new_cells[idx]) {
-                    changed_cells.push((x, y));
+                    self.changed_cells.push((x, y));
                 }
             }
         }
 
-        let change_count = changed_cells.len();
-        let dirty_regions = Self::merge_into_regions(&changed_cells, width);
+        self.change_count = self.changed_cells.len();
+        Self::merge_into_regions_reuse(&self.changed_cells, width, &mut self.dirty_regions);
 
-        Ok(Self {
-            changed_cells,
-            dirty_regions,
-            change_count,
-        })
+        Ok(())
+    }
+
+    /// Compute diff into self, panicking on size mismatch.
+    ///
+    /// # Panics
+    /// Panics if the buffers have different dimensions.
+    pub fn compute_into(&mut self, old: &OptimizedBuffer, new: &OptimizedBuffer) {
+        self.try_compute_into(old, new)
+            .expect("buffer size mismatch in diff");
     }
 
     /// Check if there are any changes.
@@ -121,13 +170,21 @@ impl BufferDiff {
     }
 
     /// Merge changed cells into regions.
-    fn merge_into_regions(cells: &[(u32, u32)], _width: u32) -> Vec<DirtyRegion> {
+    fn merge_into_regions(cells: &[(u32, u32)], width: u32) -> Vec<DirtyRegion> {
+        let mut regions = Vec::new();
+        Self::merge_into_regions_reuse(cells, width, &mut regions);
+        regions
+    }
+
+    /// Merge changed cells into regions, reusing the output Vec.
+    fn merge_into_regions_reuse(cells: &[(u32, u32)], _width: u32, regions: &mut Vec<DirtyRegion>) {
+        regions.clear();
+
         if cells.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Simple approach: group by row
-        let mut regions: Vec<DirtyRegion> = Vec::new();
         let mut current_row: Option<u32> = None;
         let mut row_start: u32 = 0;
         let mut row_end: u32 = 0;
@@ -156,8 +213,6 @@ impl BufferDiff {
         if let Some(row) = current_row {
             regions.push(DirtyRegion::new(row_start, row, row_end - row_start + 1, 1));
         }
-
-        regions
     }
 
     /// Calculate if a full redraw is more efficient.

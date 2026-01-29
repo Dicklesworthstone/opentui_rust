@@ -92,6 +92,58 @@ fn diff_all_different(c: &mut Criterion) {
     });
 }
 
+/// Benchmark reusable diff vs new allocation each time.
+fn diff_reuse_vs_alloc(c: &mut Criterion) {
+    let mut group = c.benchmark_group("diff_reuse");
+
+    let a = OptimizedBuffer::new(80, 24);
+    let mut b = OptimizedBuffer::new(80, 24);
+    let style = Style::fg(Rgba::BLUE);
+    // Scatter changes
+    for y in 0..24 {
+        for x in (0..80).step_by(3) {
+            b.set(x, y, Cell::new('*', style));
+        }
+    }
+
+    // Allocate new each time
+    group.bench_function("diff_alloc_each_80x24", |b_iter| {
+        b_iter.iter(|| BufferDiff::compute(black_box(&a), black_box(&b)));
+    });
+
+    // Reuse pre-allocated diff
+    group.bench_function("diff_reuse_80x24", |b_iter| {
+        let mut diff = BufferDiff::with_capacity(1920 / 8);
+        b_iter.iter(|| {
+            diff.compute_into(black_box(&a), black_box(&b));
+            black_box(&diff);
+        });
+    });
+
+    // Larger buffer
+    let a_large = OptimizedBuffer::new(200, 50);
+    let mut b_large = OptimizedBuffer::new(200, 50);
+    for y in 0..50 {
+        for x in (0..200).step_by(3) {
+            b_large.set(x, y, Cell::new('*', style));
+        }
+    }
+
+    group.bench_function("diff_alloc_each_200x50", |b_iter| {
+        b_iter.iter(|| BufferDiff::compute(black_box(&a_large), black_box(&b_large)));
+    });
+
+    group.bench_function("diff_reuse_200x50", |b_iter| {
+        let mut diff = BufferDiff::with_capacity(10000 / 8);
+        b_iter.iter(|| {
+            diff.compute_into(black_box(&a_large), black_box(&b_large));
+            black_box(&diff);
+        });
+    });
+
+    group.finish();
+}
+
 fn diff_should_full_redraw(c: &mut Criterion) {
     let a = OptimizedBuffer::new(80, 24);
     let mut b_few = OptimizedBuffer::new(80, 24);
@@ -270,6 +322,7 @@ criterion_group!(
     diff_row_change,
     diff_many_changes,
     diff_all_different,
+    diff_reuse_vs_alloc,
     diff_should_full_redraw,
     ansi_generation,
     render_cycle
