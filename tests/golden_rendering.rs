@@ -15,7 +15,7 @@ mod common;
 
 use common::golden::{compare_golden, current_date, GoldenMetadata, GoldenResult};
 use opentui::ansi::AnsiWriter;
-use opentui::buffer::{BoxOptions, BoxStyle, ClipRect};
+use opentui::buffer::{BoxStyle, ClipRect};
 use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
@@ -226,13 +226,13 @@ fn test_golden_bold_colors() {
     buffer.clear(Rgba::BLACK);
 
     // Draw text with bold attribute
-    let bold_style = Style::fg(Rgba::WHITE).bold();
+    let bold_style = Style::fg(Rgba::WHITE).with_bold();
     buffer.draw_text(10, 5, "Bold White Text", bold_style);
 
-    let bold_red = Style::fg(Rgba::RED).bold();
+    let bold_red = Style::fg(Rgba::RED).with_bold();
     buffer.draw_text(10, 7, "Bold Red Text", bold_red);
 
-    let bold_green = Style::fg(Rgba::GREEN).bold();
+    let bold_green = Style::fg(Rgba::GREEN).with_bold();
     buffer.draw_text(10, 9, "Bold Green Text", bold_green);
 
     let pool = GraphemePool::new();
@@ -246,13 +246,13 @@ fn test_golden_dim_colors() {
     buffer.clear(Rgba::BLACK);
 
     // Draw text with dim attribute
-    let dim_style = Style::fg(Rgba::WHITE).dim();
+    let dim_style = Style::fg(Rgba::WHITE).with_attributes(opentui::TextAttributes::DIM);
     buffer.draw_text(10, 5, "Dim White Text", dim_style);
 
-    let dim_red = Style::fg(Rgba::RED).dim();
+    let dim_red = Style::fg(Rgba::RED).with_attributes(opentui::TextAttributes::DIM);
     buffer.draw_text(10, 7, "Dim Red Text", dim_red);
 
-    let dim_green = Style::fg(Rgba::GREEN).dim();
+    let dim_green = Style::fg(Rgba::GREEN).with_attributes(opentui::TextAttributes::DIM);
     buffer.draw_text(10, 9, "Dim Green Text", dim_green);
 
     let pool = GraphemePool::new();
@@ -532,7 +532,7 @@ fn test_golden_tour_screen_1() {
         2,
         0,
         " [H] Help  [/] Palette  [T] Tour  ",
-        Style::fg(Rgba::WHITE).bold(),
+        Style::fg(Rgba::WHITE).with_bold(),
     );
     buffer.draw_text(100, 0, " demo_showcase ", Style::fg(CYAN));
 
@@ -541,7 +541,7 @@ fn test_golden_tour_screen_1() {
         45,
         10,
         "Welcome to OpenTUI",
-        Style::fg(Rgba::WHITE).bold(),
+        Style::fg(Rgba::WHITE).with_bold(),
     );
     buffer.draw_text(
         35,
@@ -574,10 +574,10 @@ fn test_golden_tour_screen_5() {
     // Title bar
     let title_bg = Rgba::from_rgb_u8(64, 64, 96);
     buffer.fill_rect(0, 0, 120, 1, title_bg);
-    buffer.draw_text(2, 0, " [H] Help  [/] Palette  [T] Tour  ", Style::fg(Rgba::WHITE).bold());
+    buffer.draw_text(2, 0, " [H] Help  [/] Palette  [T] Tour  ", Style::fg(Rgba::WHITE).with_bold());
 
     // Demo: Alpha blending showcase
-    buffer.draw_text(10, 3, "Alpha Blending Demo", Style::fg(Rgba::WHITE).bold());
+    buffer.draw_text(10, 3, "Alpha Blending Demo", Style::fg(Rgba::WHITE).with_bold());
 
     // Base layers
     buffer.fill_rect(15, 6, 30, 15, Rgba::RED);
@@ -615,16 +615,16 @@ fn test_golden_help_overlay() {
 
     // Help box
     buffer.draw_box(20, 5, 80, 30, BoxStyle::double(Style::fg(CYAN)));
-    buffer.draw_text(50, 6, " Help ", Style::fg(CYAN).bold());
+    buffer.draw_text(50, 6, " Help ", Style::fg(CYAN).with_bold());
 
     // Help content
-    buffer.draw_text(25, 9, "Keyboard Shortcuts:", Style::fg(Rgba::WHITE).bold());
+    buffer.draw_text(25, 9, "Keyboard Shortcuts:", Style::fg(Rgba::WHITE).with_bold());
     buffer.draw_text(25, 11, "  H       Toggle this help", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 12, "  /       Open command palette", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 13, "  T       Start/stop tour", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 14, "  D       Toggle debug panel", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 15, "  Q       Quit application", Style::fg(Rgba::WHITE));
-    buffer.draw_text(25, 17, "Mouse:", Style::fg(Rgba::WHITE).bold());
+    buffer.draw_text(25, 17, "Mouse:", Style::fg(Rgba::WHITE).with_bold());
     buffer.draw_text(25, 19, "  Click   Select item", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 20, "  Scroll  Navigate lists", Style::fg(Rgba::WHITE));
 
@@ -647,23 +647,23 @@ fn test_golden_debug_panel() {
     // Debug panel on the right side
     let panel_bg = Rgba::from_rgb_u8(24, 24, 36);
     buffer.fill_rect(85, 0, 35, 40, panel_bg);
-    buffer.draw_text(87, 1, "Debug Panel", Style::fg(YELLOW).bold());
+    buffer.draw_text(87, 1, "Debug Panel", Style::fg(YELLOW).with_bold());
 
     // Stats
     buffer.draw_text(87, 3, "FPS: 60.0", Style::fg(Rgba::GREEN));
     buffer.draw_text(87, 4, "Frame: 12345", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 5, "Dirty: 142 cells", Style::fg(Rgba::WHITE));
 
-    buffer.draw_text(87, 7, "Buffer", Style::fg(CYAN).bold());
+    buffer.draw_text(87, 7, "Buffer", Style::fg(CYAN).with_bold());
     buffer.draw_text(87, 8, "  Size: 120x40", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 9, "  Cells: 4800", Style::fg(Rgba::WHITE));
 
-    buffer.draw_text(87, 11, "Memory", Style::fg(CYAN).bold());
+    buffer.draw_text(87, 11, "Memory", Style::fg(CYAN).with_bold());
     buffer.draw_text(87, 12, "  Cells: 48.0 KB", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 13, "  Graphemes: 128", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 14, "  Links: 5", Style::fg(Rgba::WHITE));
 
-    buffer.draw_text(87, 16, "Input", Style::fg(CYAN).bold());
+    buffer.draw_text(87, 16, "Input", Style::fg(CYAN).with_bold());
     buffer.draw_text(87, 17, "  Events: 2341", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 18, "  Keys: 1823", Style::fg(Rgba::WHITE));
     buffer.draw_text(87, 19, "  Mouse: 518", Style::fg(Rgba::WHITE));
