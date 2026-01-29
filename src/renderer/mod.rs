@@ -330,6 +330,15 @@ impl Renderer {
         self.scratch_buffer.clear();
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
+        // Explicitly position cursor at home before rendering.
+        // AnsiWriter initializes its cursor tracking at (0, 0), so
+        // move_cursor(0, 0) would be a no-op. But the actual terminal cursor
+        // may be anywhere (e.g. end of last row from the previous frame, in
+        // pending-wrap state). Writing without repositioning first would cause
+        // the terminal to wrap/scroll, placing row 0 content at the wrong
+        // position and leaving stale content on terminal row 0.
+        writer.write_raw(b"\x1b[H");
+
         for y in 0..self.height {
             writer.move_cursor(y, 0);
             for x in 0..self.width {
