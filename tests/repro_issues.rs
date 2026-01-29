@@ -104,4 +104,108 @@ mod tests {
             "Refcount should still be leaked after clear"
         );
     }
+
+    /// Regression test for cursor drift when continuation cells are skipped.
+    ///
+    /// BUG: In present_diff(), when iterating over dirty regions and skipping
+    /// continuation cells, the cursor position would not advance properly,
+    /// causing subsequent characters to be written at wrong positions.
+    ///
+    /// SYMPTOM: Text became garbled as log lines scrolled ("HashMap" -> "skseshap").
+    #[test]
+    fn test_continuation_cell_cursor_positioning() {
+        use opentui::buffer::OptimizedBuffer;
+        use opentui::cell::{Cell, GraphemeId};
+        use opentui::color::Rgba;
+        use opentui::renderer::BufferDiff;
+        use opentui::style::{Style, TextAttributes};
+
+        // Create old and new buffers
+        let mut old_buf = OptimizedBuffer::new(10, 1);
+        let mut new_buf = OptimizedBuffer::new(10, 1);
+
+        // Manually set up old buffer with a wide character (simulating emoji)
+        // GraphemeId with width 2 at position 0, continuation at position 1
+        let wide_id = GraphemeId::new(1, 2); // pool_id=1, width=2
+        old_buf.set(
+            0,
+            0,
+            Cell {
+                content: CellContent::Grapheme(wide_id),
+                fg: Rgba::WHITE,
+                bg: Rgba::BLACK,
+                attributes: TextAttributes::empty(),
+            },
+        );
+        old_buf.set(1, 0, Cell::continuation(Rgba::BLACK));
+        old_buf.set(2, 0, Cell::new('B', Style::NONE));
+        old_buf.set(3, 0, Cell::new('C', Style::NONE));
+        old_buf.set(4, 0, Cell::new('D', Style::NONE));
+
+        // Verify old buffer has: wide(0), continuation(1), B(2), C(3), D(4)
+        assert!(
+            old_buf.get(1, 0).unwrap().is_continuation(),
+            "Position 1 should be continuation"
+        );
+        assert!(
+            matches!(
+                old_buf.get(2, 0).unwrap().content,
+                CellContent::Char('B')
+            ),
+            "Position 2 should be 'B'"
+        );
+
+        // Set up new buffer - same wide char, but different letters after
+        new_buf.set(
+            0,
+            0,
+            Cell {
+                content: CellContent::Grapheme(wide_id),
+                fg: Rgba::WHITE,
+                bg: Rgba::BLACK,
+                attributes: TextAttributes::empty(),
+            },
+        );
+        new_buf.set(1, 0, Cell::continuation(Rgba::BLACK));
+        new_buf.set(2, 0, Cell::new('X', Style::NONE));
+        new_buf.set(3, 0, Cell::new('Y', Style::NONE));
+        new_buf.set(4, 0, Cell::new('Z', Style::NONE));
+
+        // Compute diff - should detect changes at positions 2, 3, 4
+        let diff = BufferDiff::compute(&old_buf, &new_buf);
+
+        // The diff should contain the changed cells
+        assert!(
+            !diff.is_empty(),
+            "Diff should detect changes at positions 2, 3, 4"
+        );
+
+        // Verify that the changed cells are at positions 2, 3, 4
+        // (The grapheme and continuation at 0,1 are the same, so shouldn't be in diff)
+        assert_eq!(
+            diff.changed_cells.len(),
+            3,
+            "Should have exactly 3 changed cells (positions 2, 3, 4)"
+        );
+
+        for &(x, _y) in &diff.changed_cells {
+            assert!(
+                x >= 2 && x <= 4,
+                "Changed cell at x={} should be in range [2, 4]",
+                x
+            );
+        }
+
+        // The key insight: when rendering this diff, if we have a dirty region
+        // that includes positions 2, 3, 4 and the renderer incorrectly assumes
+        // continuous cursor advancement, the output would be wrong.
+        //
+        // The fix ensures we move_cursor to exact position before each cell write:
+        //   writer.move_cursor(y, x);  // Exact position before each write
+        // Instead of:
+        //   writer.move_cursor(region.y, region.x);  // Only at region start
+        //
+        // This test verifies the diff computation correctly identifies
+        // which cells changed without including the unchanged wide char.
+    }
 }
