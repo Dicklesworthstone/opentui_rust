@@ -1468,7 +1468,9 @@ mod tests {
         use crate::cell::CellContent;
         use crate::color::Rgba;
 
-        eprintln!("[TEST] test_tab_selection_highlights_all_columns: Verifying all tab columns get selection style (bd-nyo9)");
+        eprintln!(
+            "[TEST] test_tab_selection_highlights_all_columns: Verifying all tab columns get selection style (bd-nyo9)"
+        );
 
         // Create text with a tab: "ab\tcd"
         // With tab width 4, "ab" at 0-1, tab expands to 2-3, "cd" at 4-5
@@ -1476,8 +1478,7 @@ mod tests {
         let selection_bg = Rgba::rgb(0.0, 0.0, 1.0); // Blue selection
         let selection_style = Style::NONE.with_bg(selection_bg);
 
-        let mut view = TextBufferView::new(&buffer)
-            .viewport(0, 0, 80, 24);
+        let mut view = TextBufferView::new(&buffer).viewport(0, 0, 80, 24);
 
         // Select just the tab character (character offset 2)
         view.set_selection(2, 3, selection_style);

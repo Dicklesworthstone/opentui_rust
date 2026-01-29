@@ -383,15 +383,15 @@ mod tests {
             ColorSupport::Basic,
             "Default should assume basic color, not TrueColor"
         );
-        assert!(
-            !caps.unicode,
-            "Default should not assume Unicode support"
-        );
+        assert!(!caps.unicode, "Default should not assume Unicode support");
         assert!(!caps.hyperlinks, "Default should disable hyperlinks");
         assert!(!caps.sync_output, "Default should disable sync output");
         assert!(!caps.mouse, "Default should disable mouse");
         assert!(!caps.focus, "Default should disable focus events");
-        assert!(!caps.bracketed_paste, "Default should disable bracketed paste");
+        assert!(
+            !caps.bracketed_paste,
+            "Default should disable bracketed paste"
+        );
         assert!(
             !caps.explicit_cursor_positioning,
             "Default should disable explicit cursor positioning"

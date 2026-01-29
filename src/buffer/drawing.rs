@@ -176,6 +176,7 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
                 continue;
             }
             let ch = byte as char;
+            let width = u32::from((' '..='~').contains(&ch));
             let cell = Cell {
                 content: CellContent::Char(ch),
                 fg,
@@ -183,7 +184,7 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
                 attributes: attrs,
             };
             buffer.set_blended(col, row, cell);
-            col += 1;
+            col += width;
         }
         return;
     }
@@ -804,5 +805,26 @@ mod tests {
         if let CellContent::Grapheme(id) = cell.content {
             assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
         }
+    }
+
+    #[test]
+    fn test_draw_text_consistency() {
+        // Case 1: draw_text (Fast path for ASCII)
+        let mut buf1 = OptimizedBuffer::new(10, 1);
+        draw_text(&mut buf1, 0, 0, "A\tB", Style::NONE);
+
+        // Case 2: draw_text_with_pool (Standard path, even for ASCII if pool is used)
+        let mut buf2 = OptimizedBuffer::new(10, 1);
+        let mut pool = GraphemePool::new();
+        draw_text_with_pool(&mut buf2, &mut pool, 0, 0, "A\tB", Style::NONE);
+
+        // Verify consistency:
+        // 'A' at 0
+        assert_eq!(buf1.get(0, 0).unwrap().content, CellContent::Char('A'));
+        assert_eq!(buf2.get(0, 0).unwrap().content, CellContent::Char('A'));
+
+        // 'B' at 1 (tab was width 0, so overwritten)
+        assert_eq!(buf1.get(1, 0).unwrap().content, CellContent::Char('B'));
+        assert_eq!(buf2.get(1, 0).unwrap().content, CellContent::Char('B'));
     }
 }

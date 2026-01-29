@@ -23,10 +23,7 @@ pub enum Error {
         height: u32,
     },
     /// Pixel count doesn't match expected dimensions.
-    SizeMismatch {
-        expected: usize,
-        actual: usize,
-    },
+    SizeMismatch { expected: usize, actual: usize },
     /// Dimension overflow (width * height exceeds usize).
     DimensionOverflow { width: u32, height: u32 },
     /// Buffer size mismatch in diff operation.

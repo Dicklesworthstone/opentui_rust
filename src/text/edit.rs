@@ -1673,4 +1673,319 @@ mod tests {
             assert_eq!(edit.text(), text);
         }
     }
+
+    // =========================================================================
+    // Edge Case and Stress Tests (bd-2r2p)
+    // =========================================================================
+
+    // --- Large Document Handling ---
+
+    #[test]
+    fn test_large_document_line_count() {
+        // Create a document with 1000 lines
+        let lines: String = (0..1000).map(|i| format!("Line {i}\n")).collect();
+        let mut edit = EditBuffer::with_text(&lines);
+
+        assert_eq!(edit.buffer().len_lines(), 1001); // 1000 lines + trailing empty line from \n
+
+        // Navigate to middle
+        edit.goto_line(500);
+        assert_eq!(edit.cursor().row, 500);
+
+        // Insert at middle
+        edit.insert("INSERTED");
+        assert!(edit.text().contains("INSERTED"));
+    }
+
+    #[test]
+    fn test_long_line_handling() {
+        // Create a line with 1000 characters
+        let long_line: String = "X".repeat(1000);
+        let mut edit = EditBuffer::with_text(&long_line);
+
+        assert_eq!(edit.text().len(), 1000);
+
+        // Move to middle of long line
+        edit.move_to(0, 500);
+        assert_eq!(edit.cursor().col, 500);
+
+        // Insert in middle
+        edit.insert("Y");
+        assert_eq!(edit.text().len(), 1001);
+    }
+
+    #[test]
+    fn test_rapid_insert_delete_cycles() {
+        let mut edit = EditBuffer::new();
+
+        // Rapid insert/delete cycle
+        for _ in 0..100 {
+            edit.insert("test");
+            edit.delete_backward();
+            edit.delete_backward();
+            edit.delete_backward();
+            edit.delete_backward();
+        }
+
+        // Should end up empty
+        assert_eq!(edit.text(), "");
+    }
+
+    // --- Undo/Redo Edge Cases ---
+
+    #[test]
+    fn test_many_undo_operations() {
+        let mut edit = EditBuffer::with_max_history_depth(100);
+
+        // Create 50 commits
+        for i in 0..50 {
+            edit.insert(&format!("{i} "));
+            edit.commit();
+        }
+
+        // Undo all
+        let mut undo_count = 0;
+        while edit.undo() {
+            undo_count += 1;
+        }
+
+        assert_eq!(undo_count, 50);
+        assert_eq!(edit.text(), "");
+    }
+
+    #[test]
+    fn test_undo_after_clear() {
+        let mut edit = EditBuffer::with_text("Hello World");
+        edit.commit();
+
+        // Clear by deleting the full range
+        let len = edit.text().len();
+        edit.delete_range_offsets(0, len);
+        edit.commit();
+
+        assert_eq!(edit.text(), "");
+
+        // Undo should restore
+        edit.undo();
+        assert_eq!(edit.text(), "Hello World");
+    }
+
+    #[test]
+    fn test_redo_invalidated_by_new_edit() {
+        let mut edit = EditBuffer::new();
+        edit.insert("A");
+        edit.commit();
+        edit.insert("B");
+        edit.commit();
+
+        edit.undo(); // Undo "B"
+        assert!(edit.can_redo());
+
+        edit.insert("C"); // New edit invalidates redo
+        assert!(!edit.can_redo());
+
+        assert_eq!(edit.text(), "AC");
+    }
+
+    // --- Unicode Edge Cases ---
+
+    #[test]
+    fn test_cursor_through_emoji() {
+        let mut edit = EditBuffer::with_text("A👨‍👩‍👧B");
+
+        edit.set_cursor_by_offset(0);
+        assert_eq!(edit.cursor().offset, 0);
+
+        edit.move_right(); // Past 'A'
+        let offset_after_a = edit.cursor().offset;
+        assert_eq!(offset_after_a, 1);
+
+        edit.move_right(); // Past emoji (should skip whole grapheme cluster)
+        let offset_after_emoji = edit.cursor().offset;
+        assert!(
+            offset_after_emoji > offset_after_a,
+            "Should have moved past emoji"
+        );
+
+        edit.move_right(); // Past 'B'
+        // Should be at end
+    }
+
+    #[test]
+    fn test_delete_in_grapheme_cluster() {
+        // Family emoji is a grapheme cluster
+        let mut edit = EditBuffer::with_text("👨‍👩‍👧");
+
+        let len = edit.text().len();
+        edit.set_cursor_by_offset(len); // Move to end
+        edit.delete_backward(); // Should delete entire grapheme
+
+        // Text should be empty (whole grapheme deleted)
+        assert!(
+            edit.text().is_empty() || !edit.text().contains("👨‍👩‍👧"),
+            "Grapheme cluster should be deleted as unit"
+        );
+    }
+
+    #[test]
+    fn test_unicode_combining_characters() {
+        // e + combining acute accent
+        let mut edit = EditBuffer::with_text("e\u{0301}"); // é as base + combining
+
+        let end_offset = edit.text().len();
+        edit.set_cursor_by_offset(end_offset); // Move to end
+
+        edit.delete_backward();
+
+        // Should delete as grapheme unit
+        assert!(
+            edit.text().len() < end_offset,
+            "Should have deleted combining sequence"
+        );
+    }
+
+    // --- Cursor Edge Cases ---
+
+    #[test]
+    fn test_cursor_at_document_end() {
+        let mut edit = EditBuffer::with_text("Hello");
+
+        edit.set_cursor_by_offset(edit.text().len()); // Move to end
+        assert_eq!(edit.cursor().offset, 5);
+
+        // Moving right at end should be no-op
+        edit.move_right();
+        assert_eq!(edit.cursor().offset, 5);
+
+        // Moving right again should still be no-op
+        edit.move_right();
+        assert_eq!(edit.cursor().offset, 5);
+    }
+
+    #[test]
+    fn test_cursor_at_document_start() {
+        let mut edit = EditBuffer::with_text("Hello");
+
+        edit.set_cursor_by_offset(0);
+        assert_eq!(edit.cursor().offset, 0);
+
+        // Moving backward at start should be no-op
+        edit.move_left();
+        assert_eq!(edit.cursor().offset, 0);
+
+        // Moving left at start should be no-op
+        edit.move_left();
+        assert_eq!(edit.cursor().offset, 0);
+    }
+
+    #[test]
+    fn test_cursor_through_empty_lines() {
+        let mut edit = EditBuffer::with_text("Line1\n\n\nLine4");
+
+        edit.goto_line(0);
+        edit.move_down(); // To empty line 1
+        assert_eq!(edit.cursor().row, 1);
+        assert_eq!(edit.cursor().col, 0);
+
+        edit.move_down(); // To empty line 2
+        assert_eq!(edit.cursor().row, 2);
+        assert_eq!(edit.cursor().col, 0);
+
+        edit.move_down(); // To Line4
+        assert_eq!(edit.cursor().row, 3);
+    }
+
+    #[test]
+    fn test_move_up_at_first_line() {
+        let mut edit = EditBuffer::with_text("First line\nSecond line");
+
+        edit.goto_line(0);
+        edit.move_up(); // Should be no-op at first line
+
+        assert_eq!(edit.cursor().row, 0);
+    }
+
+    #[test]
+    fn test_move_down_at_last_line() {
+        let mut edit = EditBuffer::with_text("First line\nLast line");
+
+        edit.goto_line(1);
+        edit.move_down(); // Should be no-op at last line
+
+        assert_eq!(edit.cursor().row, 1);
+    }
+
+    // --- Selection Edge Cases ---
+
+    #[test]
+    fn test_delete_empty_selection() {
+        let mut edit = EditBuffer::with_text("Hello");
+
+        // Delete range of zero length should be no-op
+        edit.delete_range_offsets(2, 2);
+        assert_eq!(edit.text(), "Hello");
+    }
+
+    #[test]
+    fn test_selection_across_line_boundaries() {
+        let mut edit = EditBuffer::with_text("Line 1\nLine 2\nLine 3");
+
+        // Delete from middle of line 1 to middle of line 3
+        edit.delete_range_offsets(3, 17); // "e 1\nLine 2\nLin"
+
+        assert_eq!(edit.text(), "Line 3");
+    }
+
+    // --- Empty Buffer Edge Cases ---
+
+    #[test]
+    fn test_operations_on_empty_buffer() {
+        let mut edit = EditBuffer::new();
+
+        // All these should be safe no-ops
+        edit.delete_backward();
+        edit.delete_forward();
+        edit.move_right();
+        edit.move_left();
+        edit.move_up();
+        edit.move_down();
+        edit.move_word_left();
+        edit.move_word_right();
+
+        assert_eq!(edit.text(), "");
+        assert_eq!(edit.cursor().offset, 0);
+    }
+
+    #[test]
+    fn test_undo_on_empty_buffer() {
+        let mut edit = EditBuffer::new();
+
+        // Undo on empty buffer should return false
+        assert!(!edit.undo());
+        assert!(!edit.redo());
+    }
+
+    // --- Line Boundary Edge Cases ---
+
+    #[test]
+    fn test_delete_at_line_start() {
+        let mut edit = EditBuffer::with_text("Line 1\nLine 2");
+
+        edit.goto_line(1);
+        edit.move_to_line_start();
+        edit.delete_backward(); // Should join lines
+
+        assert_eq!(edit.text(), "Line 1Line 2");
+    }
+
+    #[test]
+    fn test_delete_at_line_end() {
+        let mut edit = EditBuffer::with_text("Line 1\nLine 2");
+
+        edit.goto_line(0);
+        edit.move_to_line_end();
+        edit.delete_forward(); // Should delete newline and join lines
+
+        assert_eq!(edit.text(), "Line 1Line 2");
+    }
 }

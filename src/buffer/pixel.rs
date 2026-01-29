@@ -667,12 +667,18 @@ mod tests {
 
     #[test]
     fn test_try_from_pixels_dimension_overflow() {
-        // Very large dimensions that would overflow
+        // Very large dimensions that would overflow on 32-bit systems
+        // or cause SizeMismatch on 64-bit systems (since empty vec can't match)
         let pixels = vec![];
         let result = PixelBuffer::try_from_pixels(u32::MAX, u32::MAX, pixels);
         assert!(result.is_err());
 
-        assert!(matches!(result, Err(Error::DimensionOverflow { .. })));
+        // On 32-bit: DimensionOverflow (multiplication overflows)
+        // On 64-bit: SizeMismatch (expected huge number, got 0)
+        assert!(
+            matches!(result, Err(Error::DimensionOverflow { .. }))
+                || matches!(result, Err(Error::SizeMismatch { .. }))
+        );
     }
 
     #[test]
