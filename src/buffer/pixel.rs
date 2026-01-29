@@ -93,17 +93,40 @@ impl PixelBuffer {
     ///
     /// # Panics
     /// Panics if `pixels.len() != width * height` or if dimensions would overflow.
+    ///
+    /// # Note
+    /// For a non-panicking alternative, use [`try_from_pixels()`](Self::try_from_pixels).
     #[must_use]
     pub fn from_pixels(width: u32, height: u32, pixels: Vec<Rgba>) -> Self {
+        Self::try_from_pixels(width, height, pixels).expect("invalid pixel buffer dimensions")
+    }
+
+    /// Try to create from raw RGBA data.
+    ///
+    /// Returns an error if:
+    /// - `width * height` would overflow `usize`
+    /// - `pixels.len() != width * height`
+    ///
+    /// # Errors
+    /// - [`Error::DimensionOverflow`] if dimensions overflow
+    /// - [`Error::SizeMismatch`] if pixel count doesn't match dimensions
+    pub fn try_from_pixels(width: u32, height: u32, pixels: Vec<Rgba>) -> Result<Self, Error> {
         let expected_size = (width as usize)
             .checked_mul(height as usize)
-            .expect("dimensions overflow");
-        assert_eq!(pixels.len(), expected_size, "pixel count mismatch");
-        Self {
+            .ok_or(Error::DimensionOverflow { width, height })?;
+
+        if pixels.len() != expected_size {
+            return Err(Error::SizeMismatch {
+                expected: expected_size,
+                actual: pixels.len(),
+            });
+        }
+
+        Ok(Self {
             width,
             height,
             pixels,
-        }
+        })
     }
 
     /// Get pixel at (x, y).
@@ -363,7 +386,35 @@ impl OptimizedBuffer {
     }
 }
 
-/// Helper function to average colors.
+/// Convert sRGB gamma-encoded value to linear light.
+///
+/// sRGB uses a piecewise transfer function: linear near zero, then gamma 2.4.
+#[inline]
+fn srgb_to_linear(value: f32) -> f32 {
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Convert linear light value to sRGB gamma-encoded.
+///
+/// Inverse of `srgb_to_linear`.
+#[inline]
+fn linear_to_srgb(value: f32) -> f32 {
+    if value <= 0.003_130_8 {
+        value * 12.92
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Helper function to average colors using gamma-correct linear blending.
+///
+/// Colors are converted to linear space before averaging, then converted
+/// back to sRGB. This prevents the darkening bias that occurs when averaging
+/// directly in sRGB space.
 fn average_colors(colors: &[Rgba], mask: &[bool]) -> (Rgba, Rgba) {
     let mut fg_r = 0.0f32;
     let mut fg_g = 0.0f32;
@@ -375,25 +426,31 @@ fn average_colors(colors: &[Rgba], mask: &[bool]) -> (Rgba, Rgba) {
     let mut bg_b = 0.0f32;
     let mut bg_count = 0u32;
 
+    // Accumulate in linear space for correct blending
     for (i, &color) in colors.iter().enumerate() {
+        let lin_r = srgb_to_linear(color.r);
+        let lin_g = srgb_to_linear(color.g);
+        let lin_b = srgb_to_linear(color.b);
+
         if mask[i] {
-            fg_r += color.r;
-            fg_g += color.g;
-            fg_b += color.b;
+            fg_r += lin_r;
+            fg_g += lin_g;
+            fg_b += lin_b;
             fg_count += 1;
         } else {
-            bg_r += color.r;
-            bg_g += color.g;
-            bg_b += color.b;
+            bg_r += lin_r;
+            bg_g += lin_g;
+            bg_b += lin_b;
             bg_count += 1;
         }
     }
 
+    // Average in linear space, then convert back to sRGB
     let fg = if fg_count > 0 {
         Rgba::rgb(
-            fg_r / fg_count as f32,
-            fg_g / fg_count as f32,
-            fg_b / fg_count as f32,
+            linear_to_srgb(fg_r / fg_count as f32),
+            linear_to_srgb(fg_g / fg_count as f32),
+            linear_to_srgb(fg_b / fg_count as f32),
         )
     } else {
         Rgba::WHITE
@@ -401,9 +458,9 @@ fn average_colors(colors: &[Rgba], mask: &[bool]) -> (Rgba, Rgba) {
 
     let bg = if bg_count > 0 {
         Rgba::rgb(
-            bg_r / bg_count as f32,
-            bg_g / bg_count as f32,
-            bg_b / bg_count as f32,
+            linear_to_srgb(bg_r / bg_count as f32),
+            linear_to_srgb(bg_g / bg_count as f32),
+            linear_to_srgb(bg_b / bg_count as f32),
         )
     } else {
         Rgba::BLACK
@@ -490,5 +547,140 @@ mod tests {
         assert!(Rgba::BLACK.luminance().abs() < 0.01);
         // Pure red has luminance ~0.299
         assert!((Rgba::RED.luminance() - 0.299).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_srgb_linear_roundtrip() {
+        // Test that srgb_to_linear and linear_to_srgb are inverses
+        for i in 0..=10 {
+            let value = i as f32 / 10.0;
+            let linear = super::srgb_to_linear(value);
+            let back = super::linear_to_srgb(linear);
+            assert!(
+                (value - back).abs() < 0.0001,
+                "Roundtrip failed for {value}: got {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_srgb_linear_boundary() {
+        // Test at the boundary (0.04045)
+        let below = super::srgb_to_linear(0.04);
+        let above = super::srgb_to_linear(0.05);
+        // Both should be positive and continuous
+        assert!(below > 0.0);
+        assert!(above > below);
+    }
+
+    #[test]
+    fn test_gamma_correct_average_brighter_than_naive() {
+        // Averaging red and blue in sRGB space causes darkening.
+        // Gamma-correct averaging should produce a brighter result.
+        let red = Rgba::rgb(1.0, 0.0, 0.0);
+        let blue = Rgba::rgb(0.0, 0.0, 1.0);
+
+        // Naive sRGB average: (0.5, 0.0, 0.5)
+        let naive_avg_r = 0.5;
+        let naive_avg_b = 0.5;
+
+        // Gamma-correct average: should be brighter
+        let (fg, _bg) = super::average_colors(&[red, blue], &[true, true]);
+
+        // In gamma-correct averaging, the midpoint of 1.0 and 0.0 in linear space
+        // is 0.5, which converts back to sRGB as ~0.735 (brighter than 0.5)
+        assert!(
+            fg.r > naive_avg_r,
+            "Gamma-correct red {} should be brighter than naive {}",
+            fg.r,
+            naive_avg_r
+        );
+        assert!(
+            fg.b > naive_avg_b,
+            "Gamma-correct blue {} should be brighter than naive {}",
+            fg.b,
+            naive_avg_b
+        );
+    }
+
+    #[test]
+    fn test_gamma_correct_average_preserves_extremes() {
+        // Averaging two whites should give white
+        let (fg, _) = super::average_colors(&[Rgba::WHITE, Rgba::WHITE], &[true, true]);
+        assert!((fg.r - 1.0).abs() < 0.001);
+        assert!((fg.g - 1.0).abs() < 0.001);
+        assert!((fg.b - 1.0).abs() < 0.001);
+
+        // Averaging two blacks should give black
+        let (fg, _) = super::average_colors(&[Rgba::BLACK, Rgba::BLACK], &[true, true]);
+        assert!(fg.r.abs() < 0.001);
+        assert!(fg.g.abs() < 0.001);
+        assert!(fg.b.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_gamma_correct_fg_bg_separation() {
+        // Test that foreground and background are properly separated
+        let red = Rgba::RED;
+        let green = Rgba::GREEN;
+        let blue = Rgba::BLUE;
+        let white = Rgba::WHITE;
+
+        // red and green are foreground, blue and white are background
+        let mask = [true, true, false, false];
+        let (fg, bg) = super::average_colors(&[red, green, blue, white], &mask);
+
+        // fg should be yellow-ish (red + green), bg should be cyan-ish (blue + white)
+        assert!(fg.r > 0.5, "FG should have red component");
+        assert!(fg.g > 0.5, "FG should have green component");
+        assert!(fg.b < 0.3, "FG should not have blue component");
+
+        assert!(bg.b > 0.5, "BG should have blue component");
+    }
+
+    #[test]
+    fn test_try_from_pixels_success() {
+        let pixels = vec![Rgba::RED; 100];
+        let result = PixelBuffer::try_from_pixels(10, 10, pixels);
+        assert!(result.is_ok());
+
+        let buf = result.unwrap();
+        assert_eq!(buf.width, 10);
+        assert_eq!(buf.height, 10);
+        assert_eq!(buf.pixels.len(), 100);
+    }
+
+    #[test]
+    fn test_try_from_pixels_size_mismatch() {
+        let pixels = vec![Rgba::RED; 50]; // Wrong size
+        let result = PixelBuffer::try_from_pixels(10, 10, pixels);
+        assert!(result.is_err());
+
+        match result {
+            Err(Error::SizeMismatch { expected, actual }) => {
+                assert_eq!(expected, 100);
+                assert_eq!(actual, 50);
+            }
+            _ => panic!("expected SizeMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_try_from_pixels_dimension_overflow() {
+        // Very large dimensions that would overflow
+        let pixels = vec![];
+        let result = PixelBuffer::try_from_pixels(u32::MAX, u32::MAX, pixels);
+        assert!(result.is_err());
+
+        assert!(matches!(result, Err(Error::DimensionOverflow { .. })));
+    }
+
+    #[test]
+    fn test_from_pixels_delegates_to_try() {
+        // from_pixels should work for valid input
+        let pixels = vec![Rgba::BLUE; 25];
+        let buf = PixelBuffer::from_pixels(5, 5, pixels);
+        assert_eq!(buf.width, 5);
+        assert_eq!(buf.height, 5);
     }
 }

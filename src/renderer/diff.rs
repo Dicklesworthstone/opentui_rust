@@ -1,6 +1,7 @@
 //! Buffer diffing for efficient rendering.
 
 use crate::buffer::OptimizedBuffer;
+use crate::error::Error;
 
 /// A region that has changed between frames.
 #[derive(Clone, Copy, Debug)]
@@ -53,14 +54,30 @@ pub struct BufferDiff {
 
 impl BufferDiff {
     /// Compare two buffers and find differences.
+    ///
+    /// # Panics
+    /// Panics if the buffers have different dimensions.
+    ///
+    /// # Note
+    /// For a non-panicking alternative, use [`try_compute()`](Self::try_compute).
     #[must_use]
     pub fn compute(old: &OptimizedBuffer, new: &OptimizedBuffer) -> Self {
-        assert!(
-            old.size() == new.size(),
-            "Buffer size mismatch in diff: old={:?}, new={:?}",
-            old.size(),
-            new.size()
-        );
+        Self::try_compute(old, new).expect("buffer size mismatch in diff")
+    }
+
+    /// Try to compare two buffers and find differences.
+    ///
+    /// Returns an error if the buffers have different dimensions.
+    ///
+    /// # Errors
+    /// - [`Error::BufferSizeMismatch`] if buffers have different dimensions
+    pub fn try_compute(old: &OptimizedBuffer, new: &OptimizedBuffer) -> Result<Self, Error> {
+        if old.size() != new.size() {
+            return Err(Error::BufferSizeMismatch {
+                old_size: old.size(),
+                new_size: new.size(),
+            });
+        }
 
         let (width, height) = old.size();
         let total_cells = (width as usize).saturating_mul(height as usize);
@@ -80,7 +97,7 @@ impl BufferDiff {
             for x in 0..width {
                 let idx = row_offset + x as usize;
                 // SAFETY: We're iterating within bounds since we use width/height from old buffer
-                // and both buffers have the same dimensions (checked at start of compute)
+                // and both buffers have the same dimensions (checked at start of try_compute)
                 if !old_cells[idx].bits_eq(&new_cells[idx]) {
                     changed_cells.push((x, y));
                 }
@@ -90,11 +107,11 @@ impl BufferDiff {
         let change_count = changed_cells.len();
         let dirty_regions = Self::merge_into_regions(&changed_cells, width);
 
-        Self {
+        Ok(Self {
             changed_cells,
             dirty_regions,
             change_count,
-        }
+        })
     }
 
     /// Check if there are any changes.
@@ -764,5 +781,67 @@ mod tests {
 
         assert_eq!(diff2.is_empty(), diff2.change_count == 0);
         assert!(!diff2.is_empty());
+    }
+
+    // ============================================
+    // BufferDiff Tests - Fallible API
+    // ============================================
+
+    #[test]
+    fn test_try_compute_success() {
+        let a = OptimizedBuffer::new(10, 10);
+        let b = OptimizedBuffer::new(10, 10);
+
+        let result = BufferDiff::try_compute(&a, &b);
+        assert!(result.is_ok());
+
+        let diff = result.unwrap();
+        assert!(diff.is_empty());
+    }
+
+    #[test]
+    fn test_try_compute_size_mismatch() {
+        let a = OptimizedBuffer::new(10, 10);
+        let b = OptimizedBuffer::new(20, 20);
+
+        let result = BufferDiff::try_compute(&a, &b);
+        assert!(result.is_err());
+
+        match result {
+            Err(crate::error::Error::BufferSizeMismatch { old_size, new_size }) => {
+                assert_eq!(old_size, (10, 10));
+                assert_eq!(new_size, (20, 20));
+            }
+            _ => panic!("expected BufferSizeMismatch error"),
+        }
+    }
+
+    #[test]
+    fn test_try_compute_width_mismatch() {
+        let a = OptimizedBuffer::new(10, 10);
+        let b = OptimizedBuffer::new(15, 10);
+
+        let result = BufferDiff::try_compute(&a, &b);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_try_compute_height_mismatch() {
+        let a = OptimizedBuffer::new(10, 10);
+        let b = OptimizedBuffer::new(10, 15);
+
+        let result = BufferDiff::try_compute(&a, &b);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compute_delegates_to_try() {
+        // compute should work for matching buffers
+        let a = OptimizedBuffer::new(10, 10);
+        let mut b = OptimizedBuffer::new(10, 10);
+        b.set(5, 5, Cell::clear(Rgba::RED));
+
+        let diff = BufferDiff::compute(&a, &b);
+        assert_eq!(diff.change_count, 1);
     }
 }
