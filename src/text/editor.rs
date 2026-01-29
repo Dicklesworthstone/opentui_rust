@@ -1165,6 +1165,80 @@ mod tests {
     }
 
     #[test]
+    fn test_visual_column_preserved_during_up_down() {
+        // Test for bd-cdfn: Verify visual column is preserved when navigating
+        // up/down through wrapped text
+        eprintln!("[TEST] test_visual_column_preserved_during_up_down");
+
+        // Create text that wraps into multiple visual lines
+        // With viewport width 10, each visual line has ~10 chars
+        let text = "abcdefghij1234567890ABCDEFGHIJ";
+        // VLine 0: "abcdefghij" (chars 0-9)
+        // VLine 1: "1234567890" (chars 10-19)
+        // VLine 2: "ABCDEFGHIJ" (chars 20-29)
+
+        let mut edit = EditBuffer::with_text(text);
+        // Position cursor at offset 15 (char '5' in "1234567890")
+        // This is visual line 1, visual column 5
+        edit.move_to(0, 15);
+        let mut view = EditorView::new(edit);
+        view.set_wrap_mode(WrapMode::Char);
+
+        eprintln!("[TEST] Text: {text:?}");
+        eprintln!("[TEST] Viewport width: 10");
+        eprintln!("[TEST] Starting at offset 15");
+
+        let cursor = view.edit_buffer().cursor();
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] Initial: logical_col={} offset={} visual_row={} visual_col={}",
+            cursor.col, cursor.offset, visual.visual_row, visual.visual_col
+        );
+
+        // Should be on visual line 1 (0-indexed), visual column 5
+        assert_eq!(visual.visual_row, 1, "Should start on visual line 1");
+        let initial_visual_col = visual.visual_col;
+        eprintln!("[TEST] Initial visual column: {}", initial_visual_col);
+
+        // Move up one visual line
+        view.move_up_visual(10, 24);
+
+        let cursor = view.edit_buffer().cursor();
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] After up: logical_col={} offset={} visual_row={} visual_col={}",
+            cursor.col, cursor.offset, visual.visual_row, visual.visual_col
+        );
+
+        // Should now be on visual line 0, same visual column
+        assert_eq!(visual.visual_row, 0, "Should move to visual line 0");
+        assert_eq!(
+            visual.visual_col, initial_visual_col,
+            "Visual column should be preserved when moving up"
+        );
+
+        // Move down twice (back to line 1, then to line 2)
+        view.move_down_visual(10, 24);
+        view.move_down_visual(10, 24);
+
+        let cursor = view.edit_buffer().cursor();
+        let visual = view.visual_cursor(10, 24);
+        eprintln!(
+            "[TEST] After 2 down: logical_col={} offset={} visual_row={} visual_col={}",
+            cursor.col, cursor.offset, visual.visual_row, visual.visual_col
+        );
+
+        // Should be on visual line 2, same visual column
+        assert_eq!(visual.visual_row, 2, "Should move to visual line 2");
+        assert_eq!(
+            visual.visual_col, initial_visual_col,
+            "Visual column should be preserved when moving down"
+        );
+
+        eprintln!("[TEST] PASS: Visual column preserved during up/down navigation");
+    }
+
+    #[test]
     fn test_visual_line_start() {
         eprintln!("[TEST] test_visual_line_start");
         let text = "abcdefghij12345";

@@ -57,16 +57,24 @@ pub struct Capabilities {
 }
 
 impl Default for Capabilities {
+    /// Returns conservative defaults suitable for unknown/basic terminals.
+    ///
+    /// This ensures that if capability detection fails or is skipped, the
+    /// terminal won't receive escape sequences it can't handle. Use
+    /// [`Capabilities::detect()`] to probe the actual terminal capabilities.
     fn default() -> Self {
         Self {
-            color: ColorSupport::TrueColor,
-            unicode: true,
+            // Conservative: assume basic color until detected
+            color: ColorSupport::Basic,
+            // Conservative: don't assume Unicode support
+            unicode: false,
             width_method: WidthMethod::default(),
-            hyperlinks: true,
-            sync_output: true,
-            mouse: true,
-            focus: true,
-            bracketed_paste: true,
+            // Conservative: disable advanced features by default
+            hyperlinks: false,
+            sync_output: false,
+            mouse: false,
+            focus: false,
+            bracketed_paste: false,
             kitty_keyboard: false,
             kitty_graphics: false,
             sgr_pixels: false,
@@ -74,7 +82,8 @@ impl Default for Capabilities {
             explicit_width: false,
             scaled_text: false,
             sixel: false,
-            explicit_cursor_positioning: true,
+            // Conservative: DECCRA is widely supported but not universal
+            explicit_cursor_positioning: false,
             term_name: None,
         }
     }
@@ -82,6 +91,10 @@ impl Default for Capabilities {
 
 impl Capabilities {
     /// Detect terminal capabilities from environment.
+    ///
+    /// Probes environment variables (TERM, COLORTERM, TERM_PROGRAM, etc.)
+    /// to determine terminal capabilities. Starts from conservative defaults
+    /// and enables features only when detection confirms support.
     #[must_use]
     pub fn detect() -> Self {
         let term = env::var("TERM").unwrap_or_default();
@@ -97,15 +110,20 @@ impl Capabilities {
         let kitty_keyboard = kitty_present;
         let kitty_graphics = kitty_present;
 
+        // Detect basic terminal features based on TERM value
+        // These features are widely supported in any xterm-compatible terminal
+        let is_xterm_compatible = Self::is_xterm_compatible(&term);
+
         Self {
             color,
             unicode,
             width_method: WidthMethod::default(),
             hyperlinks,
             sync_output,
-            mouse: true,
-            focus: true,
-            bracketed_paste: true,
+            // Mouse/focus/bracketed-paste require xterm compatibility
+            mouse: is_xterm_compatible,
+            focus: is_xterm_compatible,
+            bracketed_paste: is_xterm_compatible,
             kitty_keyboard,
             kitty_graphics,
             sgr_pixels: false,
@@ -113,9 +131,50 @@ impl Capabilities {
             explicit_width: false,
             scaled_text: false,
             sixel: term.contains("sixel"),
-            explicit_cursor_positioning: true,
-            term_name: Some(term),
+            // DECCRA (explicit cursor positioning) is widely supported in modern terminals
+            explicit_cursor_positioning: is_xterm_compatible,
+            term_name: if term.is_empty() { None } else { Some(term) },
         }
+    }
+
+    /// Check if the terminal is xterm-compatible (supports basic features).
+    ///
+    /// Returns true for terminals that support common features like mouse tracking,
+    /// focus events, and bracketed paste mode.
+    fn is_xterm_compatible(term: &str) -> bool {
+        if term.is_empty() {
+            return false;
+        }
+
+        // Known compatible terminal types
+        let compatible_prefixes = [
+            "xterm", "screen", "tmux", "rxvt", "vt100", "vt102", "vt220", "linux",
+        ];
+
+        let compatible_names = [
+            "alacritty",
+            "kitty",
+            "wezterm",
+            "ghostty",
+            "konsole",
+            "gnome",
+            "gnome-terminal",
+            "mate-terminal",
+            "xfce4-terminal",
+        ];
+
+        let term_lower = term.to_lowercase();
+
+        // Check prefixes (e.g., "xterm-256color", "screen-256color")
+        if compatible_prefixes
+            .iter()
+            .any(|p| term_lower.starts_with(p))
+        {
+            return true;
+        }
+
+        // Check exact matches or contains for known terminals
+        compatible_names.iter().any(|n| term_lower.contains(n))
     }
 
     /// Apply a best-effort capability response (from query output).
@@ -317,9 +376,47 @@ mod tests {
 
     #[test]
     fn test_capabilities_default() {
+        // Default should be conservative for unknown/basic terminals
         let caps = Capabilities::default();
-        assert_eq!(caps.color, ColorSupport::TrueColor);
-        assert!(caps.unicode);
+        assert_eq!(
+            caps.color,
+            ColorSupport::Basic,
+            "Default should assume basic color, not TrueColor"
+        );
+        assert!(
+            !caps.unicode,
+            "Default should not assume Unicode support"
+        );
+        assert!(!caps.hyperlinks, "Default should disable hyperlinks");
+        assert!(!caps.sync_output, "Default should disable sync output");
+        assert!(!caps.mouse, "Default should disable mouse");
+        assert!(!caps.focus, "Default should disable focus events");
+        assert!(!caps.bracketed_paste, "Default should disable bracketed paste");
+        assert!(
+            !caps.explicit_cursor_positioning,
+            "Default should disable explicit cursor positioning"
+        );
+    }
+
+    #[test]
+    fn test_is_xterm_compatible() {
+        // Compatible terminals
+        assert!(Capabilities::is_xterm_compatible("xterm"));
+        assert!(Capabilities::is_xterm_compatible("xterm-256color"));
+        assert!(Capabilities::is_xterm_compatible("screen"));
+        assert!(Capabilities::is_xterm_compatible("screen-256color"));
+        assert!(Capabilities::is_xterm_compatible("tmux-256color"));
+        assert!(Capabilities::is_xterm_compatible("rxvt-unicode"));
+        assert!(Capabilities::is_xterm_compatible("linux"));
+        assert!(Capabilities::is_xterm_compatible("alacritty"));
+        assert!(Capabilities::is_xterm_compatible("kitty"));
+        assert!(Capabilities::is_xterm_compatible("wezterm"));
+        assert!(Capabilities::is_xterm_compatible("ghostty"));
+
+        // Not compatible (empty or unknown)
+        assert!(!Capabilities::is_xterm_compatible(""));
+        assert!(!Capabilities::is_xterm_compatible("dumb"));
+        assert!(!Capabilities::is_xterm_compatible("unknown"));
     }
 
     // === Hyperlink detection tests ===

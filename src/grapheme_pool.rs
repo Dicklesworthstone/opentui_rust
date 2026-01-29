@@ -45,6 +45,35 @@ use std::collections::HashMap;
 /// Maximum pool ID (24-bit limit).
 pub const MAX_POOL_ID: u32 = 0x00FF_FFFF;
 
+/// Default soft limit for pool size (1 million entries).
+pub const DEFAULT_SOFT_LIMIT: usize = 1_000_000;
+
+/// Utilization threshold considered "high" (80%).
+pub const HIGH_UTILIZATION_THRESHOLD: usize = 80;
+
+/// Statistics about pool utilization.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PoolStats {
+    /// Total number of allocated slots (including freed).
+    pub total_slots: usize,
+    /// Number of actively used slots.
+    pub active_slots: usize,
+    /// Number of free slots available for reuse.
+    pub free_slots: usize,
+    /// Configured soft limit for the pool.
+    pub soft_limit: usize,
+    /// Current utilization percentage (0-100).
+    pub utilization_percent: usize,
+}
+
+impl PoolStats {
+    /// Check if utilization is at or above a given threshold percentage.
+    #[must_use]
+    pub fn is_above_threshold(&self, threshold_percent: usize) -> bool {
+        self.utilization_percent >= threshold_percent
+    }
+}
+
 /// Internal slot in the grapheme pool.
 #[derive(Clone, Debug)]
 struct Slot {
@@ -81,7 +110,7 @@ impl Slot {
 ///
 /// `GraphemePool` is not thread-safe. For concurrent access, wrap in appropriate
 /// synchronization primitives (e.g., `Mutex` or `RwLock`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct GraphemePool {
     /// Storage for grapheme slots. Index 0 is reserved (invalid).
     slots: Vec<Slot>,
@@ -90,10 +119,18 @@ pub struct GraphemePool {
     /// O(1) lookup index: grapheme string → slot ID.
     /// Kept in sync with slots: entries are added on alloc/intern, removed on decref to 0.
     index: HashMap<String, u32>,
+    /// Configurable soft limit for pool size (advisory, not enforced by alloc).
+    soft_limit: usize,
+}
+
+impl Default for GraphemePool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphemePool {
-    /// Create a new empty grapheme pool.
+    /// Create a new empty grapheme pool with default soft limit.
     ///
     /// The pool starts with slot 0 reserved as invalid/placeholder.
     #[must_use]
@@ -107,6 +144,7 @@ impl GraphemePool {
             }],
             free_list: Vec::new(),
             index: HashMap::new(),
+            soft_limit: DEFAULT_SOFT_LIMIT,
         }
     }
 
@@ -128,7 +166,45 @@ impl GraphemePool {
             slots,
             free_list: Vec::new(),
             index: HashMap::with_capacity(capacity),
+            soft_limit: DEFAULT_SOFT_LIMIT,
         }
+    }
+
+    /// Create a pool with a custom soft limit.
+    ///
+    /// The soft limit is advisory and used for utilization metrics.
+    /// It does not prevent allocations - use [`try_alloc()`](Self::try_alloc)
+    /// if you want to check before allocating.
+    ///
+    /// # Arguments
+    ///
+    /// * `soft_limit` - Maximum number of active entries for "normal" operation
+    #[must_use]
+    pub fn with_soft_limit(soft_limit: usize) -> Self {
+        Self {
+            slots: vec![Slot {
+                bytes: String::new(),
+                refcount: 0,
+                width: 0,
+            }],
+            free_list: Vec::new(),
+            index: HashMap::new(),
+            soft_limit,
+        }
+    }
+
+    /// Set the soft limit for this pool.
+    ///
+    /// Returns `&mut self` for builder-style chaining.
+    pub fn set_soft_limit(&mut self, limit: usize) -> &mut Self {
+        self.soft_limit = limit;
+        self
+    }
+
+    /// Get the configured soft limit.
+    #[must_use]
+    pub fn soft_limit(&self) -> usize {
+        self.soft_limit
     }
 
     /// Allocate a new grapheme in the pool.
@@ -338,6 +414,108 @@ impl GraphemePool {
         self.slots.truncate(1);
         self.free_list.clear();
         self.index.clear();
+    }
+
+    /// Get current pool utilization statistics.
+    ///
+    /// Returns a [`PoolStats`] struct with counts and utilization percentage.
+    #[must_use]
+    pub fn stats(&self) -> PoolStats {
+        let total_slots = self.total_slots();
+        let free_slots = self.free_count();
+        let active_slots = total_slots.saturating_sub(free_slots);
+
+        // Calculate utilization as percentage of soft_limit
+        let utilization_percent = if self.soft_limit > 0 {
+            (active_slots * 100) / self.soft_limit
+        } else {
+            0
+        };
+
+        PoolStats {
+            total_slots,
+            active_slots,
+            free_slots,
+            soft_limit: self.soft_limit,
+            utilization_percent,
+        }
+    }
+
+    /// Get current utilization as a percentage of the soft limit.
+    ///
+    /// Returns a value from 0 to 100+ (can exceed 100 if over soft limit).
+    #[must_use]
+    pub fn utilization_percent(&self) -> usize {
+        self.stats().utilization_percent
+    }
+
+    /// Check if pool utilization is above the high threshold (80% by default).
+    ///
+    /// Use this to trigger warnings or preemptive cleanup.
+    #[must_use]
+    pub fn is_high_utilization(&self) -> bool {
+        self.utilization_percent() >= HIGH_UTILIZATION_THRESHOLD
+    }
+
+    /// Check if pool is at or above a specific utilization threshold.
+    ///
+    /// # Arguments
+    ///
+    /// * `threshold_percent` - Threshold percentage (0-100)
+    #[must_use]
+    pub fn is_above_utilization(&self, threshold_percent: usize) -> bool {
+        self.utilization_percent() >= threshold_percent
+    }
+
+    /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
+    ///
+    /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns
+    /// `None` instead of allocating when the pool is full. It still allows
+    /// reuse of freed slots.
+    ///
+    /// # Arguments
+    ///
+    /// * `grapheme` - The grapheme cluster string to store
+    ///
+    /// # Returns
+    ///
+    /// `Some(GraphemeId)` if allocation succeeded, `None` if at soft limit
+    /// and no free slots are available for reuse.
+    #[must_use]
+    pub fn try_alloc(&mut self, grapheme: &str) -> Option<GraphemeId> {
+        // Allow allocation if:
+        // 1. There are free slots to reuse, OR
+        // 2. We're below the soft limit
+        let active = self.active_count();
+        if self.free_list.is_empty() && active >= self.soft_limit {
+            return None;
+        }
+
+        Some(self.alloc(grapheme))
+    }
+
+    /// Try to intern a grapheme, returning `None` if new allocation would exceed soft limit.
+    ///
+    /// If the grapheme already exists, always succeeds (just increments refcount).
+    /// Only returns `None` when a new allocation would be needed and soft limit is reached.
+    #[must_use]
+    pub fn try_intern(&mut self, grapheme: &str) -> Option<GraphemeId> {
+        // O(1) lookup via HashMap index
+        if let Some(&pool_id) = self.index.get(grapheme) {
+            // Verify slot is still active (not freed)
+            if let Some(slot) = self.slots.get(pool_id as usize) {
+                if !slot.is_free() {
+                    let width = slot.width;
+                    self.incref_by_pool_id(pool_id);
+                    return Some(GraphemeId::new(pool_id, width));
+                }
+            }
+            // Index entry is stale - remove it
+            self.index.remove(grapheme);
+        }
+
+        // Need to allocate - use try_alloc which respects soft limit
+        self.try_alloc(grapheme)
     }
 }
 
@@ -628,5 +806,183 @@ mod tests {
         let id = pool.intern("a");
         assert_eq!(id.pool_id(), 1); // First slot after reserved 0
         assert_eq!(pool.refcount(id), 1);
+    }
+
+    #[test]
+    fn test_with_soft_limit() {
+        let pool = GraphemePool::with_soft_limit(100);
+        assert_eq!(pool.soft_limit(), 100);
+        assert_eq!(pool.total_slots(), 0);
+    }
+
+    #[test]
+    fn test_set_soft_limit() {
+        let mut pool = GraphemePool::new();
+        assert_eq!(pool.soft_limit(), DEFAULT_SOFT_LIMIT);
+
+        pool.set_soft_limit(500);
+        assert_eq!(pool.soft_limit(), 500);
+    }
+
+    #[test]
+    fn test_pool_stats() {
+        let mut pool = GraphemePool::with_soft_limit(100);
+
+        // Empty pool
+        let stats = pool.stats();
+        assert_eq!(stats.total_slots, 0);
+        assert_eq!(stats.active_slots, 0);
+        assert_eq!(stats.free_slots, 0);
+        assert_eq!(stats.soft_limit, 100);
+        assert_eq!(stats.utilization_percent, 0);
+
+        // Add some graphemes
+        for i in 0..50 {
+            pool.alloc(&format!("g{i}"));
+        }
+
+        let stats = pool.stats();
+        assert_eq!(stats.total_slots, 50);
+        assert_eq!(stats.active_slots, 50);
+        assert_eq!(stats.free_slots, 0);
+        assert_eq!(stats.utilization_percent, 50);
+    }
+
+    #[test]
+    fn test_utilization_percent() {
+        let mut pool = GraphemePool::with_soft_limit(100);
+
+        // 0% utilization
+        assert_eq!(pool.utilization_percent(), 0);
+
+        // 10% utilization
+        for i in 0..10 {
+            pool.alloc(&format!("g{i}"));
+        }
+        assert_eq!(pool.utilization_percent(), 10);
+
+        // 80% utilization
+        for i in 10..80 {
+            pool.alloc(&format!("g{i}"));
+        }
+        assert_eq!(pool.utilization_percent(), 80);
+    }
+
+    #[test]
+    fn test_is_high_utilization() {
+        let mut pool = GraphemePool::with_soft_limit(100);
+
+        // Under 80% - not high
+        for i in 0..79 {
+            pool.alloc(&format!("g{i}"));
+        }
+        assert!(!pool.is_high_utilization());
+
+        // At 80% - high
+        pool.alloc("g79");
+        assert!(pool.is_high_utilization());
+
+        // Over 80% - still high
+        pool.alloc("g80");
+        assert!(pool.is_high_utilization());
+    }
+
+    #[test]
+    fn test_is_above_utilization() {
+        let mut pool = GraphemePool::with_soft_limit(100);
+
+        for i in 0..90 {
+            pool.alloc(&format!("g{i}"));
+        }
+
+        assert!(pool.is_above_utilization(80));
+        assert!(pool.is_above_utilization(90));
+        assert!(!pool.is_above_utilization(91));
+        assert!(!pool.is_above_utilization(95));
+    }
+
+    #[test]
+    fn test_try_alloc_respects_soft_limit() {
+        let mut pool = GraphemePool::with_soft_limit(10);
+
+        // Can allocate up to soft limit
+        for i in 0..10 {
+            let result = pool.try_alloc(&format!("g{i}"));
+            assert!(result.is_some(), "should be able to allocate g{i}");
+        }
+
+        // At soft limit, try_alloc returns None
+        let result = pool.try_alloc("overflow");
+        assert!(result.is_none(), "should fail when at soft limit");
+
+        // But if we free a slot, we can allocate again (reuses free slot)
+        let id = pool.intern("g0");
+        pool.decref(id); // refcount 2 -> 1
+        pool.decref(id); // refcount 1 -> 0, freed
+
+        let result = pool.try_alloc("reuse");
+        assert!(result.is_some(), "should reuse freed slot");
+    }
+
+    #[test]
+    fn test_try_intern_existing_always_succeeds() {
+        let mut pool = GraphemePool::with_soft_limit(5);
+
+        // Fill to capacity
+        for i in 0..5 {
+            pool.alloc(&format!("g{i}"));
+        }
+
+        // try_alloc would fail
+        assert!(pool.try_alloc("new").is_none());
+
+        // But try_intern of existing grapheme should succeed
+        let existing = pool.try_intern("g0");
+        assert!(existing.is_some());
+        assert_eq!(pool.refcount(existing.unwrap()), 2);
+    }
+
+    #[test]
+    fn test_try_intern_new_respects_limit() {
+        let mut pool = GraphemePool::with_soft_limit(5);
+
+        // Fill to capacity
+        for i in 0..5 {
+            pool.alloc(&format!("g{i}"));
+        }
+
+        // try_intern of new grapheme should fail
+        let new = pool.try_intern("totally_new");
+        assert!(new.is_none());
+    }
+
+    #[test]
+    fn test_pool_stats_is_above_threshold() {
+        let stats = PoolStats {
+            total_slots: 100,
+            active_slots: 85,
+            free_slots: 15,
+            soft_limit: 100,
+            utilization_percent: 85,
+        };
+
+        assert!(stats.is_above_threshold(80));
+        assert!(stats.is_above_threshold(85));
+        assert!(!stats.is_above_threshold(86));
+        assert!(!stats.is_above_threshold(90));
+    }
+
+    #[test]
+    fn test_utilization_can_exceed_100_percent() {
+        let mut pool = GraphemePool::with_soft_limit(10);
+
+        // Allocate 15 entries (exceeds soft limit via regular alloc)
+        for i in 0..15 {
+            pool.alloc(&format!("g{i}"));
+        }
+
+        // Utilization should be 150%
+        assert_eq!(pool.utilization_percent(), 150);
+        assert!(pool.is_high_utilization());
     }
 }
