@@ -930,7 +930,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..5 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
 
         // try_alloc would fail
@@ -948,7 +948,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..5 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
 
         // try_intern of new grapheme should fail
@@ -978,7 +978,7 @@ mod tests {
 
         // Allocate 15 entries (exceeds soft limit via regular alloc)
         for i in 0..15 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
 
         // Utilization should be 150%

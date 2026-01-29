@@ -43,6 +43,12 @@ pub enum ParseError {
     /// The resize sequence (CSI 8;height;width t) contained non-numeric
     /// values for width or height.
     InvalidResizeFormat,
+    /// Escape sequence exceeded maximum allowed length.
+    ///
+    /// CSI sequences are limited to [`MAX_CSI_LENGTH`] bytes and DCS sequences
+    /// are limited to [`MAX_DCS_LENGTH`] bytes. This prevents denial-of-service
+    /// attacks via maliciously long sequences that never terminate.
+    SequenceTooLong,
 }
 
 /// Result of parsing input.
@@ -50,6 +56,19 @@ pub type ParseResult = Result<(Event, usize), ParseError>;
 
 /// Maximum size for paste buffer to prevent unbounded memory growth (10 MB).
 const MAX_PASTE_BUFFER_SIZE: usize = 10 * 1024 * 1024;
+
+/// Maximum length for CSI (Control Sequence Introducer) sequences.
+///
+/// Real CSI sequences are typically <50 bytes. A 256-byte limit provides
+/// ample headroom while preventing DoS via unterminated sequences.
+/// This covers mouse coordinates, modifier keys, and any reasonable parameters.
+pub const MAX_CSI_LENGTH: usize = 256;
+
+/// Maximum length for DCS (Device Control String) sequences.
+///
+/// DCS sequences can be larger (e.g., Sixel graphics), but still need bounds.
+/// A 64KB limit is generous for any legitimate terminal query response.
+pub const MAX_DCS_LENGTH: usize = 64 * 1024;
 
 /// Parser state for multi-byte sequences.
 #[derive(Clone, Debug, Default)]
@@ -132,14 +151,23 @@ impl InputParser {
     }
 
     /// Parse a CSI sequence (ESC [ ...).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::SequenceTooLong`] if the sequence exceeds
+    /// [`MAX_CSI_LENGTH`] bytes without a terminator.
     fn parse_csi(&mut self, input: &[u8]) -> ParseResult {
         if input.len() < 3 {
             return Err(ParseError::Incomplete);
         }
 
-        // Find the final byte (0x40-0x7e)
+        // Find the final byte (0x40-0x7e), with length limit
         let mut end = 2;
         while end < input.len() {
+            // Check for DoS: sequence too long without terminator
+            if end - 2 > MAX_CSI_LENGTH {
+                return Err(ParseError::SequenceTooLong);
+            }
             let b = input[end];
             if (0x40..=0x7e).contains(&b) {
                 break;
@@ -148,6 +176,10 @@ impl InputParser {
         }
 
         if end >= input.len() {
+            // Check if we've already exceeded the limit before returning Incomplete
+            if end - 2 > MAX_CSI_LENGTH {
+                return Err(ParseError::SequenceTooLong);
+            }
             return Err(ParseError::Incomplete);
         }
 
@@ -190,11 +222,20 @@ impl InputParser {
     }
 
     /// Parse DCS sequence (ESC P ... ST).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::SequenceTooLong`] if the sequence exceeds
+    /// [`MAX_DCS_LENGTH`] bytes without a terminator.
     fn parse_dcs(&self, input: &[u8]) -> ParseResult {
         // Search for ST (String Terminator)
         // ST can be ESC \ (0x1b 0x5c) or 0x9c
         let mut i = 2; // Skip ESC P
         while i < input.len() {
+            // Check for DoS: sequence too long without terminator
+            if i - 2 > MAX_DCS_LENGTH {
+                return Err(ParseError::SequenceTooLong);
+            }
             match input[i] {
                 0x1b => {
                     // Check for ESC \
@@ -219,6 +260,10 @@ impl InputParser {
             i += 1;
         }
 
+        // Check if we've exceeded the limit before returning Incomplete
+        if i - 2 > MAX_DCS_LENGTH {
+            return Err(ParseError::SequenceTooLong);
+        }
         Err(ParseError::Incomplete)
     }
 
@@ -1432,6 +1477,80 @@ mod tests {
         // ESC [ with parameters but no terminator
         let result = parser.parse(b"\x1b[1;2");
         assert_eq!(result, Err(ParseError::Incomplete));
+    }
+
+    // =========================================================================
+    // Sequence Length Limit Tests (bd-18d8)
+    // =========================================================================
+
+    #[test]
+    fn test_csi_sequence_too_long() {
+        let mut parser = InputParser::new();
+
+        // Create a CSI sequence that exceeds MAX_CSI_LENGTH (256 bytes)
+        // ESC [ followed by 300 digits (no terminator)
+        let mut long_csi = vec![0x1b, b'['];
+        long_csi.extend(std::iter::repeat(b'0').take(300));
+
+        let result = parser.parse(&long_csi);
+        assert_eq!(
+            result,
+            Err(ParseError::SequenceTooLong),
+            "CSI sequence exceeding MAX_CSI_LENGTH should return SequenceTooLong"
+        );
+    }
+
+    #[test]
+    fn test_csi_sequence_at_limit() {
+        let mut parser = InputParser::new();
+
+        // Create a CSI sequence just under MAX_CSI_LENGTH (256 bytes)
+        // ESC [ followed by ~250 digits + terminator
+        let mut valid_csi = vec![0x1b, b'['];
+        valid_csi.extend(std::iter::repeat(b'9').take(250));
+        valid_csi.push(b'~'); // Valid terminator
+
+        let result = parser.parse(&valid_csi);
+        // This should either parse or return UnrecognizedSequence, but NOT SequenceTooLong
+        assert!(
+            !matches!(result, Err(ParseError::SequenceTooLong)),
+            "CSI sequence under MAX_CSI_LENGTH should not return SequenceTooLong"
+        );
+    }
+
+    #[test]
+    fn test_dcs_sequence_too_long() {
+        let mut parser = InputParser::new();
+
+        // Create a DCS sequence that exceeds MAX_DCS_LENGTH (64KB)
+        // ESC P followed by 70KB of data (no terminator)
+        let mut long_dcs = vec![0x1b, b'P'];
+        long_dcs.extend(std::iter::repeat(b'X').take(70 * 1024));
+
+        let result = parser.parse(&long_dcs);
+        assert_eq!(
+            result,
+            Err(ParseError::SequenceTooLong),
+            "DCS sequence exceeding MAX_DCS_LENGTH should return SequenceTooLong"
+        );
+    }
+
+    #[test]
+    fn test_dcs_sequence_at_limit() {
+        let mut parser = InputParser::new();
+
+        // Create a DCS sequence under MAX_DCS_LENGTH (64KB) with terminator
+        // ESC P followed by 60KB of data + ESC \
+        let mut valid_dcs = vec![0x1b, b'P'];
+        valid_dcs.extend(std::iter::repeat(b'X').take(60 * 1024));
+        valid_dcs.extend_from_slice(b"\x1b\\"); // ST terminator
+
+        let result = parser.parse(&valid_dcs);
+        // Should return UnrecognizedSequence (since we don't handle DCS content), not SequenceTooLong
+        assert!(
+            !matches!(result, Err(ParseError::SequenceTooLong)),
+            "DCS sequence under MAX_DCS_LENGTH should not return SequenceTooLong"
+        );
     }
 
     #[test]

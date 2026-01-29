@@ -151,10 +151,14 @@ impl Default for BoxStyle {
 
 /// Draw text at position, handling grapheme clusters and wide characters.
 ///
+/// Newlines (`\n`) advance to the next row, resetting to the starting X column.
+/// Carriage returns (`\r`) reset to the starting X column without advancing rows.
+///
 /// **Note:** Multi-codepoint graphemes are stored with placeholder IDs.
 /// For proper grapheme pool integration, use [`draw_text_with_pool`].
 pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style: Style) {
     let mut col = x;
+    let mut row = y;
     let fg = style.fg.unwrap_or(Rgba::WHITE);
     let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
     let attrs = style.attributes;
@@ -162,7 +166,13 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
     // Fast path: pure ASCII text (very common case)
     if text.is_ascii() {
         for &byte in text.as_bytes() {
-            if byte == b'\n' || byte == b'\r' {
+            if byte == b'\n' {
+                row += 1;
+                col = x;
+                continue;
+            }
+            if byte == b'\r' {
+                col = x;
                 continue;
             }
             let ch = byte as char;
@@ -172,7 +182,7 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
                 bg,
                 attributes: attrs,
             };
-            buffer.set_blended(col, y, cell);
+            buffer.set_blended(col, row, cell);
             col += 1;
         }
         return;
@@ -180,18 +190,24 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
 
     // Slow path: Unicode text with grapheme segmentation
     for grapheme in text.graphemes(true) {
-        if grapheme == "\n" || grapheme == "\r" {
+        if grapheme == "\n" {
+            row += 1;
+            col = x;
+            continue;
+        }
+        if grapheme == "\r" {
+            col = x;
             continue;
         }
 
         let cell = Cell::from_grapheme(grapheme, style);
         let width = cell.display_width();
 
-        buffer.set_blended(col, y, cell);
+        buffer.set_blended(col, row, cell);
 
         // Add continuation cells for wide characters
         for i in 1..width {
-            buffer.set_blended(col + i as u32, y, Cell::continuation(bg));
+            buffer.set_blended(col + i as u32, row, Cell::continuation(bg));
         }
 
         col += width as u32;
@@ -202,6 +218,9 @@ pub fn draw_text(buffer: &mut OptimizedBuffer, x: u32, y: u32, text: &str, style
 ///
 /// This version properly allocates multi-codepoint graphemes (emoji, ZWJ sequences)
 /// in the pool, allowing them to be resolved during rendering.
+///
+/// Newlines (`\n`) advance to the next row, resetting to the starting X column.
+/// Carriage returns (`\r`) reset to the starting X column without advancing rows.
 ///
 /// # Arguments
 ///
@@ -220,12 +239,19 @@ pub fn draw_text_with_pool(
     style: Style,
 ) {
     let mut col = x;
+    let mut row = y;
     let fg = style.fg.unwrap_or(Rgba::WHITE);
     let bg = style.bg.unwrap_or(Rgba::TRANSPARENT);
     let attrs = style.attributes;
 
     for grapheme in text.graphemes(true) {
-        if grapheme == "\n" || grapheme == "\r" {
+        if grapheme == "\n" {
+            row += 1;
+            col = x;
+            continue;
+        }
+        if grapheme == "\r" {
+            col = x;
             continue;
         }
 
@@ -259,11 +285,11 @@ pub fn draw_text_with_pool(
             attributes: attrs,
         };
 
-        buffer.set_blended_with_pool(pool, col, y, cell);
+        buffer.set_blended_with_pool(pool, col, row, cell);
 
         // Add continuation cells for wide characters
         for i in 1..width {
-            buffer.set_blended_with_pool(pool, col + i as u32, y, Cell::continuation(bg));
+            buffer.set_blended_with_pool(pool, col + i as u32, row, Cell::continuation(bg));
         }
 
         col += width as u32;
@@ -478,6 +504,118 @@ mod tests {
         assert_eq!(
             buffer.get(4, 0).unwrap().content,
             crate::cell::CellContent::Char('o')
+        );
+    }
+
+    // =========================================================================
+    // Newline handling tests (bd-1k1s)
+    // =========================================================================
+
+    #[test]
+    fn test_draw_text_with_newline() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        draw_text(&mut buffer, 0, 0, "Hello\nWorld", Style::NONE);
+
+        // "Hello" on row 0
+        assert_eq!(
+            buffer.get(0, 0).unwrap().content,
+            crate::cell::CellContent::Char('H')
+        );
+        assert_eq!(
+            buffer.get(4, 0).unwrap().content,
+            crate::cell::CellContent::Char('o')
+        );
+
+        // "World" on row 1
+        assert_eq!(
+            buffer.get(0, 1).unwrap().content,
+            crate::cell::CellContent::Char('W')
+        );
+        assert_eq!(
+            buffer.get(4, 1).unwrap().content,
+            crate::cell::CellContent::Char('d')
+        );
+    }
+
+    #[test]
+    fn test_draw_text_with_carriage_return() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        draw_text(&mut buffer, 0, 0, "XXXXX\rHello", Style::NONE);
+
+        // \r resets to start column, "Hello" overwrites "XXXXX"
+        assert_eq!(
+            buffer.get(0, 0).unwrap().content,
+            crate::cell::CellContent::Char('H')
+        );
+        assert_eq!(
+            buffer.get(4, 0).unwrap().content,
+            crate::cell::CellContent::Char('o')
+        );
+    }
+
+    #[test]
+    fn test_draw_text_with_crlf() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        draw_text(&mut buffer, 0, 0, "Line1\r\nLine2", Style::NONE);
+
+        // "Line1" on row 0
+        assert_eq!(
+            buffer.get(0, 0).unwrap().content,
+            crate::cell::CellContent::Char('L')
+        );
+
+        // "Line2" on row 1 (CRLF advances one row total)
+        assert_eq!(
+            buffer.get(0, 1).unwrap().content,
+            crate::cell::CellContent::Char('L')
+        );
+        assert_eq!(
+            buffer.get(4, 1).unwrap().content,
+            crate::cell::CellContent::Char('2')
+        );
+    }
+
+    #[test]
+    fn test_draw_text_multiline_with_offset() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        // Start at column 5, row 2
+        draw_text(&mut buffer, 5, 2, "A\nB\nC", Style::NONE);
+
+        // Each line should start at column 5 (the starting x)
+        assert_eq!(
+            buffer.get(5, 2).unwrap().content,
+            crate::cell::CellContent::Char('A')
+        );
+        assert_eq!(
+            buffer.get(5, 3).unwrap().content,
+            crate::cell::CellContent::Char('B')
+        );
+        assert_eq!(
+            buffer.get(5, 4).unwrap().content,
+            crate::cell::CellContent::Char('C')
+        );
+    }
+
+    #[test]
+    fn test_draw_text_with_pool_multiline() {
+        let mut buffer = OptimizedBuffer::new(80, 24);
+        let mut pool = GraphemePool::new();
+        draw_text_with_pool(&mut buffer, &mut pool, 0, 0, "Line1\nLine2", Style::NONE);
+
+        // "Line1" on row 0
+        assert_eq!(
+            buffer.get(0, 0).unwrap().content,
+            crate::cell::CellContent::Char('L')
+        );
+
+        // "Line2" on row 1
+        assert_eq!(
+            buffer.get(0, 1).unwrap().content,
+            crate::cell::CellContent::Char('L')
+        );
+        assert_eq!(
+            buffer.get(4, 1).unwrap().content,
+            crate::cell::CellContent::Char('2')
         );
     }
 
