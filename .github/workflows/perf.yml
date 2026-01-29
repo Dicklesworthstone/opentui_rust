@@ -1,0 +1,123 @@
+name: Performance Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_baselines:
+        description: 'Update baseline values'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-action@nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+            ${{ runner.os }}-cargo-
+
+      - name: Build tests
+        run: cargo build --tests
+
+      - name: Run performance tests
+        id: perf_tests
+        env:
+          TEST_ARTIFACTS_DIR: target/test-artifacts
+          UPDATE_BASELINES: ${{ inputs.update_baselines && '1' || '' }}
+        run: |
+          mkdir -p target/test-artifacts
+          cargo test --test e2e_perf -- --nocapture 2>&1 | tee perf_output.log
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Run quick benchmark comparison
+        run: |
+          cargo test --test benchmark_comparison -- --nocapture 2>&1 | tee benchmark_output.log
+
+      - name: Check for regressions
+        if: always()
+        run: |
+          echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+
+          if grep -q "REGRESSION" perf_output.log; then
+            echo "### Regressions Detected" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep "REGRESSION" perf_output.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "::error::Performance regressions detected"
+          else
+            echo "All performance tests passed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if grep -q "Improvement" perf_output.log; then
+            echo "### Improvements" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep "Improvement" perf_output.log >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results
+          path: |
+            perf_output.log
+            benchmark_output.log
+            target/test-artifacts/
+          retention-days: 30
+
+      - name: Fail on regression
+        if: steps.perf_tests.outputs.exit_code != '0'
+        run: exit 1
+
+  # Separate job for criterion benchmarks (longer running)
+  benchmarks:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-action@nightly
+
+      - name: Cache criterion baselines
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/criterion
+          key: criterion-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            criterion-${{ runner.os }}-
+
+      - name: Run criterion benchmarks
+        run: |
+          cargo bench -- --save-baseline main 2>&1 | tee criterion_output.log
+
+      - name: Upload criterion results
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-results
+          path: |
+            target/criterion/
+            criterion_output.log
+          retention-days: 90

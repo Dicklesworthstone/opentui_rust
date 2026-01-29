@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-purple.svg)](https://doc.rust-lang.org/edition-guide/)
+[![codecov](https://codecov.io/gh/anomalyco/opentui/graph/badge.svg)](https://codecov.io/gh/anomalyco/opentui)
 
 *A Rust port of [anomalyco/opentui](https://github.com/anomalyco/opentui) (TypeScript), with native Rust performance and extended features.*
 

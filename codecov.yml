@@ -1,0 +1,88 @@
+# Codecov configuration for OpenTUI
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+  status:
+    project:
+      default:
+        # Overall project coverage threshold
+        target: 70%
+        threshold: 2%  # Allow 2% drop before failing
+        informational: false
+        only_pulls: true
+
+    patch:
+      default:
+        # New code coverage threshold
+        target: 80%
+        threshold: 0%  # New code must meet threshold exactly
+        informational: false
+
+  # Module-specific coverage targets
+  # Matches patterns from ci.yml threshold checks
+  status_project:
+    color:
+      paths:
+        - "src/color.rs"
+      target: 95%
+    buffer:
+      paths:
+        - "src/buffer/**"
+      target: 90%
+    cell:
+      paths:
+        - "src/cell.rs"
+      target: 95%
+    input:
+      paths:
+        - "src/input/**"
+      target: 90%
+    text:
+      paths:
+        - "src/text/**"
+      target: 85%
+    renderer:
+      paths:
+        - "src/renderer/**"
+      target: 85%
+    ansi:
+      paths:
+        - "src/ansi/**"
+      target: 90%
+    terminal:
+      paths:
+        - "src/terminal/**"
+      target: 75%  # Lower due to FFI limitations
+
+parsers:
+  gcov:
+    branch_detection:
+      conditional: yes
+      loop: yes
+      method: no
+      macro: no
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false
+  require_base: yes
+  require_head: yes
+
+ignore:
+  # Exclude test and benchmark code from coverage
+  - "tests/**"
+  - "benches/**"
+  - "examples/**"
+  # Exclude demo binary (tested separately via headless smoke)
+  - "src/bin/**"
+
+flags:
+  unittests:
+    paths:
+      - "src/**"
+    carryforward: true
