@@ -106,10 +106,17 @@ impl InputParser {
         match first {
             // Escape sequence
             0x1b => self.parse_escape(input),
-            // Control characters
-            0x00 => Ok((KeyEvent::key(KeyCode::Null).into(), 1)),
-            0x01..=0x1a => {
-                // Ctrl+A through Ctrl+Z
+            // Control characters with special key codes
+            0x00 => Ok((
+                KeyEvent::new(KeyCode::Null, KeyModifiers::CTRL).into(),
+                1,
+            )),
+            0x09 => Ok((KeyEvent::key(KeyCode::Tab).into(), 1)),
+            0x0A => Ok((KeyEvent::key(KeyCode::Enter).into(), 1)), // LF
+            0x0D => Ok((KeyEvent::key(KeyCode::Enter).into(), 1)), // CR
+            // Generic Ctrl+letter (Ctrl+A through Ctrl+Z, except Tab/LF/CR)
+            0x01..=0x08 | 0x0B..=0x0C | 0x0E..=0x1a => {
+                // Ctrl+A through Ctrl+Z (excluding handled special cases)
                 let c = (first - 1 + b'a') as char;
                 Ok((
                     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CTRL).into(),
@@ -1343,6 +1350,10 @@ mod tests {
     #[test]
     fn test_parse_ctrl_sequences_all() {
         // Test Ctrl+A through Ctrl+Z (bytes 0x01 to 0x1a)
+        // Note: Some control characters have special key codes:
+        // - 0x09 (Ctrl+I) -> Tab
+        // - 0x0A (Ctrl+J) -> Enter (LF)
+        // - 0x0D (Ctrl+M) -> Enter (CR)
         let mut parser = InputParser::new();
 
         for (i, expected_char) in ('a'..='z').enumerate() {
@@ -1351,12 +1362,21 @@ mod tests {
             assert_eq!(consumed, 1);
 
             let key = event.key().expect("Should be key event");
-            assert_eq!(key.code, KeyCode::Char(expected_char));
-            assert!(
-                key.ctrl(),
-                "Ctrl modifier should be set for byte 0x{:02x}",
-                ctrl_byte
-            );
+
+            // Handle special cases
+            match ctrl_byte {
+                0x09 => assert_eq!(key.code, KeyCode::Tab, "0x09 should be Tab"),
+                0x0A => assert_eq!(key.code, KeyCode::Enter, "0x0A should be Enter"),
+                0x0D => assert_eq!(key.code, KeyCode::Enter, "0x0D should be Enter"),
+                _ => {
+                    assert_eq!(key.code, KeyCode::Char(expected_char));
+                    assert!(
+                        key.ctrl(),
+                        "Ctrl modifier should be set for byte 0x{:02x}",
+                        ctrl_byte
+                    );
+                }
+            }
         }
     }
 
@@ -1900,5 +1920,360 @@ mod tests {
             "Normal paste should work after previous overflow"
         );
         eprintln!("[TEST] PASS: Recovery after overflow works correctly");
+    }
+
+    // =========================================================================
+    // Edge Case Tests (bd-1722) - Comprehensive input parser robustness
+    // =========================================================================
+
+    #[test]
+    fn test_edge_partial_csi_sequence() {
+        let mut parser = InputParser::new();
+
+        // Partial CSI: ESC [ only (no terminator)
+        let result = parser.parse(b"\x1b[");
+        assert_eq!(result, Err(ParseError::Incomplete), "ESC [ should be Incomplete");
+
+        // Partial CSI with parameter but no terminator
+        let result = parser.parse(b"\x1b[1");
+        assert_eq!(result, Err(ParseError::Incomplete), "ESC [1 should be Incomplete");
+
+        // Partial CSI with semicolon but no terminator
+        let result = parser.parse(b"\x1b[1;2");
+        assert_eq!(result, Err(ParseError::Incomplete), "ESC [1;2 should be Incomplete");
+    }
+
+    #[test]
+    fn test_edge_partial_mouse_coordinates() {
+        let mut parser = InputParser::new();
+
+        // SGR mouse with incomplete coordinates
+        let result = parser.parse(b"\x1b[<0;10");
+        assert_eq!(result, Err(ParseError::Incomplete), "Truncated SGR mouse should be Incomplete");
+
+        // SGR mouse with partial terminator region
+        let result = parser.parse(b"\x1b[<0;10;5");
+        assert_eq!(result, Err(ParseError::Incomplete), "SGR mouse without M/m should be Incomplete");
+    }
+
+    #[test]
+    fn test_edge_invalid_csi_parameters() {
+        let mut parser = InputParser::new();
+
+        // CSI with non-numeric parameter (should be unrecognized)
+        let result = parser.parse(b"\x1b[abc~");
+        assert!(
+            matches!(result, Err(ParseError::UnrecognizedSequence(_))),
+            "CSI with non-numeric params should be unrecognized"
+        );
+
+        // CSI with empty parameter sections
+        let result = parser.parse(b"\x1b[;A");
+        // Empty parameter should still parse (defaults to 0)
+        assert!(result.is_ok() || matches!(result, Err(ParseError::Incomplete)));
+    }
+
+    #[test]
+    fn test_edge_invalid_utf8_single_byte() {
+        let mut parser = InputParser::new();
+
+        // Invalid UTF-8 continuation byte (0x80-0xBF) without leading byte
+        let result = parser.parse(&[0x80]);
+        assert_eq!(result, Err(ParseError::InvalidUtf8), "Lone continuation byte should be InvalidUtf8");
+
+        // Invalid byte 0xFF (never valid in UTF-8)
+        let result = parser.parse(&[0xFF]);
+        assert_eq!(result, Err(ParseError::InvalidUtf8), "0xFF should be InvalidUtf8");
+
+        // Invalid byte 0xFE (never valid in UTF-8)
+        let result = parser.parse(&[0xFE]);
+        assert_eq!(result, Err(ParseError::InvalidUtf8), "0xFE should be InvalidUtf8");
+    }
+
+    #[test]
+    fn test_edge_truncated_utf8_sequence() {
+        let mut parser = InputParser::new();
+
+        // Two-byte UTF-8 sequence (0xC2 0xA9 = ©) with missing continuation
+        let result = parser.parse(&[0xC2]);
+        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 2-byte UTF-8 should be Incomplete");
+
+        // Three-byte UTF-8 sequence with only first byte (日 = E6 97 A5)
+        let result = parser.parse(&[0xE6]);
+        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 3-byte UTF-8 should be Incomplete");
+
+        // Three-byte with only two bytes
+        let result = parser.parse(&[0xE6, 0x97]);
+        assert_eq!(result, Err(ParseError::Incomplete), "Partial 3-byte UTF-8 should be Incomplete");
+
+        // Four-byte UTF-8 with only first byte (🎉 = F0 9F 8E 89)
+        let result = parser.parse(&[0xF0]);
+        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 4-byte UTF-8 should be Incomplete");
+    }
+
+    #[test]
+    fn test_edge_overlong_utf8_encoding() {
+        let mut parser = InputParser::new();
+
+        // Overlong encoding of 'A' (0x41) as 2-byte: C0 41 (invalid)
+        // C0 and C1 are never valid UTF-8 leading bytes
+        let result = parser.parse(&[0xC0, 0x41]);
+        assert_eq!(result, Err(ParseError::InvalidUtf8), "Overlong C0 encoding should be InvalidUtf8");
+
+        let result = parser.parse(&[0xC1, 0x80]);
+        assert_eq!(result, Err(ParseError::InvalidUtf8), "Overlong C1 encoding should be InvalidUtf8");
+    }
+
+    #[test]
+    fn test_edge_garbage_after_valid_sequence() {
+        let mut parser = InputParser::new();
+
+        // Valid arrow key followed by garbage
+        // The parser should consume the valid sequence first
+        let (event, consumed) = parser.parse(b"\x1b[Agarbage").unwrap();
+        assert_eq!(consumed, 3, "Should only consume the arrow key sequence");
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Up);
+
+        // The garbage should be parseable as individual chars
+        let (event, consumed) = parser.parse(b"garbage").unwrap();
+        assert_eq!(consumed, 1, "Should parse one char at a time");
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Char('g'));
+    }
+
+    #[test]
+    fn test_edge_rapid_escape_sequences() {
+        let mut parser = InputParser::new();
+
+        // Multiple escape sequences in a row
+        let input = b"\x1b[A\x1b[B\x1b[C\x1b[D";
+
+        // Parse first: Up
+        let (event, consumed) = parser.parse(input).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(event.key().unwrap().code, KeyCode::Up);
+
+        // Parse second: Down
+        let (event, consumed) = parser.parse(&input[3..]).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(event.key().unwrap().code, KeyCode::Down);
+
+        // Parse third: Right
+        let (event, consumed) = parser.parse(&input[6..]).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(event.key().unwrap().code, KeyCode::Right);
+
+        // Parse fourth: Left
+        let (event, consumed) = parser.parse(&input[9..]).unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(event.key().unwrap().code, KeyCode::Left);
+    }
+
+    #[test]
+    fn test_edge_sgr_mouse_zero_coordinates() {
+        let mut parser = InputParser::new();
+
+        // Zero coordinates should clamp to 0 (since 0-1 = -1, should handle gracefully)
+        let result = parser.parse(b"\x1b[<0;0;0M");
+        // Parser should handle this gracefully - either succeed with 0,0 or error
+        match result {
+            Ok((event, _)) => {
+                let mouse = event.mouse().unwrap();
+                // Coordinates might be clamped to 0 or saturate
+                assert!(mouse.x == 0 || mouse.x == u32::from(u16::MAX), "Zero coord should be handled");
+            }
+            Err(ParseError::UnrecognizedSequence(_)) => {
+                // Also acceptable - invalid coordinates rejected
+            }
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_edge_empty_input_after_escape() {
+        let mut parser = InputParser::new();
+
+        // Empty input should return Empty
+        let result = parser.parse(b"");
+        assert_eq!(result, Err(ParseError::Empty));
+
+        // Single escape needs more input
+        let result = parser.parse(b"\x1b");
+        assert_eq!(result, Err(ParseError::Incomplete));
+    }
+
+    #[test]
+    fn test_edge_mixed_valid_invalid_sequence() {
+        let mut parser = InputParser::new();
+
+        // Valid char, then valid escape sequence
+        let (event, consumed) = parser.parse(b"a\x1b[A").unwrap();
+        assert_eq!(consumed, 1, "Should only consume 'a'");
+        assert_eq!(event.key().unwrap().code, KeyCode::Char('a'));
+
+        // Now parse the escape sequence
+        let (event, consumed) = parser.parse(b"\x1b[A").unwrap();
+        assert_eq!(consumed, 3);
+        assert_eq!(event.key().unwrap().code, KeyCode::Up);
+    }
+
+    #[test]
+    fn test_edge_function_key_range() {
+        let mut parser = InputParser::new();
+
+        // Test F1-F4 (SS3 format)
+        for (i, key_char) in ['P', 'Q', 'R', 'S'].iter().enumerate() {
+            let input = format!("\x1bO{}", key_char);
+            let (event, _) = parser.parse(input.as_bytes()).unwrap();
+            let key = event.key().unwrap();
+            assert_eq!(key.code, KeyCode::F((i + 1) as u8), "F{} key mismatch", i + 1);
+        }
+
+        // Test F5-F12 (CSI format with ~)
+        let f_keys = [
+            (b"\x1b[15~".as_slice(), 5),
+            (b"\x1b[17~".as_slice(), 6),
+            (b"\x1b[18~".as_slice(), 7),
+            (b"\x1b[19~".as_slice(), 8),
+            (b"\x1b[20~".as_slice(), 9),
+            (b"\x1b[21~".as_slice(), 10),
+            (b"\x1b[23~".as_slice(), 11),
+            (b"\x1b[24~".as_slice(), 12),
+        ];
+
+        for (input, expected_n) in f_keys {
+            let (event, _) = parser.parse(input).unwrap();
+            let key = event.key().unwrap();
+            assert_eq!(key.code, KeyCode::F(expected_n), "F{} key mismatch", expected_n);
+        }
+    }
+
+    #[test]
+    fn test_edge_special_keys() {
+        let mut parser = InputParser::new();
+
+        let special_keys = [
+            (b"\x1b[2~".as_slice(), KeyCode::Insert),
+            (b"\x1b[3~".as_slice(), KeyCode::Delete),
+            (b"\x1b[5~".as_slice(), KeyCode::PageUp),
+            (b"\x1b[6~".as_slice(), KeyCode::PageDown),
+            (b"\x1b[H".as_slice(), KeyCode::Home),
+            (b"\x1b[F".as_slice(), KeyCode::End),
+        ];
+
+        for (input, expected_code) in special_keys {
+            let (event, _) = parser.parse(input).unwrap();
+            let key = event.key().unwrap();
+            assert_eq!(key.code, expected_code, "Special key {:?} mismatch", expected_code);
+        }
+    }
+
+    #[test]
+    fn test_edge_tab_and_enter() {
+        let mut parser = InputParser::new();
+
+        // Tab (0x09) - returns KeyCode::Tab
+        let (event, consumed) = parser.parse(&[0x09]).unwrap();
+        assert_eq!(consumed, 1);
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Tab, "0x09 should be Tab");
+
+        // Enter/CR (0x0D) - returns KeyCode::Enter
+        let (event, consumed) = parser.parse(&[0x0D]).unwrap();
+        assert_eq!(consumed, 1);
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Enter, "0x0D should be Enter");
+
+        // LF (0x0A) - also returns KeyCode::Enter for consistency
+        let (event, consumed) = parser.parse(&[0x0A]).unwrap();
+        assert_eq!(consumed, 1);
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Enter, "0x0A should be Enter");
+    }
+
+    #[test]
+    fn test_edge_null_byte() {
+        let mut parser = InputParser::new();
+
+        // Null byte (0x00) returns KeyCode::Null
+        let (event, consumed) = parser.parse(&[0x00]).unwrap();
+        assert_eq!(consumed, 1);
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Null, "0x00 should return KeyCode::Null");
+    }
+
+    #[test]
+    fn test_edge_esc_followed_by_printable() {
+        let mut parser = InputParser::new();
+
+        // ESC followed by printable char (Alt+char)
+        let (event, consumed) = parser.parse(b"\x1ba").unwrap();
+        assert_eq!(consumed, 2);
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Char('a'));
+        assert!(key.alt(), "Should have Alt modifier");
+    }
+
+    #[test]
+    fn test_edge_x11_mouse_boundary_coordinates() {
+        let mut parser = InputParser::new();
+
+        // X11 mouse at maximum representable coordinates (223-33=190 max in standard encoding)
+        // Button 0, max x (223=0xDF), max y (223)
+        let input = [0x1b, b'[', b'M', 32, 223, 223];
+        let (event, _) = parser.parse(&input).unwrap();
+        let mouse = event.mouse().unwrap();
+        // X11 coords are 1-indexed, so 223-33=190, then 0-indexed = 189
+        assert_eq!(mouse.x, 190, "X11 max X should be 190");
+        assert_eq!(mouse.y, 190, "X11 max Y should be 190");
+    }
+
+    #[test]
+    fn test_edge_sgr_mouse_button_4_and_5() {
+        let mut parser = InputParser::new();
+
+        // Button 4 (extra button 1) - encoded as 128+0=128
+        let result = parser.parse(b"\x1b[<128;10;10M");
+        // Parser may not support button 4, check for graceful handling
+        match result {
+            Ok((event, _)) => {
+                let mouse = event.mouse().unwrap();
+                // Button should be mapped to something
+                assert!(matches!(
+                    mouse.button,
+                    MouseButton::Left | MouseButton::Middle | MouseButton::Right | MouseButton::None
+                ));
+            }
+            Err(ParseError::UnrecognizedSequence(_)) => {
+                // Also acceptable if extra buttons not supported
+            }
+            Err(e) => panic!("Unexpected error for button 4: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_edge_multiple_modifiers_keyboard() {
+        let mut parser = InputParser::new();
+
+        // Ctrl+Alt+Shift combinations on various keys
+        // Format: ESC [ 1 ; modifier key
+        // Modifier: 1=none, 2=shift, 3=alt, 4=shift+alt, 5=ctrl, 6=ctrl+shift, 7=ctrl+alt, 8=ctrl+alt+shift
+
+        // Ctrl+Shift+Up (modifier 6)
+        let (event, _) = parser.parse(b"\x1b[1;6A").unwrap();
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Up);
+        assert!(key.ctrl(), "Ctrl should be set");
+        assert!(key.shift(), "Shift should be set");
+        assert!(!key.alt(), "Alt should not be set");
+
+        // Ctrl+Alt+Down (modifier 7)
+        let (event, _) = parser.parse(b"\x1b[1;7B").unwrap();
+        let key = event.key().unwrap();
+        assert_eq!(key.code, KeyCode::Down);
+        assert!(key.ctrl(), "Ctrl should be set");
+        assert!(!key.shift(), "Shift should not be set");
+        assert!(key.alt(), "Alt should be set");
     }
 }

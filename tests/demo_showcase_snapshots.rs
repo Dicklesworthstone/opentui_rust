@@ -245,13 +245,14 @@ fn extract_tour_snapshot(json: &serde_json::Value) -> serde_json::Value {
 #[test]
 fn test_tour_determinism_snapshot() {
     // Run tour with fixed seed and enough frames to complete
-    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3000"]);
+    // Tour takes ~3090 frames (51.5s at 60fps), so use 3200 for buffer
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3200"]);
     let snapshot = extract_tour_snapshot(&json);
 
     // Assert tour completed successfully
     assert!(
         json["tour_state"]["completed"].as_bool().unwrap_or(false),
-        "Tour should complete in headless mode with 3000 frames"
+        "Tour should complete in headless mode with 3200 frames"
     );
 
     // Assert we have step transitions
@@ -304,8 +305,9 @@ fn test_tour_step_titles_present() {
 #[test]
 fn test_tour_deterministic_across_runs() {
     // Run tour twice with identical seeds and enough frames to complete
-    let json1 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3000"]);
-    let json2 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3000"]);
+    // Tour takes ~3090 frames (51.5s at 60fps), so use 3200 for buffer
+    let json1 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3200"]);
+    let json2 = run_headless_json(&["--seed", "123", "--tour", "--max-frames", "3200"]);
 
     // Step transitions should be identical
     assert_eq!(
@@ -326,7 +328,8 @@ fn test_tour_deterministic_across_runs() {
 fn test_tour_exits_cleanly() {
     // This test verifies clean exit by checking the process succeeds
     // (run_headless_json already asserts success, but we verify tour-specific output)
-    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3000"]);
+    // Tour takes ~3090 frames (51.5s at 60fps), so use 3200 for buffer
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3200"]);
 
     // Verify tour completed (not just started)
     assert!(

@@ -4,7 +4,7 @@ mod tests {
     use opentui::renderer::BufferDiff;
 
     #[test]
-    #[should_panic(expected = "Buffer size mismatch")]
+    #[should_panic(expected = "buffer size mismatch")]
     fn test_diff_mismatch_panics() {
         let b1 = OptimizedBuffer::new(10, 10);
         let b2 = OptimizedBuffer::new(20, 20);
