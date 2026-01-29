@@ -33,6 +33,7 @@
 
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_panics_doc)]
+#![allow(clippy::struct_field_names)] // Field names match JSON baseline format
 
 use opentui::{Cell, OptimizedBuffer, Rgba, Style};
 use serde::{Deserialize, Serialize};
@@ -905,10 +906,14 @@ fn perf_alpha_blending() {
     }
     let elapsed = start.elapsed();
 
+    let ops_per_ms = if elapsed.as_millis() > 0 {
+        10000.0 / elapsed.as_millis() as f64
+    } else {
+        10000.0 / elapsed.as_secs_f64() / 1000.0 // fallback for sub-ms
+    };
     println!(
         "alpha_blending_10k: {:?} ({:.2} ops/ms)",
-        elapsed,
-        10000.0 / elapsed.as_millis() as f64
+        elapsed, ops_per_ms
     );
 
     // Should complete in reasonable time (< 100ms for 10k ops)

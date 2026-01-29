@@ -2127,16 +2127,21 @@ mod tests {
     fn test_edge_sgr_mouse_zero_coordinates() {
         let mut parser = InputParser::new();
 
-        // Zero coordinates should clamp to 0 (since 0-1 = -1, should handle gracefully)
+        // Zero coordinates in SGR mouse (0-1 = underflow if not handled)
+        // The parser should handle this gracefully by either:
+        // - Saturating at 0 (best behavior)
+        // - Rejecting the sequence (acceptable)
         let result = parser.parse(b"\x1b[<0;0;0M");
-        // Parser should handle this gracefully - either succeed with 0,0 or error
         match result {
             Ok((event, _)) => {
                 let mouse = event.mouse().unwrap();
-                // Coordinates might be clamped to 0 or saturate
+                // If parsed successfully, coordinates should be saturated at 0,
+                // not wrapped to a large value
                 assert!(
-                    mouse.x == 0 || mouse.x == u32::from(u16::MAX),
-                    "Zero coord should be handled"
+                    mouse.x <= 1 && mouse.y <= 1,
+                    "Zero/one coord should saturate near 0, got ({}, {})",
+                    mouse.x,
+                    mouse.y
                 );
             }
             Err(ParseError::UnrecognizedSequence(_)) => {

@@ -43,9 +43,13 @@ jobs:
           TEST_ARTIFACTS_DIR: target/test-artifacts
           UPDATE_BASELINES: ${{ inputs.update_baselines && '1' || '' }}
         run: |
+          set -o pipefail
           mkdir -p target/test-artifacts
           cargo test --test e2e_perf -- --nocapture 2>&1 | tee perf_output.log
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Record test result
+        run: echo "perf_failed=${{ steps.perf_tests.outcome == 'failure' }}" >> $GITHUB_ENV
 
       - name: Run quick benchmark comparison
         run: |
@@ -85,8 +89,10 @@ jobs:
           retention-days: 30
 
       - name: Fail on regression
-        if: steps.perf_tests.outputs.exit_code != '0'
-        run: exit 1
+        if: steps.perf_tests.outcome == 'failure'
+        run: |
+          echo "Performance tests failed - see perf_output.log for details"
+          exit 1
 
   # Separate job for criterion benchmarks (longer running)
   benchmarks:

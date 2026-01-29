@@ -426,11 +426,9 @@ impl GraphemePool {
         let active_slots = total_slots.saturating_sub(free_slots);
 
         // Calculate utilization as percentage of soft_limit
-        let utilization_percent = if self.soft_limit > 0 {
-            (active_slots * 100) / self.soft_limit
-        } else {
-            0
-        };
+        let utilization_percent = (active_slots * 100)
+            .checked_div(self.soft_limit)
+            .unwrap_or(0);
 
         PoolStats {
             total_slots,
