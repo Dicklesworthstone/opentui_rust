@@ -165,7 +165,8 @@ impl InputParser {
         let mut end = 2;
         while end < input.len() {
             // Check for DoS: sequence too long without terminator
-            if end - 2 > MAX_CSI_LENGTH {
+            // Use >= to enforce exact limit (end-2 is the param length so far)
+            if end - 2 >= MAX_CSI_LENGTH {
                 return Err(ParseError::SequenceTooLong);
             }
             let b = input[end];
@@ -177,7 +178,7 @@ impl InputParser {
 
         if end >= input.len() {
             // Check if we've already exceeded the limit before returning Incomplete
-            if end - 2 > MAX_CSI_LENGTH {
+            if end - 2 >= MAX_CSI_LENGTH {
                 return Err(ParseError::SequenceTooLong);
             }
             return Err(ParseError::Incomplete);
@@ -233,7 +234,8 @@ impl InputParser {
         let mut i = 2; // Skip ESC P
         while i < input.len() {
             // Check for DoS: sequence too long without terminator
-            if i - 2 > MAX_DCS_LENGTH {
+            // Use >= to enforce exact limit (i-2 is the content length so far)
+            if i - 2 >= MAX_DCS_LENGTH {
                 return Err(ParseError::SequenceTooLong);
             }
             match input[i] {
@@ -261,7 +263,7 @@ impl InputParser {
         }
 
         // Check if we've exceeded the limit before returning Incomplete
-        if i - 2 > MAX_DCS_LENGTH {
+        if i - 2 >= MAX_DCS_LENGTH {
             return Err(ParseError::SequenceTooLong);
         }
         Err(ParseError::Incomplete)

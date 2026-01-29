@@ -260,10 +260,14 @@ fn compute_diff_summary(expected: &[u8], actual: &[u8]) -> String {
 
         if expected.len() > actual.len() {
             summary.push_str("Expected has extra bytes: ");
-            summary.push_str(&escape_bytes(&expected[min_len..min_len.min(expected.len())]));
+            // Show up to 40 bytes of the extra content
+            let end = (min_len + 40).min(expected.len());
+            summary.push_str(&escape_bytes(&expected[min_len..end]));
         } else {
             summary.push_str("Actual has extra bytes: ");
-            summary.push_str(&escape_bytes(&actual[min_len..min_len.min(actual.len())]));
+            // Show up to 40 bytes of the extra content
+            let end = (min_len + 40).min(actual.len());
+            summary.push_str(&escape_bytes(&actual[min_len..end]));
         }
         summary.push('\n');
     }
