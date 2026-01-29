@@ -26,3 +26,10 @@ target-sagebeacon/
 
 # Fuzz testing build artifacts
 fuzz/target/
+
+# Profiling artifacts
+perf.data
+perf.data.*
+
+# Screenshots
+Snipping_*.png
