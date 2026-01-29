@@ -610,7 +610,8 @@ mod tests {
 
         let json = metrics.to_json().unwrap();
         assert!(json.contains("\"total_runtime\""));
-        assert!(json.contains("\"frame_count\":100"));
+        // Pretty JSON has spaces after colons
+        assert!(json.contains("\"frame_count\": 100"));
     }
 
     #[test]
