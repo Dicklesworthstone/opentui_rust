@@ -85,8 +85,12 @@ impl OptimizedBuffer {
     /// Create a new buffer with the given dimensions.
     ///
     /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
+    /// Zero dimensions are clamped to 1 to prevent division by zero in iteration.
     #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
+        // Clamp to minimum of 1 to prevent division by zero in iter_cells()
+        let width = width.max(1);
+        let height = height.max(1);
         let size = (width as usize).saturating_mul(height as usize);
         Self {
             width,
@@ -1389,10 +1393,11 @@ mod tests {
 
     #[test]
     fn test_zero_size_buffer() {
+        // Zero dimensions are clamped to 1 to prevent division by zero in iter_cells
         let buf = OptimizedBuffer::new(0, 0);
-        assert_eq!(buf.width(), 0);
-        assert_eq!(buf.height(), 0);
-        assert!(buf.cells().is_empty());
+        assert_eq!(buf.width(), 1);
+        assert_eq!(buf.height(), 1);
+        assert_eq!(buf.cells().len(), 1);
     }
 
     #[test]

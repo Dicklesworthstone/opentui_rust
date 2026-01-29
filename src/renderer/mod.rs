@@ -794,9 +794,9 @@ mod tests {
 
     #[test]
     fn test_zero_size_buffer() {
-        // Zero size buffer should not panic
+        // Zero dimensions are clamped to 1 to prevent division by zero in iter_cells
         let buf = OptimizedBuffer::new(0, 0);
-        assert_eq!(buf.size(), (0, 0));
+        assert_eq!(buf.size(), (1, 1));
     }
 
     #[test]
