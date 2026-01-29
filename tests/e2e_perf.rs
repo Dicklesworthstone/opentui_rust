@@ -185,10 +185,7 @@ impl PerfReport {
             PerfStatus::Improvement => {
                 self.improvements.push(format!(
                     "{}: {:.1}% faster ({} ms vs {} ms baseline)",
-                    result.name,
-                    -result.diff_percent,
-                    result.actual_ms,
-                    result.baseline_ms
+                    result.name, -result.diff_percent, result.actual_ms, result.baseline_ms
                 ));
             }
             PerfStatus::Pass => {}
@@ -506,7 +503,12 @@ fn perf_cell_iteration() {
         100,
     );
 
-    let result = PerfResult::new("cell_iteration_full_buffer_100x", actual, expected, threshold);
+    let result = PerfResult::new(
+        "cell_iteration_full_buffer_100x",
+        actual,
+        expected,
+        threshold,
+    );
 
     println!(
         "cell_iteration_full_buffer_100x: {} ms (baseline: {} ms, diff: {:.1}%)",
@@ -655,16 +657,16 @@ fn perf_parse_keystrokes() {
 
     // Various key sequences to parse
     let key_sequences: Vec<&[u8]> = vec![
-        b"a",           // Simple char
-        b"\x1b[A",      // Up arrow
-        b"\x1b[B",      // Down arrow
-        b"\x1b[1;5C",   // Ctrl+Right
-        b"\x1bOP",      // F1
-        b"\x1b[15~",    // F5
-        b"\x1b[3~",     // Delete
-        b"\x1b[H",      // Home
-        b"\x1b[F",      // End
-        b"\r",          // Enter
+        b"a",         // Simple char
+        b"\x1b[A",    // Up arrow
+        b"\x1b[B",    // Down arrow
+        b"\x1b[1;5C", // Ctrl+Right
+        b"\x1bOP",    // F1
+        b"\x1b[15~",  // F5
+        b"\x1b[3~",   // Delete
+        b"\x1b[H",    // Home
+        b"\x1b[F",    // End
+        b"\r",        // Enter
     ];
 
     let actual = time_ms(
@@ -767,7 +769,9 @@ fn perf_parse_large_paste() {
     let mut parser = InputParser::new();
 
     // Simulate 10KB paste with bracketed paste mode
-    let paste_content: String = (0..10240).map(|i| ('a' as u8 + (i % 26) as u8) as char).collect();
+    let paste_content: String = (0..10240)
+        .map(|i| ('a' as u8 + (i % 26) as u8) as char)
+        .collect();
     let paste_sequence = format!("\x1b[200~{paste_content}\x1b[201~");
     let paste_bytes = paste_sequence.as_bytes();
 

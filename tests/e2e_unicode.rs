@@ -5,12 +5,12 @@
 
 mod common;
 
+use opentui::OptimizedBuffer;
 use opentui::buffer::ClipRect;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::style::Style;
 use opentui::unicode::{display_width, display_width_char, graphemes};
-use opentui::OptimizedBuffer;
 
 // ============================================================================
 // Test Helpers
@@ -30,23 +30,28 @@ fn verify_text_render(buffer: &OptimizedBuffer, x: u32, y: u32, text: &str, _sty
         assert!(
             !cell.is_continuation(),
             "first cell of grapheme '{}' at ({},{}) should not be continuation",
-            grapheme, col, y
+            grapheme,
+            col,
+            y
         );
 
         // Check continuation cells for wide characters
         for i in 1..width {
-            let cont_cell = buffer.get(col + i, y).expect("continuation cell should exist");
+            let cont_cell = buffer
+                .get(col + i, y)
+                .expect("continuation cell should exist");
             assert!(
                 cont_cell.is_continuation(),
                 "cell at ({},{}) should be continuation for wide grapheme '{}'",
-                col + i, y, grapheme
+                col + i,
+                y,
+                grapheme
             );
         }
 
         col += width;
     }
 }
-
 
 // ============================================================================
 // Wide Characters (CJK)
@@ -103,7 +108,11 @@ fn test_mixed_ascii_cjk() {
     // Check ASCII before CJK
     for i in 0..5 {
         let cell = buffer.get(i, 0).unwrap();
-        assert!(!cell.is_continuation(), "ASCII char at {} should not be continuation", i);
+        assert!(
+            !cell.is_continuation(),
+            "ASCII char at {} should not be continuation",
+            i
+        );
     }
 
     // Check CJK character 世
@@ -121,7 +130,11 @@ fn test_mixed_ascii_cjk() {
     // Check ASCII after CJK
     for i in 9..14 {
         let cell = buffer.get(i, 0).unwrap();
-        assert!(!cell.is_continuation(), "ASCII char at {} should not be continuation", i);
+        assert!(
+            !cell.is_continuation(),
+            "ASCII char at {} should not be continuation",
+            i
+        );
     }
 }
 
@@ -175,7 +188,11 @@ fn test_basic_emoji_single_codepoint() {
 
         // Verify the emoji cell exists and has correct width
         let cell = buffer.get(x, 0).unwrap();
-        assert!(!cell.is_continuation(), "emoji at {} should not be continuation", x);
+        assert!(
+            !cell.is_continuation(),
+            "emoji at {} should not be continuation",
+            x
+        );
     }
 }
 
@@ -210,7 +227,10 @@ fn test_emoji_zwj_sequence() {
 
     // The ZWJ sequence should render as a single grapheme cluster
     let grapheme_count: usize = graphemes(family).count();
-    assert_eq!(grapheme_count, 1, "ZWJ family should be single grapheme cluster");
+    assert_eq!(
+        grapheme_count, 1,
+        "ZWJ family should be single grapheme cluster"
+    );
 
     let cell = buffer.get(0, 0).unwrap();
     assert!(!cell.is_continuation());
@@ -345,7 +365,10 @@ fn test_zero_width_non_joiner() {
     // The key invariant is that it doesn't add visible width
     let text = "a\u{200C}b";
     let total_width = display_width(text);
-    assert_eq!(total_width, 2, "a+ZWNJ+b should have display width 2 (ZWNJ is invisible)");
+    assert_eq!(
+        total_width, 2,
+        "a+ZWNJ+b should have display width 2 (ZWNJ is invisible)"
+    );
 }
 
 #[test]
@@ -398,8 +421,10 @@ fn test_control_characters() {
     for c in 0..32u8 {
         let ch = c as char;
         assert_eq!(
-            display_width_char(ch), 0,
-            "control char U+{:04X} should have width 0", c
+            display_width_char(ch),
+            0,
+            "control char U+{:04X} should have width 0",
+            c
         );
     }
 
@@ -462,7 +487,11 @@ fn test_many_different_graphemes() {
     let text = grapheme_list.join("");
     let grapheme_count = graphemes(&text).count();
 
-    assert!(grapheme_count >= 200, "should have at least 200 graphemes, got {}", grapheme_count);
+    assert!(
+        grapheme_count >= 200,
+        "should have at least 200 graphemes, got {}",
+        grapheme_count
+    );
 
     // Draw in chunks across multiple rows
     let mut x = 0u32;
@@ -553,9 +582,11 @@ fn test_alternating_width_characters() {
     for (pos, should_be_continuation) in positions {
         let cell = buffer.get(pos, 0).unwrap();
         assert_eq!(
-            cell.is_continuation(), should_be_continuation,
+            cell.is_continuation(),
+            should_be_continuation,
             "position {} should {}be continuation",
-            pos, if should_be_continuation { "" } else { "not " }
+            pos,
+            if should_be_continuation { "" } else { "not " }
         );
     }
 }
@@ -590,11 +621,11 @@ fn test_unicode_width_consistency() {
     // Test cases with definite expected widths
     let definite_cases = [
         ("A", 1),
-        ("\u{4E2D}", 2),    // 中
-        ("\u{1F600}", 2),  // 😀
-        ("e\u{0301}", 1),  // é (decomposed)
-        ("\u{00E9}", 1),   // é (precomposed)
-        ("\u{200D}", 0),   // ZWJ
+        ("\u{4E2D}", 2),  // 中
+        ("\u{1F600}", 2), // 😀
+        ("e\u{0301}", 1), // é (decomposed)
+        ("\u{00E9}", 1),  // é (precomposed)
+        ("\u{200D}", 0),  // ZWJ
     ];
 
     for (grapheme, expected_width) in definite_cases {
@@ -613,7 +644,8 @@ fn test_unicode_width_consistency() {
         assert!(
             width <= 1,
             "control character {:?} should have width <= 1, got {}",
-            grapheme, width
+            grapheme,
+            width
         );
     }
 }

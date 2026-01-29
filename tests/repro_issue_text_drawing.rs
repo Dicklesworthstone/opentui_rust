@@ -1,10 +1,9 @@
-
 #[cfg(test)]
 mod tests {
     use opentui::buffer::OptimizedBuffer;
+    use opentui::cell::CellContent;
     use opentui::grapheme_pool::GraphemePool;
     use opentui::style::Style;
-    use opentui::cell::CellContent;
 
     #[test]
     fn test_draw_text_consistency() {
@@ -29,8 +28,11 @@ mod tests {
         assert_eq!(buf2.get(0, 0).unwrap().content, CellContent::Char('A'));
         // 'B' at 1 (draw_text_with_pool treats \t as width 0, so next char overwrites)
         assert_eq!(buf2.get(1, 0).unwrap().content, CellContent::Char('B'));
-        
+
         // Assert consistency
-        assert_eq!(buf1.get(1, 0).unwrap().content, buf2.get(1, 0).unwrap().content);
+        assert_eq!(
+            buf1.get(1, 0).unwrap().content,
+            buf2.get(1, 0).unwrap().content
+        );
     }
 }

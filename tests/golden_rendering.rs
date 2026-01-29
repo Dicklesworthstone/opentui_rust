@@ -13,14 +13,14 @@
 
 mod common;
 
-use common::golden::{compare_golden, current_date, GoldenMetadata, GoldenResult};
+use common::golden::{GoldenMetadata, GoldenResult, compare_golden, current_date};
+use opentui::OptimizedBuffer;
 use opentui::ansi::AnsiWriter;
 use opentui::buffer::{BoxStyle, ClipRect};
 use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::style::Style;
-use opentui::OptimizedBuffer;
 
 // Color constants that aren't in the standard library
 const CYAN: Rgba = Rgba::rgb(0.0, 1.0, 1.0);
@@ -292,7 +292,12 @@ fn test_golden_scissor_clipped() {
 
     // Draw something larger than the scissor region
     buffer.fill_rect(0, 0, 80, 24, Rgba::RED);
-    buffer.draw_text(5, 10, "This text should be clipped!", Style::fg(Rgba::WHITE));
+    buffer.draw_text(
+        5,
+        10,
+        "This text should be clipped!",
+        Style::fg(Rgba::WHITE),
+    );
 
     buffer.pop_scissor();
 
@@ -464,7 +469,12 @@ fn test_golden_rtl_text() {
 
     // RTL text (Arabic and Hebrew)
     buffer.draw_text(5, 5, "Arabic: ", Style::fg(Rgba::WHITE));
-    buffer.draw_text(13, 5, "\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}", Style::fg(YELLOW)); // مرحبا
+    buffer.draw_text(
+        13,
+        5,
+        "\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}",
+        Style::fg(YELLOW),
+    ); // مرحبا
 
     buffer.draw_text(5, 7, "Hebrew: ", Style::fg(Rgba::WHITE));
     buffer.draw_text(13, 7, "\u{05E9}\u{05DC}\u{05D5}\u{05DD}", Style::fg(CYAN)); // שלום
@@ -501,15 +511,15 @@ fn test_golden_mixed_width() {
         "1234\u{3042}\u{3044}5678\u{3046}\u{3048}90",
         Style::fg(YELLOW),
     );
-    buffer.draw_text(
-        5,
-        9,
-        "Tab\u{2192}ulation \u{2190}Arrow",
-        Style::fg(CYAN),
-    );
+    buffer.draw_text(5, 9, "Tab\u{2192}ulation \u{2190}Arrow", Style::fg(CYAN));
 
     // Math symbols and special characters
-    buffer.draw_text(5, 11, "\u{221E} \u{2211} \u{220F} \u{222B}", Style::fg(MAGENTA)); // ∞ ∑ ∏ ∫
+    buffer.draw_text(
+        5,
+        11,
+        "\u{221E} \u{2211} \u{220F} \u{222B}",
+        Style::fg(MAGENTA),
+    ); // ∞ ∑ ∏ ∫
 
     let output = render_buffer_to_ansi(&buffer, &pool);
     assert_golden("mixed_width", &output, 80, 24);
@@ -551,14 +561,34 @@ fn test_golden_tour_screen_1() {
     );
 
     // Feature list
-    buffer.draw_text(40, 16, "\u{2022} Porter-Duff alpha blending", Style::fg(Rgba::GREEN));
+    buffer.draw_text(
+        40,
+        16,
+        "\u{2022} Porter-Duff alpha blending",
+        Style::fg(Rgba::GREEN),
+    );
     buffer.draw_text(40, 17, "\u{2022} Scissor clipping", Style::fg(Rgba::GREEN));
-    buffer.draw_text(40, 18, "\u{2022} Double-buffered rendering", Style::fg(Rgba::GREEN));
-    buffer.draw_text(40, 19, "\u{2022} Unicode & emoji support", Style::fg(Rgba::GREEN));
+    buffer.draw_text(
+        40,
+        18,
+        "\u{2022} Double-buffered rendering",
+        Style::fg(Rgba::GREEN),
+    );
+    buffer.draw_text(
+        40,
+        19,
+        "\u{2022} Unicode & emoji support",
+        Style::fg(Rgba::GREEN),
+    );
 
     // Status bar
     buffer.fill_rect(0, 39, 120, 1, title_bg);
-    buffer.draw_text(2, 39, " Step 1/10  Press Space to continue ", Style::fg(Rgba::WHITE));
+    buffer.draw_text(
+        2,
+        39,
+        " Step 1/10  Press Space to continue ",
+        Style::fg(Rgba::WHITE),
+    );
 
     let pool = GraphemePool::new();
     let output = render_buffer_to_ansi(&buffer, &pool);
@@ -574,10 +604,20 @@ fn test_golden_tour_screen_5() {
     // Title bar
     let title_bg = Rgba::from_rgb_u8(64, 64, 96);
     buffer.fill_rect(0, 0, 120, 1, title_bg);
-    buffer.draw_text(2, 0, " [H] Help  [/] Palette  [T] Tour  ", Style::fg(Rgba::WHITE).with_bold());
+    buffer.draw_text(
+        2,
+        0,
+        " [H] Help  [/] Palette  [T] Tour  ",
+        Style::fg(Rgba::WHITE).with_bold(),
+    );
 
     // Demo: Alpha blending showcase
-    buffer.draw_text(10, 3, "Alpha Blending Demo", Style::fg(Rgba::WHITE).with_bold());
+    buffer.draw_text(
+        10,
+        3,
+        "Alpha Blending Demo",
+        Style::fg(Rgba::WHITE).with_bold(),
+    );
 
     // Base layers
     buffer.fill_rect(15, 6, 30, 15, Rgba::RED);
@@ -591,7 +631,12 @@ fn test_golden_tour_screen_5() {
 
     // Status
     buffer.fill_rect(0, 39, 120, 1, title_bg);
-    buffer.draw_text(2, 39, " Step 5/10  Porter-Duff 'over' compositing ", Style::fg(Rgba::WHITE));
+    buffer.draw_text(
+        2,
+        39,
+        " Step 5/10  Porter-Duff 'over' compositing ",
+        Style::fg(Rgba::WHITE),
+    );
 
     let pool = GraphemePool::new();
     let output = render_buffer_to_ansi(&buffer, &pool);
@@ -618,17 +663,37 @@ fn test_golden_help_overlay() {
     buffer.draw_text(50, 6, " Help ", Style::fg(CYAN).with_bold());
 
     // Help content
-    buffer.draw_text(25, 9, "Keyboard Shortcuts:", Style::fg(Rgba::WHITE).with_bold());
+    buffer.draw_text(
+        25,
+        9,
+        "Keyboard Shortcuts:",
+        Style::fg(Rgba::WHITE).with_bold(),
+    );
     buffer.draw_text(25, 11, "  H       Toggle this help", Style::fg(Rgba::WHITE));
-    buffer.draw_text(25, 12, "  /       Open command palette", Style::fg(Rgba::WHITE));
+    buffer.draw_text(
+        25,
+        12,
+        "  /       Open command palette",
+        Style::fg(Rgba::WHITE),
+    );
     buffer.draw_text(25, 13, "  T       Start/stop tour", Style::fg(Rgba::WHITE));
-    buffer.draw_text(25, 14, "  D       Toggle debug panel", Style::fg(Rgba::WHITE));
+    buffer.draw_text(
+        25,
+        14,
+        "  D       Toggle debug panel",
+        Style::fg(Rgba::WHITE),
+    );
     buffer.draw_text(25, 15, "  Q       Quit application", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 17, "Mouse:", Style::fg(Rgba::WHITE).with_bold());
     buffer.draw_text(25, 19, "  Click   Select item", Style::fg(Rgba::WHITE));
     buffer.draw_text(25, 20, "  Scroll  Navigate lists", Style::fg(Rgba::WHITE));
 
-    buffer.draw_text(45, 32, "Press H or Esc to close", Style::fg(Rgba::from_rgb_u8(128, 128, 160)));
+    buffer.draw_text(
+        45,
+        32,
+        "Press H or Esc to close",
+        Style::fg(Rgba::from_rgb_u8(128, 128, 160)),
+    );
 
     let pool = GraphemePool::new();
     let output = render_buffer_to_ansi(&buffer, &pool);

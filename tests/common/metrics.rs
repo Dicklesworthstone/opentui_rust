@@ -137,9 +137,8 @@ impl TimingMetrics {
                 if step_count > 0 && i > last_step_pos {
                     // Calculate fraction of output for this step
                     let step_fraction = (i - last_step_pos) as f64 / output.len().max(1) as f64;
-                    let step_duration = Duration::from_secs_f64(
-                        self.total_runtime.as_secs_f64() * step_fraction,
-                    );
+                    let step_duration =
+                        Duration::from_secs_f64(self.total_runtime.as_secs_f64() * step_fraction);
                     self.tour_step_durations.push(TourStepTiming {
                         step_number: step_count,
                         duration: step_duration,
@@ -341,7 +340,12 @@ impl ThresholdCheckResult {
 
         self.violations
             .iter()
-            .map(|v| format!("  - {}: expected {}, got {}", v.metric, v.expected, v.actual))
+            .map(|v| {
+                format!(
+                    "  - {}: expected {}, got {}",
+                    v.metric, v.expected, v.actual
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -469,7 +473,10 @@ impl MetricsSummary {
         let avg_frame_count =
             runs.iter().map(|r| r.frame_count).sum::<u32>() as f64 / runs.len() as f64;
 
-        let throughputs: Vec<f64> = runs.iter().filter_map(|r| r.output_throughput_bps).collect();
+        let throughputs: Vec<f64> = runs
+            .iter()
+            .filter_map(|r| r.output_throughput_bps)
+            .collect();
         let avg_throughput_bps = if throughputs.is_empty() {
             None
         } else {

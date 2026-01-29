@@ -61,10 +61,7 @@ impl PtyResult {
     /// Assert that timing metrics are within thresholds.
     ///
     /// Panics with a detailed message if any threshold is exceeded.
-    pub fn assert_timing_within_thresholds(
-        &self,
-        thresholds: &super::metrics::MetricThresholds,
-    ) {
+    pub fn assert_timing_within_thresholds(&self, thresholds: &super::metrics::MetricThresholds) {
         self.timing.assert_within_thresholds(thresholds);
     }
 
@@ -592,10 +589,7 @@ fn format_timing_summary(metrics: &super::metrics::TimingMetrics) -> String {
     let mut summary = String::new();
     summary.push_str("=== Timing Metrics Summary ===\n\n");
 
-    summary.push_str(&format!(
-        "Total Runtime: {:?}\n",
-        metrics.total_runtime
-    ));
+    summary.push_str(&format!("Total Runtime: {:?}\n", metrics.total_runtime));
 
     if let Some(startup) = metrics.startup_time {
         summary.push_str(&format!("Startup Time: {:?}\n", startup));
@@ -616,10 +610,7 @@ fn format_timing_summary(metrics: &super::metrics::TimingMetrics) -> String {
     }
 
     if let Some(throughput) = metrics.output_throughput_bps {
-        summary.push_str(&format!(
-            "Output Throughput: {:.0} bytes/sec\n",
-            throughput
-        ));
+        summary.push_str(&format!("Output Throughput: {:.0} bytes/sec\n", throughput));
     }
 
     if !metrics.tour_step_durations.is_empty() {

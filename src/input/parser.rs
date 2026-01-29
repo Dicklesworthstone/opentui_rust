@@ -107,10 +107,7 @@ impl InputParser {
             // Escape sequence
             0x1b => self.parse_escape(input),
             // Control characters with special key codes
-            0x00 => Ok((
-                KeyEvent::new(KeyCode::Null, KeyModifiers::CTRL).into(),
-                1,
-            )),
+            0x00 => Ok((KeyEvent::new(KeyCode::Null, KeyModifiers::CTRL).into(), 1)),
             0x09 => Ok((KeyEvent::key(KeyCode::Tab).into(), 1)),
             0x0A => Ok((KeyEvent::key(KeyCode::Enter).into(), 1)), // LF
             0x0D => Ok((KeyEvent::key(KeyCode::Enter).into(), 1)), // CR
@@ -1932,15 +1929,27 @@ mod tests {
 
         // Partial CSI: ESC [ only (no terminator)
         let result = parser.parse(b"\x1b[");
-        assert_eq!(result, Err(ParseError::Incomplete), "ESC [ should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "ESC [ should be Incomplete"
+        );
 
         // Partial CSI with parameter but no terminator
         let result = parser.parse(b"\x1b[1");
-        assert_eq!(result, Err(ParseError::Incomplete), "ESC [1 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "ESC [1 should be Incomplete"
+        );
 
         // Partial CSI with semicolon but no terminator
         let result = parser.parse(b"\x1b[1;2");
-        assert_eq!(result, Err(ParseError::Incomplete), "ESC [1;2 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "ESC [1;2 should be Incomplete"
+        );
     }
 
     #[test]
@@ -1949,11 +1958,19 @@ mod tests {
 
         // SGR mouse with incomplete coordinates
         let result = parser.parse(b"\x1b[<0;10");
-        assert_eq!(result, Err(ParseError::Incomplete), "Truncated SGR mouse should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Truncated SGR mouse should be Incomplete"
+        );
 
         // SGR mouse with partial terminator region
         let result = parser.parse(b"\x1b[<0;10;5");
-        assert_eq!(result, Err(ParseError::Incomplete), "SGR mouse without M/m should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "SGR mouse without M/m should be Incomplete"
+        );
     }
 
     #[test]
@@ -1979,15 +1996,27 @@ mod tests {
 
         // Invalid UTF-8 continuation byte (0x80-0xBF) without leading byte
         let result = parser.parse(&[0x80]);
-        assert_eq!(result, Err(ParseError::InvalidUtf8), "Lone continuation byte should be InvalidUtf8");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Lone continuation byte should be InvalidUtf8"
+        );
 
         // Invalid byte 0xFF (never valid in UTF-8)
         let result = parser.parse(&[0xFF]);
-        assert_eq!(result, Err(ParseError::InvalidUtf8), "0xFF should be InvalidUtf8");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "0xFF should be InvalidUtf8"
+        );
 
         // Invalid byte 0xFE (never valid in UTF-8)
         let result = parser.parse(&[0xFE]);
-        assert_eq!(result, Err(ParseError::InvalidUtf8), "0xFE should be InvalidUtf8");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "0xFE should be InvalidUtf8"
+        );
     }
 
     #[test]
@@ -1996,19 +2025,35 @@ mod tests {
 
         // Two-byte UTF-8 sequence (0xC2 0xA9 = ©) with missing continuation
         let result = parser.parse(&[0xC2]);
-        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 2-byte UTF-8 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Truncated 2-byte UTF-8 should be Incomplete"
+        );
 
         // Three-byte UTF-8 sequence with only first byte (日 = E6 97 A5)
         let result = parser.parse(&[0xE6]);
-        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 3-byte UTF-8 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Truncated 3-byte UTF-8 should be Incomplete"
+        );
 
         // Three-byte with only two bytes
         let result = parser.parse(&[0xE6, 0x97]);
-        assert_eq!(result, Err(ParseError::Incomplete), "Partial 3-byte UTF-8 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Partial 3-byte UTF-8 should be Incomplete"
+        );
 
         // Four-byte UTF-8 with only first byte (🎉 = F0 9F 8E 89)
         let result = parser.parse(&[0xF0]);
-        assert_eq!(result, Err(ParseError::Incomplete), "Truncated 4-byte UTF-8 should be Incomplete");
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Truncated 4-byte UTF-8 should be Incomplete"
+        );
     }
 
     #[test]
@@ -2018,10 +2063,18 @@ mod tests {
         // Overlong encoding of 'A' (0x41) as 2-byte: C0 41 (invalid)
         // C0 and C1 are never valid UTF-8 leading bytes
         let result = parser.parse(&[0xC0, 0x41]);
-        assert_eq!(result, Err(ParseError::InvalidUtf8), "Overlong C0 encoding should be InvalidUtf8");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Overlong C0 encoding should be InvalidUtf8"
+        );
 
         let result = parser.parse(&[0xC1, 0x80]);
-        assert_eq!(result, Err(ParseError::InvalidUtf8), "Overlong C1 encoding should be InvalidUtf8");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Overlong C1 encoding should be InvalidUtf8"
+        );
     }
 
     #[test]
@@ -2081,7 +2134,10 @@ mod tests {
             Ok((event, _)) => {
                 let mouse = event.mouse().unwrap();
                 // Coordinates might be clamped to 0 or saturate
-                assert!(mouse.x == 0 || mouse.x == u32::from(u16::MAX), "Zero coord should be handled");
+                assert!(
+                    mouse.x == 0 || mouse.x == u32::from(u16::MAX),
+                    "Zero coord should be handled"
+                );
             }
             Err(ParseError::UnrecognizedSequence(_)) => {
                 // Also acceptable - invalid coordinates rejected
@@ -2127,7 +2183,12 @@ mod tests {
             let input = format!("\x1bO{}", key_char);
             let (event, _) = parser.parse(input.as_bytes()).unwrap();
             let key = event.key().unwrap();
-            assert_eq!(key.code, KeyCode::F((i + 1) as u8), "F{} key mismatch", i + 1);
+            assert_eq!(
+                key.code,
+                KeyCode::F((i + 1) as u8),
+                "F{} key mismatch",
+                i + 1
+            );
         }
 
         // Test F5-F12 (CSI format with ~)
@@ -2145,7 +2206,12 @@ mod tests {
         for (input, expected_n) in f_keys {
             let (event, _) = parser.parse(input).unwrap();
             let key = event.key().unwrap();
-            assert_eq!(key.code, KeyCode::F(expected_n), "F{} key mismatch", expected_n);
+            assert_eq!(
+                key.code,
+                KeyCode::F(expected_n),
+                "F{} key mismatch",
+                expected_n
+            );
         }
     }
 
@@ -2165,7 +2231,11 @@ mod tests {
         for (input, expected_code) in special_keys {
             let (event, _) = parser.parse(input).unwrap();
             let key = event.key().unwrap();
-            assert_eq!(key.code, expected_code, "Special key {:?} mismatch", expected_code);
+            assert_eq!(
+                key.code, expected_code,
+                "Special key {:?} mismatch",
+                expected_code
+            );
         }
     }
 
@@ -2242,7 +2312,10 @@ mod tests {
                 // Button should be mapped to something
                 assert!(matches!(
                     mouse.button,
-                    MouseButton::Left | MouseButton::Middle | MouseButton::Right | MouseButton::None
+                    MouseButton::Left
+                        | MouseButton::Middle
+                        | MouseButton::Right
+                        | MouseButton::None
                 ));
             }
             Err(ParseError::UnrecognizedSequence(_)) => {

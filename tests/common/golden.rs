@@ -158,7 +158,11 @@ pub fn load_golden_from_path(path: &Path) -> Result<GoldenFile, std::io::Error> 
 }
 
 /// Save a golden file.
-pub fn save_golden(name: &str, metadata: &GoldenMetadata, content: &[u8]) -> Result<PathBuf, std::io::Error> {
+pub fn save_golden(
+    name: &str,
+    metadata: &GoldenMetadata,
+    content: &[u8],
+) -> Result<PathBuf, std::io::Error> {
     let dir = golden_dir();
     fs::create_dir_all(&dir)?;
 
@@ -233,10 +237,7 @@ fn compute_diff_summary(expected: &[u8], actual: &[u8]) -> String {
     ));
 
     // Find first difference
-    let first_diff = expected
-        .iter()
-        .zip(actual.iter())
-        .position(|(a, b)| a != b);
+    let first_diff = expected.iter().zip(actual.iter()).position(|(a, b)| a != b);
 
     if let Some(pos) = first_diff {
         summary.push_str(&format!("First difference at byte {pos}\n"));
@@ -357,7 +358,7 @@ fn is_leap_year(year: u32) -> bool {
 #[macro_export]
 macro_rules! assert_golden {
     ($name:expr, $actual:expr, $width:expr, $height:expr) => {{
-        use $crate::common::golden::{compare_golden, current_date, GoldenMetadata, GoldenResult};
+        use $crate::common::golden::{GoldenMetadata, GoldenResult, compare_golden, current_date};
 
         let metadata = GoldenMetadata {
             name: $name.to_string(),
@@ -376,10 +377,7 @@ macro_rules! assert_golden {
                 eprintln!("Created new golden file: {}", path.display());
             }
             GoldenResult::Mismatch { diff_summary, .. } => {
-                panic!(
-                    "Golden file mismatch for '{}':\n{}",
-                    $name, diff_summary
-                );
+                panic!("Golden file mismatch for '{}':\n{}", $name, diff_summary);
             }
         }
     }};
