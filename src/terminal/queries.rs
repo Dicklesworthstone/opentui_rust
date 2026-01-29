@@ -9,6 +9,12 @@
 
 use crate::ansi::sequences;
 
+/// Maximum length for DCS response parsing.
+///
+/// Defense-in-depth limit to prevent DoS via maliciously long responses.
+/// Same limit as used in the input parser.
+const MAX_DCS_RESPONSE_LENGTH: usize = 64 * 1024;
+
 /// Query sequence constants for terminal capability detection.
 pub mod query_constants {
     pub use crate::ansi::sequences::query::DEVICE_ATTRIBUTES as DA1;
@@ -148,7 +154,8 @@ impl TerminalResponse {
     /// ST (String Terminator) is `ESC \` or `\x9c`
     fn parse_xtversion(input: &[u8]) -> Option<Self> {
         // Look for DCS (ESC P or 0x90)
-        if input.len() < 5 {
+        // Defense-in-depth: reject overly long responses to prevent DoS
+        if input.len() < 5 || input.len() > MAX_DCS_RESPONSE_LENGTH {
             return None;
         }
 

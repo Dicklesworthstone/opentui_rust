@@ -10,6 +10,7 @@
 use crate::buffer::OptimizedBuffer;
 use crate::cell::Cell;
 use crate::color::Rgba;
+use crate::error::Error;
 use crate::style::Style;
 
 /// Unicode block characters for 2x2 quadrant rendering.

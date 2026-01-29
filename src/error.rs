@@ -22,6 +22,18 @@ pub enum Error {
         width: u32,
         height: u32,
     },
+    /// Pixel count doesn't match expected dimensions.
+    SizeMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    /// Dimension overflow (width * height exceeds usize).
+    DimensionOverflow { width: u32, height: u32 },
+    /// Buffer size mismatch in diff operation.
+    BufferSizeMismatch {
+        old_size: (u32, u32),
+        new_size: (u32, u32),
+    },
 }
 
 impl fmt::Display for Error {
@@ -41,6 +53,22 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "position ({x}, {y}) out of bounds for {width}x{height} buffer"
+                )
+            }
+            Self::SizeMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "size mismatch: expected {expected} elements, got {actual}"
+                )
+            }
+            Self::DimensionOverflow { width, height } => {
+                write!(f, "dimension overflow: {width}x{height} exceeds capacity")
+            }
+            Self::BufferSizeMismatch { old_size, new_size } => {
+                write!(
+                    f,
+                    "buffer size mismatch: old={}x{}, new={}x{}",
+                    old_size.0, old_size.1, new_size.0, new_size.1
                 )
             }
         }
