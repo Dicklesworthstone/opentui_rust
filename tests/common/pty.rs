@@ -38,9 +38,41 @@ pub struct PtyResult {
     pub env: HashMap<String, String>,
     /// Command that was run.
     pub command: Vec<String>,
+    /// Timing metrics computed from the run.
+    pub timing: super::metrics::TimingMetrics,
 }
 
 impl PtyResult {
+    /// Get the timing metrics for this run.
+    pub fn metrics(&self) -> &super::metrics::TimingMetrics {
+        &self.timing
+    }
+
+    /// Check timing metrics against thresholds.
+    ///
+    /// Returns a result indicating whether all thresholds were met.
+    pub fn check_timing_thresholds(
+        &self,
+        thresholds: &super::metrics::MetricThresholds,
+    ) -> super::metrics::ThresholdCheckResult {
+        self.timing.check_thresholds(thresholds)
+    }
+
+    /// Assert that timing metrics are within thresholds.
+    ///
+    /// Panics with a detailed message if any threshold is exceeded.
+    pub fn assert_timing_within_thresholds(
+        &self,
+        thresholds: &super::metrics::MetricThresholds,
+    ) {
+        self.timing.assert_within_thresholds(thresholds);
+    }
+
+    /// Generate a JSON report of timing metrics.
+    pub fn timing_report_json(&self) -> Result<String, serde_json::Error> {
+        self.timing.to_json()
+    }
+
     /// Generate a comprehensive sequence analysis report.
     ///
     /// This provides detailed analysis including:
@@ -365,12 +397,15 @@ pub fn spawn_pty(config: &PtyConfig) -> io::Result<PtyResult> {
             } else {
                 None
             };
+            let duration = start.elapsed();
+            let timing = compute_timing_metrics(&output, duration);
             return Ok(PtyResult {
                 exit_code,
                 output,
-                duration: start.elapsed(),
+                duration,
                 env,
                 command,
+                timing,
             });
         }
 
@@ -405,13 +440,29 @@ pub fn spawn_pty(config: &PtyConfig) -> io::Result<PtyResult> {
         libc::waitpid(pid, std::ptr::from_mut(&mut status), 0);
     }
 
+    let duration = start.elapsed();
+    let timing = compute_timing_metrics(&output, duration);
     Ok(PtyResult {
         exit_code: None,
         output,
-        duration: start.elapsed(),
+        duration,
         env,
         command,
+        timing,
     })
+}
+
+/// Compute timing metrics from PTY output.
+fn compute_timing_metrics(
+    output: &[u8],
+    total_duration: Duration,
+) -> super::metrics::TimingMetrics {
+    let mut metrics = super::metrics::TimingMetrics::from_duration(total_duration);
+    metrics.estimate_startup_from_output(output, total_duration);
+    metrics.count_frames_from_output(output);
+    metrics.calculate_throughput(output.len());
+    metrics.extract_tour_steps(output);
+    metrics
 }
 
 /// ANSI sequence constants for assertions.
@@ -524,5 +575,62 @@ pub fn log_pty_result(result: &PtyResult, test_name: &str) {
 
         // Also save hex dump for detailed analysis
         artifacts.save_text("output.hex", &result.output_hex());
+
+        // Save timing metrics
+        if let Ok(timing_json) = result.timing.to_json() {
+            artifacts.save_text("timing_metrics.json", &timing_json);
+        }
+
+        // Save human-readable timing summary
+        let timing_summary = format_timing_summary(&result.timing);
+        artifacts.save_text("timing_summary.txt", &timing_summary);
     }
+}
+
+/// Format timing metrics as human-readable summary.
+fn format_timing_summary(metrics: &super::metrics::TimingMetrics) -> String {
+    let mut summary = String::new();
+    summary.push_str("=== Timing Metrics Summary ===\n\n");
+
+    summary.push_str(&format!(
+        "Total Runtime: {:?}\n",
+        metrics.total_runtime
+    ));
+
+    if let Some(startup) = metrics.startup_time {
+        summary.push_str(&format!("Startup Time: {:?}\n", startup));
+    }
+
+    if let Some(first_frame) = metrics.first_frame_time {
+        summary.push_str(&format!("First Frame: {:?}\n", first_frame));
+    }
+
+    summary.push_str(&format!("Frame Count: {}\n", metrics.frame_count));
+
+    if let Some(avg_frame) = metrics.avg_frame_time {
+        let fps = 1.0 / avg_frame.as_secs_f64();
+        summary.push_str(&format!(
+            "Avg Frame Time: {:?} ({:.1} fps)\n",
+            avg_frame, fps
+        ));
+    }
+
+    if let Some(throughput) = metrics.output_throughput_bps {
+        summary.push_str(&format!(
+            "Output Throughput: {:.0} bytes/sec\n",
+            throughput
+        ));
+    }
+
+    if !metrics.tour_step_durations.is_empty() {
+        summary.push_str("\nTour Step Durations:\n");
+        for step in &metrics.tour_step_durations {
+            summary.push_str(&format!(
+                "  Step {}: {:?} ({} bytes)\n",
+                step.step_number, step.duration, step.output_bytes
+            ));
+        }
+    }
+
+    summary
 }
