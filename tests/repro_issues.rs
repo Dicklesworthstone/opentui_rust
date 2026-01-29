@@ -33,7 +33,7 @@ mod tests {
     }
 
     #[test]
-    fn test_overwrite_leak() {
+    fn test_overwrite_no_longer_leaks() {
         let mut buffer = OptimizedBuffer::new(10, 10);
         let mut pool = GraphemePool::new();
 
@@ -42,30 +42,7 @@ mod tests {
         let initial_refcount = pool.refcount(id);
         assert_eq!(initial_refcount, 1);
 
-        // 2. Draw it to buffer with pool (increments refcount?)
-        // buffer.set_with_pool doesn't increment if we pass the cell in,
-        // it assumes we are transferring ownership of the ID reference if it was just allocated?
-        // Wait, GraphemeId is Copy.
-        // Let's look at set_with_pool implementation again.
-
-        /*
-        if let Some(dest) = self.get_mut(x, y) {
-            let old_content = dest.content;
-            let new_content = cell.content;
-
-            if old_content != new_content {
-                if let CellContent::Grapheme(id) = old_content {
-                    if id.pool_id() != 0 {
-                        pool.decref(id);
-                    }
-                }
-            } else if let CellContent::Grapheme(id) = new_content {
-                 // ...
-            }
-            *dest = cell;
-        }
-        */
-
+        // 2. Draw it to buffer with pool
         // set_with_pool DECREMENTS the OLD content. It does NOT increment the NEW content.
         // The caller is responsible for ensuring the new content has a valid refcount.
         // When we called pool.alloc(), we got refcount 1. So we are "giving" that refcount to the buffer.
@@ -83,25 +60,22 @@ mod tests {
         assert_eq!(pool.refcount(id), 1);
 
         // 3. Overwrite with set() (no pool)
+        // The buffer now tracks the orphaned grapheme ID
         let clear_cell = opentui::cell::Cell::clear(opentui::color::Rgba::BLACK);
         buffer.set(0, 0, clear_cell);
 
-        // Buffer now has clear_cell.
-        // But pool.decref was NEVER called.
-        // Refcount should still be 1 -> LEAK.
+        // Buffer now has clear_cell, but orphaned grapheme is tracked internally.
+        // Refcount is still 1 because we haven't called a pool-aware method yet.
+        assert_eq!(pool.refcount(id), 1, "Refcount should still be 1 before drain");
 
-        assert_eq!(pool.refcount(id), 1, "Refcount should be leaked (remain 1)");
-
-        // 4. Clear buffer with pool
+        // 4. Clear buffer with pool - this drains orphaned graphemes
         buffer.clear_with_pool(&mut pool, opentui::color::Rgba::BLACK);
 
-        // Since buffer cell is already cleared (by step 3), clear_with_pool sees Empty/Char.
-        // It won't decref the emoji because it's already gone from the buffer array.
-
+        // The orphaned grapheme has been released!
         assert_eq!(
             pool.refcount(id),
-            1,
-            "Refcount should still be leaked after clear"
+            0,
+            "Refcount should be 0 after clear_with_pool drains orphans"
         );
     }
 

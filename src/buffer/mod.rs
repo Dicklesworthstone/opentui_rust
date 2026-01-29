@@ -47,7 +47,7 @@ pub use opacity::OpacityStack;
 pub use pixel::{GrayscaleBuffer, PixelBuffer};
 pub use scissor::{ClipRect, ScissorStack};
 
-use crate::cell::{Cell, CellContent};
+use crate::cell::{Cell, CellContent, GraphemeId};
 use crate::color::Rgba;
 use crate::grapheme_pool::GraphemePool;
 use crate::style::Style;
@@ -79,6 +79,10 @@ pub struct OptimizedBuffer {
 
     id: String,
     respect_alpha: bool,
+
+    /// Grapheme IDs that were overwritten by non-pool operations.
+    /// These need to be cleaned up when a pool becomes available.
+    orphaned_graphemes: Vec<GraphemeId>,
 }
 
 impl OptimizedBuffer {
@@ -100,6 +104,7 @@ impl OptimizedBuffer {
             opacity_stack: OpacityStack::new(),
             id: String::new(),
             respect_alpha: true,
+            orphaned_graphemes: Vec::new(),
         }
     }
 
@@ -173,6 +178,10 @@ impl OptimizedBuffer {
     }
 
     /// Set cell at position, respecting scissor and opacity.
+    ///
+    /// Note: If the cell being overwritten contains a pooled grapheme, the
+    /// grapheme ID is tracked for later cleanup via [`clear_with_pool`] or
+    /// [`set_with_pool`].
     pub fn set(&mut self, x: u32, y: u32, mut cell: Cell) {
         if !self.is_visible(x, y) {
             return;
@@ -183,13 +192,25 @@ impl OptimizedBuffer {
             cell.blend_with_opacity(opacity);
         }
 
-        if let Some(dest) = self.get_mut(x, y) {
-            *dest = cell;
+        // Use index to avoid double mutable borrow
+        if let Some(idx) = self.cell_index(x, y) {
+            // Track orphaned graphemes for later cleanup
+            if let CellContent::Grapheme(id) = self.cells[idx].content {
+                if id.pool_id() != 0 {
+                    self.orphaned_graphemes.push(id);
+                }
+            }
+            self.cells[idx] = cell;
         }
     }
 
     /// Set cell at position, updating grapheme pool reference counts.
+    ///
+    /// Also releases any orphaned graphemes from prior non-pool operations.
     pub fn set_with_pool(&mut self, pool: &mut GraphemePool, x: u32, y: u32, mut cell: Cell) {
+        // First, release any orphaned graphemes from non-pool operations
+        self.drain_orphaned_graphemes(pool);
+
         if !self.is_visible(x, y) {
             return;
         }
@@ -221,6 +242,10 @@ impl OptimizedBuffer {
     }
 
     /// Set cell with alpha blending over existing content.
+    ///
+    /// Note: If the cell being overwritten contains a pooled grapheme, the
+    /// grapheme ID is tracked for later cleanup via [`clear_with_pool`] or
+    /// [`set_blended_with_pool`].
     pub fn set_blended(&mut self, x: u32, y: u32, mut cell: Cell) {
         if !self.is_visible(x, y) {
             return;
@@ -232,16 +257,25 @@ impl OptimizedBuffer {
         }
 
         let respect_alpha = self.respect_alpha;
-        if let Some(dest) = self.get_mut(x, y) {
+        // Use index to avoid double mutable borrow
+        if let Some(idx) = self.cell_index(x, y) {
+            // Track orphaned graphemes for later cleanup
+            if let CellContent::Grapheme(id) = self.cells[idx].content {
+                if id.pool_id() != 0 {
+                    self.orphaned_graphemes.push(id);
+                }
+            }
             if respect_alpha {
-                *dest = cell.blend_over(dest);
+                self.cells[idx] = cell.blend_over(&self.cells[idx]);
             } else {
-                *dest = cell;
+                self.cells[idx] = cell;
             }
         }
     }
 
     /// Set cell with alpha blending over existing content, updating grapheme pool counts.
+    ///
+    /// Also releases any orphaned graphemes from prior non-pool operations.
     pub fn set_blended_with_pool(
         &mut self,
         pool: &mut GraphemePool,
@@ -249,6 +283,9 @@ impl OptimizedBuffer {
         y: u32,
         mut cell: Cell,
     ) {
+        // First, release any orphaned graphemes from non-pool operations
+        self.drain_orphaned_graphemes(pool);
+
         if !self.is_visible(x, y) {
             return;
         }
@@ -296,6 +333,20 @@ impl OptimizedBuffer {
         self.scissor_stack.contains(x as i32, y as i32)
     }
 
+    /// Release any orphaned graphemes that were overwritten by non-pool operations.
+    ///
+    /// When `set()` or `set_blended()` overwrites a cell containing a pooled grapheme,
+    /// the grapheme ID is tracked but not immediately released (since no pool is
+    /// available). This method decrements the reference count for all such orphans.
+    ///
+    /// Called automatically by pool-aware methods like [`clear_with_pool`] and
+    /// [`set_with_pool`].
+    pub fn drain_orphaned_graphemes(&mut self, pool: &mut GraphemePool) {
+        for id in self.orphaned_graphemes.drain(..) {
+            pool.decref(id);
+        }
+    }
+
     /// Clear entire buffer with background color.
     pub fn clear(&mut self, bg: Rgba) {
         // Create the clear cell once and fill the entire buffer
@@ -305,7 +356,12 @@ impl OptimizedBuffer {
     }
 
     /// Clear entire buffer with background color, updating grapheme pool counts.
+    ///
+    /// Also releases any orphaned graphemes from prior non-pool operations.
     pub fn clear_with_pool(&mut self, pool: &mut GraphemePool, bg: Rgba) {
+        // First, release any orphaned graphemes from non-pool operations
+        self.drain_orphaned_graphemes(pool);
+
         let clear_cell = Cell::clear(bg);
         for cell in &mut self.cells {
             if let CellContent::Grapheme(id) = cell.content {

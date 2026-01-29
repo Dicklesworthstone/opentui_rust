@@ -17,20 +17,22 @@ mod boundary_conditions {
 
     #[test]
     fn zero_size_buffer_no_panic() {
-        // Zero-width buffer
+        // Zero dimensions are clamped to 1 to prevent division-by-zero in iter_cells()
+
+        // Zero-width buffer -> clamped to 1
         let buf = OptimizedBuffer::new(0, 10);
-        assert_eq!(buf.size(), (0, 10));
-        assert!(buf.get(0, 0).is_none());
+        assert_eq!(buf.size(), (1, 10));
+        assert!(buf.get(0, 0).is_some()); // Has a valid cell now
 
-        // Zero-height buffer
+        // Zero-height buffer -> clamped to 1
         let buf = OptimizedBuffer::new(10, 0);
-        assert_eq!(buf.size(), (10, 0));
-        assert!(buf.get(0, 0).is_none());
+        assert_eq!(buf.size(), (10, 1));
+        assert!(buf.get(0, 0).is_some());
 
-        // Completely zero buffer
+        // Completely zero buffer -> clamped to 1x1
         let buf = OptimizedBuffer::new(0, 0);
-        assert_eq!(buf.size(), (0, 0));
-        assert!(buf.get(0, 0).is_none());
+        assert_eq!(buf.size(), (1, 1));
+        assert!(buf.get(0, 0).is_some());
     }
 
     #[test]
@@ -193,9 +195,13 @@ mod drawing_edge_cases {
 
     #[test]
     fn clear_on_zero_buffer() {
+        // Zero dimensions are clamped to 1, so this is actually a 1x1 buffer
         let mut buf = OptimizedBuffer::new(0, 0);
+        assert_eq!(buf.size(), (1, 1));
         // Should not panic
         buf.clear(Rgba::RED);
+        // Verify clear worked on the 1x1 buffer
+        assert!(approx_eq_rgba(buf.get(0, 0).unwrap().bg, Rgba::RED));
     }
 }
 
