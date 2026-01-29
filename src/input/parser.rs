@@ -1448,6 +1448,39 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_invalid_utf8_in_csi_params() {
+        // Tests for bd-2o1p: Standardize UTF-8 error handling in parser
+        let mut parser = InputParser::new();
+
+        // Invalid UTF-8 in arrow key modifiers (CSI params)
+        // ESC [ <invalid-utf8> A  (Up arrow with invalid UTF-8 modifier params)
+        let result = parser.parse(&[0x1b, b'[', 0x80, b'A']);
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Invalid UTF-8 in CSI arrow key params should return InvalidUtf8"
+        );
+
+        // Invalid UTF-8 in tilde sequence (e.g., F5 key)
+        // ESC [ <invalid-utf8> ~
+        let result = parser.parse(&[0x1b, b'[', 0x80, b'~']);
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Invalid UTF-8 in tilde key params should return InvalidUtf8"
+        );
+
+        // Invalid UTF-8 in resize sequence
+        // ESC [ 8 ; <invalid-utf8> ; 80 t
+        let result = parser.parse(&[0x1b, b'[', b'8', b';', 0x80, b';', b'8', b'0', b't']);
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidUtf8),
+            "Invalid UTF-8 in resize params should return InvalidUtf8"
+        );
+    }
+
+    #[test]
     fn test_parse_null_character() {
         let mut parser = InputParser::new();
         let (event, consumed) = parser.parse(&[0x00]).unwrap();

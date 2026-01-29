@@ -11,6 +11,7 @@
 //! - 24-bit ID allows ~16M unique graphemes
 //! - Reference counting for memory reuse
 //! - Free-list for O(1) slot reuse
+//! - HashMap index for O(1) intern() lookup (avoiding O(n) linear scan)
 //!
 //! # Usage
 //!
@@ -39,6 +40,7 @@
 //! - get returns `None` for freed or invalid IDs
 
 use crate::cell::GraphemeId;
+use std::collections::HashMap;
 
 /// Maximum pool ID (24-bit limit).
 pub const MAX_POOL_ID: u32 = 0x00FF_FFFF;
@@ -85,6 +87,9 @@ pub struct GraphemePool {
     slots: Vec<Slot>,
     /// Stack of free slot indices for reuse.
     free_list: Vec<u32>,
+    /// O(1) lookup index: grapheme string → slot ID.
+    /// Kept in sync with slots: entries are added on alloc/intern, removed on decref to 0.
+    index: HashMap<String, u32>,
 }
 
 impl GraphemePool {
@@ -101,6 +106,7 @@ impl GraphemePool {
                 width: 0,
             }],
             free_list: Vec::new(),
+            index: HashMap::new(),
         }
     }
 
@@ -121,6 +127,7 @@ impl GraphemePool {
         Self {
             slots,
             free_list: Vec::new(),
+            index: HashMap::with_capacity(capacity),
         }
     }
 
@@ -136,12 +143,18 @@ impl GraphemePool {
     /// # Panics
     ///
     /// Panics if the pool exceeds 16M entries (24-bit ID limit).
+    ///
+    /// # Note
+    ///
+    /// This method does NOT deduplicate. If you want to reuse existing graphemes,
+    /// use [`intern()`](Self::intern) instead.
     #[must_use]
     pub fn alloc(&mut self, grapheme: &str) -> GraphemeId {
         let width = crate::unicode::display_width(grapheme);
         // Saturate width to u8 range, then GraphemeId::new() will saturate to 127
         let width_u8 = width.min(u8::MAX as usize) as u8;
-        let slot = Slot::new(grapheme.to_owned(), width_u8);
+        let grapheme_owned = grapheme.to_owned();
+        let slot = Slot::new(grapheme_owned.clone(), width_u8);
 
         let pool_id = if let Some(free_id) = self.free_list.pop() {
             // Reuse a freed slot
@@ -150,14 +163,17 @@ impl GraphemePool {
         } else {
             // Allocate new slot
             let id = self.slots.len() as u32;
-            // SAFETY: Use explicit check instead of assert!() which is removed in release builds.
             // Exceeding 24-bit pool ID limit would cause ID collisions and use-after-free bugs.
-            if id > MAX_POOL_ID {
-                panic!("GraphemePool exceeded 16M entry limit (id={})", id);
-            }
+            assert!(
+                id <= MAX_POOL_ID,
+                "GraphemePool exceeded 16M entry limit (id={id})"
+            );
             self.slots.push(slot);
             id
         };
+
+        // Add to index for O(1) intern() lookup
+        self.index.insert(grapheme_owned, pool_id);
 
         GraphemeId::new(pool_id, width_u8)
     }
@@ -168,24 +184,28 @@ impl GraphemePool {
     /// its refcount and returns the existing ID. Otherwise, allocates a new slot.
     ///
     /// This is useful for deduplicating repeated graphemes.
+    ///
+    /// # Performance
+    ///
+    /// Uses O(1) HashMap lookup instead of linear scan.
     #[must_use]
     pub fn intern(&mut self, grapheme: &str) -> GraphemeId {
-        // Linear search for existing (could use HashMap for O(1) lookup if needed)
-        // First pass: find existing slot
-        let existing = self
-            .slots
-            .iter()
-            .enumerate()
-            .skip(1)
-            .find(|(_, slot)| !slot.is_free() && slot.bytes == grapheme)
-            .map(|(i, slot)| (i as u32, slot.width));
-
-        if let Some((pool_id, width)) = existing {
-            self.incref_by_pool_id(pool_id);
-            GraphemeId::new(pool_id, width)
-        } else {
-            self.alloc(grapheme)
+        // O(1) lookup via HashMap index
+        if let Some(&pool_id) = self.index.get(grapheme) {
+            // Verify slot is still active (not freed)
+            if let Some(slot) = self.slots.get(pool_id as usize) {
+                if !slot.is_free() {
+                    let width = slot.width; // Save before mutable borrow
+                    self.incref_by_pool_id(pool_id);
+                    return GraphemeId::new(pool_id, width);
+                }
+            }
+            // Index entry is stale (slot was freed) - remove it and allocate fresh
+            self.index.remove(grapheme);
         }
+
+        // Not found in index - allocate new (which also adds to index)
+        self.alloc(grapheme)
     }
 
     /// Increment the reference count for a grapheme ID.
@@ -223,6 +243,8 @@ impl GraphemePool {
             if slot.refcount > 0 {
                 slot.refcount -= 1;
                 if slot.refcount == 0 {
+                    // Remove from index before clearing bytes
+                    self.index.remove(&slot.bytes);
                     // Free the slot
                     slot.bytes.clear();
                     self.free_list.push(pool_id);
@@ -315,6 +337,7 @@ impl GraphemePool {
     pub fn clear(&mut self) {
         self.slots.truncate(1);
         self.free_list.clear();
+        self.index.clear();
     }
 }
 
@@ -547,5 +570,63 @@ mod tests {
     fn test_is_full_empty_pool() {
         let pool = GraphemePool::new();
         assert!(!pool.is_full(), "empty pool should not be full");
+    }
+
+    #[test]
+    fn test_index_consistency_many_graphemes() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate many unique graphemes
+        let graphemes: Vec<String> = (0..1000).map(|i| format!("g{i}")).collect();
+        let ids: Vec<_> = graphemes.iter().map(|g| pool.alloc(g)).collect();
+
+        // All should be retrievable
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(pool.get(*id), Some(graphemes[i].as_str()));
+        }
+
+        // Intern should return same IDs (via O(1) HashMap lookup)
+        for (i, g) in graphemes.iter().enumerate() {
+            let interned = pool.intern(g);
+            assert_eq!(interned.pool_id(), ids[i].pool_id());
+            assert_eq!(pool.refcount(interned), 2); // Original + interned
+        }
+
+        // Decref all twice to free
+        for id in &ids {
+            pool.decref(*id);
+            pool.decref(*id);
+        }
+
+        // All should be freed
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.free_count(), 1000);
+
+        // Interning after free should allocate fresh (reusing slots)
+        for g in &graphemes {
+            let fresh = pool.intern(g);
+            assert_eq!(pool.refcount(fresh), 1);
+        }
+
+        // Should have reused slots, not grown
+        assert_eq!(pool.active_count(), 1000);
+        assert_eq!(pool.free_count(), 0);
+        assert_eq!(pool.total_slots(), 1000);
+    }
+
+    #[test]
+    fn test_index_cleared_on_clear() {
+        let mut pool = GraphemePool::new();
+
+        pool.alloc("a");
+        pool.alloc("b");
+        pool.alloc("c");
+
+        pool.clear();
+
+        // After clear, intern should allocate fresh
+        let id = pool.intern("a");
+        assert_eq!(id.pool_id(), 1); // First slot after reserved 0
+        assert_eq!(pool.refcount(id), 1);
     }
 }
