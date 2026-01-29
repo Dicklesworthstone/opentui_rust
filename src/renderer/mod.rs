@@ -331,10 +331,12 @@ impl Renderer {
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
         for y in 0..self.height {
-            writer.move_cursor(y, 0);
             for x in 0..self.width {
                 if let Some(cell) = self.back_buffer.get(x, y) {
                     if !cell.is_continuation() {
+                        // Always move cursor to exact position before writing
+                        // This ensures correct positioning even when cells are skipped
+                        writer.move_cursor(y, x);
                         let url = cell
                             .attributes
                             .link_id()
@@ -369,7 +371,6 @@ impl Renderer {
         let mut writer = AnsiWriter::new(&mut self.scratch_buffer);
 
         for region in &diff.dirty_regions {
-            writer.move_cursor(region.y, region.x);
             for i in 0..region.width {
                 let x = region.x + i;
                 let y = region.y;
@@ -379,6 +380,9 @@ impl Renderer {
                     if cell.is_continuation() {
                         continue;
                     }
+                    // Always move cursor to exact position before writing
+                    // This ensures correct positioning even when continuation cells are skipped
+                    writer.move_cursor(y, x);
                     let url = cell
                         .attributes
                         .link_id()
