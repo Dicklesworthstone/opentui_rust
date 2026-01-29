@@ -69,8 +69,14 @@ pub struct PtyTestHarness {
 }
 
 impl PtyTestHarness {
-    /// Spawn a command in a PTY with the given dimensions.
-    pub fn spawn(cmd: &str, args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
+    /// Spawn a command in a PTY with the given dimensions and custom TERM.
+    pub fn spawn_with_term(
+        cmd: &str,
+        args: &[&str],
+        width: u16,
+        height: u16,
+        term: &str,
+    ) -> std::io::Result<Self> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -84,8 +90,8 @@ impl PtyTestHarness {
 
         let mut cmd_builder = CommandBuilder::new(cmd);
         cmd_builder.args(args);
-        // Set TERM to something reasonable
-        cmd_builder.env("TERM", "xterm-256color");
+        // Use specified TERM to test different capability paths
+        cmd_builder.env("TERM", term);
         // Disable mouse to simplify testing
         cmd_builder.env("OPENTUI_NO_MOUSE", "1");
 
@@ -133,10 +139,27 @@ impl PtyTestHarness {
         })
     }
 
-    /// Spawn demo_showcase with given arguments.
-    pub fn spawn_demo(args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
+    /// Spawn a command in a PTY with the given dimensions.
+    /// Uses TERM=wezterm by default to match WezTerm-specific capability paths.
+    pub fn spawn(cmd: &str, args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
+        Self::spawn_with_term(cmd, args, width, height, "wezterm")
+    }
+
+    /// Spawn demo_showcase with given arguments and TERM type.
+    pub fn spawn_demo_with_term(
+        args: &[&str],
+        width: u16,
+        height: u16,
+        term: &str,
+    ) -> std::io::Result<Self> {
         let demo_path = env!("CARGO_BIN_EXE_demo_showcase");
-        Self::spawn(demo_path, args, width, height)
+        Self::spawn_with_term(demo_path, args, width, height, term)
+    }
+
+    /// Spawn demo_showcase with given arguments.
+    /// Uses TERM=wezterm by default.
+    pub fn spawn_demo(args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
+        Self::spawn_demo_with_term(args, width, height, "wezterm")
     }
 
     /// Wait for output and process it through the terminal parser.
@@ -427,6 +450,174 @@ fn test_demo_tour_mode_text_integrity() {
             i,
             row
         );
+    }
+
+    harness.send_keys("q").ok();
+    harness.wait_exit(Duration::from_secs(2));
+}
+
+// ============================================================================
+// Terminal Type Consistency Tests
+// ============================================================================
+
+/// Test that rendering is consistent between TERM=wezterm and TERM=xterm-256color
+#[test]
+fn test_terminal_type_consistency() {
+    // Test with wezterm
+    let mut harness_wez =
+        PtyTestHarness::spawn_demo_with_term(&["--seed", "42"], 120, 40, "wezterm")
+            .expect("Failed to spawn demo with wezterm");
+
+    harness_wez.wait_for_output(Duration::from_secs(5));
+    let screen_wez = harness_wez.capture_screen();
+
+    harness_wez.send_keys("q").ok();
+    harness_wez.wait_exit(Duration::from_secs(2));
+
+    // Test with xterm-256color
+    let mut harness_xterm =
+        PtyTestHarness::spawn_demo_with_term(&["--seed", "42"], 120, 40, "xterm-256color")
+            .expect("Failed to spawn demo with xterm-256color");
+
+    harness_xterm.wait_for_output(Duration::from_secs(5));
+    let screen_xterm = harness_xterm.capture_screen();
+
+    harness_xterm.send_keys("q").ok();
+    harness_xterm.wait_exit(Duration::from_secs(2));
+
+    println!("=== WEZTERM ===");
+    println!("{}", screen_wez.dump());
+    println!("=== XTERM-256COLOR ===");
+    println!("{}", screen_xterm.dump());
+
+    // Both should contain the same key content (ignoring timing/frame differences)
+    assert!(
+        screen_wez.find_row_containing("OpenTUI").is_some(),
+        "wezterm should show OpenTUI header"
+    );
+    assert!(
+        screen_xterm.find_row_containing("OpenTUI").is_some(),
+        "xterm should show OpenTUI header"
+    );
+
+    // Both should have readable code content
+    let wez_has_std = screen_wez.find_row_containing("std::").is_some();
+    let xterm_has_std = screen_xterm.find_row_containing("std::").is_some();
+
+    assert!(
+        wez_has_std && xterm_has_std,
+        "Both terminal types should render std:: imports correctly"
+    );
+
+    // Neither should have garbled text
+    for (i, row) in screen_wez.rows.iter().enumerate() {
+        assert!(
+            !row.contains("u8tyle") && !row.contains("Wslts"),
+            "wezterm row {} has garbled text: {}",
+            i,
+            row
+        );
+    }
+    for (i, row) in screen_xterm.rows.iter().enumerate() {
+        assert!(
+            !row.contains("u8tyle") && !row.contains("Wslts"),
+            "xterm row {} has garbled text: {}",
+            i,
+            row
+        );
+    }
+}
+
+/// Test rendering at different screen sizes to catch resize/layout bugs
+#[test]
+fn test_different_screen_sizes() {
+    let sizes = [(80, 24), (120, 40), (160, 50)];
+
+    for (width, height) in sizes {
+        println!("Testing {}x{}", width, height);
+
+        let mut harness = PtyTestHarness::spawn_demo(&["--seed", "42"], width, height)
+            .expect(&format!("Failed to spawn demo at {}x{}", width, height));
+
+        harness.wait_for_output(Duration::from_secs(5));
+        let screen = harness.capture_screen();
+
+        println!("=== {}x{} ===", width, height);
+        println!("{}", screen.dump());
+
+        // Should always show header
+        assert!(
+            screen.find_row_containing("OpenTUI").is_some()
+                || screen.find_row_containing("Showcase").is_some(),
+            "Screen {}x{} should contain header",
+            width,
+            height
+        );
+
+        // No garbled text
+        for (i, row) in screen.rows.iter().enumerate() {
+            assert!(
+                !row.contains("u8tyle") && !row.contains("Wslts"),
+                "Screen {}x{} row {} has garbled text: {}",
+                width,
+                height,
+                i,
+                row
+            );
+        }
+
+        harness.send_keys("q").ok();
+        harness.wait_exit(Duration::from_secs(2));
+    }
+}
+
+/// Test that arrow key navigation works correctly
+#[test]
+fn test_arrow_key_navigation() {
+    let mut harness =
+        PtyTestHarness::spawn_demo(&["--seed", "42"], 120, 40).expect("Failed to spawn demo");
+
+    harness.wait_for_output(Duration::from_secs(5));
+    let initial_screen = harness.capture_screen();
+
+    // Send down arrow (ESC [ B)
+    harness
+        .send_escape("\x1b[B")
+        .expect("Failed to send down arrow");
+    harness.wait_for_output(Duration::from_secs(1));
+
+    let after_down = harness.capture_screen();
+
+    // Send up arrow (ESC [ A)
+    harness
+        .send_escape("\x1b[A")
+        .expect("Failed to send up arrow");
+    harness.wait_for_output(Duration::from_secs(1));
+
+    let after_up = harness.capture_screen();
+
+    println!("=== INITIAL ===");
+    println!("{}", initial_screen.dump());
+    println!("=== AFTER DOWN ===");
+    println!("{}", after_down.dump());
+    println!("=== AFTER UP ===");
+    println!("{}", after_up.dump());
+
+    // Verify no garbled text after navigation
+    for (name, screen) in [
+        ("initial", &initial_screen),
+        ("after_down", &after_down),
+        ("after_up", &after_up),
+    ] {
+        for (i, row) in screen.rows.iter().enumerate() {
+            assert!(
+                !row.contains("u8tyle") && !row.contains("Wslts"),
+                "{} row {} has garbled text: {}",
+                name,
+                i,
+                row
+            );
+        }
     }
 
     harness.send_keys("q").ok();
