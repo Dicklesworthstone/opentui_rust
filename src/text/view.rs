@@ -1462,6 +1462,67 @@ mod tests {
         eprintln!("[TEST] SUCCESS: Tab expansion width is correct");
     }
 
+    #[test]
+    fn test_tab_selection_highlights_all_columns() {
+        use crate::buffer::OptimizedBuffer;
+        use crate::cell::CellContent;
+        use crate::color::Rgba;
+
+        eprintln!("[TEST] test_tab_selection_highlights_all_columns: Verifying all tab columns get selection style (bd-nyo9)");
+
+        // Create text with a tab: "ab\tcd"
+        // With tab width 4, "ab" at 0-1, tab expands to 2-3, "cd" at 4-5
+        let buffer = TextBuffer::with_text("ab\tcd");
+        let selection_bg = Rgba::rgb(0.0, 0.0, 1.0); // Blue selection
+        let selection_style = Style::NONE.with_bg(selection_bg);
+
+        let mut view = TextBufferView::new(&buffer)
+            .viewport(0, 0, 80, 24);
+
+        // Select just the tab character (character offset 2)
+        view.set_selection(2, 3, selection_style);
+
+        let mut output = OptimizedBuffer::new(80, 24);
+        view.render_to(&mut output, 0, 0);
+
+        eprintln!("[TEST] Checking all tab columns have selection style");
+
+        // Tab expands to positions 2 and 3 (fill to next multiple of 4)
+        // Both should have the selection background
+        for pos in 2..4 {
+            let cell = output.get(pos, 0).expect("Cell should exist");
+            eprintln!(
+                "[TEST] Position {}: content={:?}, bg={:?}",
+                pos, cell.content, cell.bg
+            );
+            assert!(
+                matches!(cell.content, CellContent::Char(' ')),
+                "Position {} should be space from tab expansion",
+                pos
+            );
+            assert_eq!(
+                cell.bg, selection_bg,
+                "Position {} should have selection background (all tab columns should be highlighted)",
+                pos
+            );
+        }
+
+        // Characters before and after tab should NOT have selection
+        let cell_b = output.get(1, 0).expect("Cell should exist");
+        assert_ne!(
+            cell_b.bg, selection_bg,
+            "Character before tab should not be selected"
+        );
+
+        let cell_c = output.get(4, 0).expect("Cell should exist");
+        assert_ne!(
+            cell_c.bg, selection_bg,
+            "Character after tab should not be selected"
+        );
+
+        eprintln!("[TEST] SUCCESS: All tab columns correctly show selection style");
+    }
+
     // ================== LineInfo Comprehensive Tests ==================
 
     #[test]

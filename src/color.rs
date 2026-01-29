@@ -344,10 +344,10 @@ impl Rgba {
             && (b as i16 - gray as i16).abs() < 10;
 
         if is_grayscale {
-            // Use grayscale ramp (232-255 = 24 levels from dark to light)
-            // Each level is 10 apart, starting at 8: 8, 18, 28, ..., 238
-            let gray_idx = (gray as u16 * 24 / 256) as u8;
-            return 232 + gray_idx.min(23);
+            // Use grayscale ramp (232-255 = 24 levels)
+            // xterm grayscale values: 8, 18, 28, ..., 238 (24 levels, spacing of 10)
+            // Midpoints: 4, 13, 23, 33, ..., 243
+            return Self::nearest_grayscale_index(gray);
         }
 
         // Use 6x6x6 color cube (colors 16-231)
@@ -381,6 +381,34 @@ impl Rgba {
         } else {
             5
         }
+    }
+
+    /// Find the nearest 256-color grayscale index for a gray value.
+    ///
+    /// The xterm grayscale ramp (indices 232-255) uses non-linear values:
+    /// 8, 18, 28, 38, 48, 58, 68, 78, 88, 98, 108, 118, 128, 138, 148, 158,
+    /// 168, 178, 188, 198, 208, 218, 228, 238.
+    ///
+    /// For very dark or very light grays, we use the color cube's black (16)
+    /// or white (231) since they provide closer matches than the grayscale ramp.
+    #[inline]
+    fn nearest_grayscale_index(gray: u8) -> u8 {
+        // Midpoint between black (0) and first gray level (8) is 4
+        if gray < 4 {
+            return 16; // Use black from color cube (RGB 0,0,0)
+        }
+        // Midpoint between last gray level (238) and white (255) is ~246
+        if gray > 246 {
+            return 231; // Use white from color cube (RGB 255,255,255)
+        }
+
+        // Find nearest grayscale level using midpoint boundaries.
+        // gray_level[i] = 8 + 10*i for i in 0..24
+        // Midpoint between level[i] and level[i+1] = 8 + 10*i + 5 = 13 + 10*i
+        // So: gray 4-12 → idx 0, 13-22 → idx 1, 23-32 → idx 2, etc.
+        // Simplified: idx = (gray - 3) / 10, clamped to 0..23
+        let idx = gray.saturating_sub(3) / 10;
+        232 + idx.min(23)
     }
 
     /// Convert to nearest 16-color (basic ANSI) palette index.
@@ -487,7 +515,8 @@ impl Rgba {
 impl fmt::Display for Rgba {
     #[allow(clippy::many_single_char_names)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let to_hex_u8 = |value: f32| (value.clamp(0.0, 1.0) * 255.0).floor() as u8;
+        // Use round() to match to_rgb_u8() for consistent hex output
+        let to_hex_u8 = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
         let r = to_hex_u8(self.r);
         let g = to_hex_u8(self.g);
         let b = to_hex_u8(self.b);
@@ -543,7 +572,32 @@ mod tests {
     #[test]
     fn test_display() {
         assert_eq!(format!("{}", Rgba::RED), "#FF0000");
-        assert_eq!(format!("{}", Rgba::BLACK.with_alpha(0.5)), "#0000007F");
+        // 0.5 * 255 = 127.5, rounds to 128 = 0x80
+        assert_eq!(format!("{}", Rgba::BLACK.with_alpha(0.5)), "#00000080");
+    }
+
+    #[test]
+    fn test_display_matches_to_rgb_u8() {
+        // Verify Display and to_rgb_u8 produce consistent values (bd-3cvq)
+        let test_colors = [
+            Rgba::RED,
+            Rgba::GREEN,
+            Rgba::BLUE,
+            Rgba::WHITE,
+            Rgba::BLACK,
+            Rgba::new(0.5, 0.5, 0.5, 1.0),     // Gray 50%
+            Rgba::new(0.25, 0.75, 0.125, 1.0), // Arbitrary values
+        ];
+
+        for color in test_colors {
+            let display_str = format!("{color}");
+            let (r, g, b) = color.to_rgb_u8();
+            let expected = format!("#{r:02X}{g:02X}{b:02X}");
+            assert_eq!(
+                display_str, expected,
+                "Display and to_rgb_u8 should produce same hex for {color:?}"
+            );
+        }
     }
 
     #[test]
@@ -1377,6 +1431,118 @@ mod edge_case_tests {
         let white_idx = Rgba::WHITE.to_256_color();
         // Should map to different palette entries
         assert_ne!(black_idx, white_idx);
+    }
+
+    // --- Grayscale ramp tests (bd-3llv) ---
+
+    #[test]
+    fn test_grayscale_ramp_exact_values() {
+        // Test that exact xterm grayscale values map to correct indices
+        // Grayscale ramp: index 232+i = gray value 8 + 10*i
+        let expected_values: [(u8, u8); 24] = [
+            (8, 232),
+            (18, 233),
+            (28, 234),
+            (38, 235),
+            (48, 236),
+            (58, 237),
+            (68, 238),
+            (78, 239),
+            (88, 240),
+            (98, 241),
+            (108, 242),
+            (118, 243),
+            (128, 244),
+            (138, 245),
+            (148, 246),
+            (158, 247),
+            (168, 248),
+            (178, 249),
+            (188, 250),
+            (198, 251),
+            (208, 252),
+            (218, 253),
+            (228, 254),
+            (238, 255),
+        ];
+
+        for (gray_val, expected_idx) in expected_values {
+            let color = Rgba::from_rgb_u8(gray_val, gray_val, gray_val);
+            let actual_idx = color.to_256_color();
+            assert_eq!(
+                actual_idx, expected_idx,
+                "Gray value {gray_val} should map to index {expected_idx}, got {actual_idx}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_grayscale_ramp_boundary_values() {
+        // Test boundary values between grayscale levels
+        // Midpoint between black (0) and first gray (8) is 4
+        let very_dark = Rgba::from_rgb_u8(3, 3, 3);
+        assert_eq!(
+            very_dark.to_256_color(),
+            16,
+            "Very dark gray should use cube black"
+        );
+
+        let first_gray = Rgba::from_rgb_u8(4, 4, 4);
+        assert_eq!(
+            first_gray.to_256_color(),
+            232,
+            "Gray 4+ should start grayscale ramp"
+        );
+
+        // Midpoint between last gray (238) and white (255) is ~246
+        let almost_white = Rgba::from_rgb_u8(247, 247, 247);
+        assert_eq!(
+            almost_white.to_256_color(),
+            231,
+            "Almost white should use cube white"
+        );
+
+        let last_gray = Rgba::from_rgb_u8(238, 238, 238);
+        assert_eq!(
+            last_gray.to_256_color(),
+            255,
+            "Gray 238 should be last grayscale level"
+        );
+    }
+
+    #[test]
+    fn test_grayscale_ramp_midpoint_rounding() {
+        // Test that midpoints between levels round correctly
+        // Midpoint between level 0 (gray=8) and level 1 (gray=18) is 13
+
+        // Value 12 should go to level 0 (index 232)
+        let below_mid = Rgba::from_rgb_u8(12, 12, 12);
+        assert_eq!(
+            below_mid.to_256_color(),
+            232,
+            "Gray 12 should map to first level"
+        );
+
+        // Value 13+ should go to level 1 (index 233)
+        let at_mid = Rgba::from_rgb_u8(13, 13, 13);
+        assert_eq!(
+            at_mid.to_256_color(),
+            233,
+            "Gray 13+ should map to second level"
+        );
+    }
+
+    #[test]
+    fn test_grayscale_pure_black_and_white() {
+        // Pure black and white should use color cube, not grayscale ramp
+        let black = Rgba::from_rgb_u8(0, 0, 0);
+        let white = Rgba::from_rgb_u8(255, 255, 255);
+
+        let black_idx = black.to_256_color();
+        let white_idx = white.to_256_color();
+
+        assert_eq!(black_idx, 16, "Pure black should use cube black (16)");
+        assert_eq!(white_idx, 231, "Pure white should use cube white (231)");
     }
 
     // --- to_16_color() all mappings ---

@@ -20,12 +20,12 @@ expression: sequences
   },
   {
     "description": "white",
-    "hex": "1b 5b 33 38 3b 35 3b 32 35 35 6d",
-    "readable": "ESC[38;5;255m"
+    "hex": "1b 5b 33 38 3b 35 3b 32 33 31 6d",
+    "readable": "ESC[38;5;231m"
   },
   {
     "description": "black",
-    "hex": "1b 5b 33 38 3b 35 3b 32 33 32 6d",
-    "readable": "ESC[38;5;232m"
+    "hex": "1b 5b 33 38 3b 35 3b 31 36 6d",
+    "readable": "ESC[38;5;16m"
   }
 ]

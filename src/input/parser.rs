@@ -32,6 +32,17 @@ pub enum ParseError {
     UnrecognizedSequence(Vec<u8>),
     /// Invalid UTF-8 in input.
     InvalidUtf8,
+    /// Paste buffer exceeded maximum size limit.
+    ///
+    /// The paste operation was aborted because the incoming paste data
+    /// exceeded [`MAX_PASTE_BUFFER_SIZE`] (10 MB). This prevents unbounded
+    /// memory growth from malformed or malicious input.
+    PasteBufferOverflow,
+    /// Invalid resize event format.
+    ///
+    /// The resize sequence (CSI 8;height;width t) contained non-numeric
+    /// values for width or height.
+    InvalidResizeFormat,
 }
 
 /// Result of parsing input.
@@ -216,16 +227,20 @@ impl InputParser {
         let modifiers = if params.is_empty() {
             KeyModifiers::empty()
         } else {
-            self.parse_modifiers(params)
+            self.parse_modifiers(params)?
         };
         Ok((KeyEvent::new(base_key, modifiers).into(), consumed))
     }
 
     /// Parse modifiers from CSI parameter bytes.
-    fn parse_modifiers(&self, params: &[u8]) -> KeyModifiers {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::InvalidUtf8`] if the parameter bytes are not valid UTF-8.
+    fn parse_modifiers(&self, params: &[u8]) -> Result<KeyModifiers, ParseError> {
         // Format: 1;N where N encodes modifiers
         // N = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0)
-        let s = std::str::from_utf8(params).unwrap_or("");
+        let s = std::str::from_utf8(params).map_err(|_| ParseError::InvalidUtf8)?;
         let parts: Vec<&str> = s.split(';').collect();
         if parts.len() >= 2 {
             if let Ok(n) = parts[1].parse::<u8>() {
@@ -240,20 +255,20 @@ impl InputParser {
                 if n & 4 != 0 {
                     mods |= KeyModifiers::CTRL;
                 }
-                return mods;
+                return Ok(mods);
             }
         }
-        KeyModifiers::empty()
+        Ok(KeyModifiers::empty())
     }
 
     /// Parse tilde key sequences (Insert, Delete, Page Up/Down, F5+).
     fn parse_tilde_key(&mut self, params: &[u8], consumed: usize) -> ParseResult {
-        let s = std::str::from_utf8(params).unwrap_or("");
+        let s = std::str::from_utf8(params).map_err(|_| ParseError::InvalidUtf8)?;
         let parts: Vec<&str> = s.split(';').collect();
         let num: u8 = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
 
         let modifiers = if parts.len() >= 2 {
-            self.parse_modifiers(params)
+            self.parse_modifiers(params)?
         } else {
             KeyModifiers::empty()
         };
@@ -391,14 +406,23 @@ impl InputParser {
         Ok((Event::Mouse(event), term_pos + 1))
     }
 
-    /// Parse resize sequence.
+    /// Parse resize sequence (CSI 8 ; height ; width t).
+    ///
+    /// Only handles XTWINOPS format. Other formats (e.g., CSI 4 for pixel size)
+    /// are returned as unrecognized.
     fn parse_resize(&self, params: &[u8], consumed: usize) -> ParseResult {
-        let s = std::str::from_utf8(params).unwrap_or("");
+        let s = std::str::from_utf8(params).map_err(|_| ParseError::InvalidUtf8)?;
         let parts: Vec<&str> = s.split(';').collect();
 
         if parts.len() >= 3 && parts[0] == "8" {
-            let height: u16 = parts[1].parse().unwrap_or(24);
-            let width: u16 = parts[2].parse().unwrap_or(80);
+            // Parse height and width, returning error on invalid values
+            // rather than falling back to arbitrary defaults
+            let height: u16 = parts[1]
+                .parse()
+                .map_err(|_| ParseError::InvalidResizeFormat)?;
+            let width: u16 = parts[2]
+                .parse()
+                .map_err(|_| ParseError::InvalidResizeFormat)?;
             Ok((Event::Resize(ResizeEvent::new(width, height)), consumed))
         } else {
             Err(ParseError::UnrecognizedSequence(params.to_vec()))
@@ -409,6 +433,12 @@ impl InputParser {
     ///
     /// Note: Paste buffer is limited to [`MAX_PASTE_BUFFER_SIZE`] to prevent
     /// unbounded memory growth from malformed or malicious input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::PasteBufferOverflow`] if the paste data would
+    /// exceed the maximum buffer size. The parser state is reset when this
+    /// occurs.
     fn parse_paste(&mut self, input: &[u8]) -> ParseResult {
         // Start and end sequences for bracketed paste
         const START_SEQ: &[u8] = b"\x1b[200~";
@@ -424,11 +454,16 @@ impl InputParser {
         let effective_input = &input[content_start..];
 
         if let Some(pos) = find_subsequence(effective_input, END_SEQ) {
-            // Only extend if within size limit
+            // Check if adding this content would exceed the limit
             let available = MAX_PASTE_BUFFER_SIZE.saturating_sub(self.paste_buffer.len());
-            let to_copy = pos.min(available);
-            self.paste_buffer
-                .extend_from_slice(&effective_input[..to_copy]);
+            if pos > available {
+                // Paste would overflow - reset state and return error
+                self.in_paste = false;
+                self.paste_buffer.clear();
+                return Err(ParseError::PasteBufferOverflow);
+            }
+
+            self.paste_buffer.extend_from_slice(&effective_input[..pos]);
             self.in_paste = false;
 
             let content = String::from_utf8_lossy(&self.paste_buffer).into_owned();
@@ -439,11 +474,16 @@ impl InputParser {
                 content_start + pos + END_SEQ.len(),
             ))
         } else {
-            // Only extend if within size limit to prevent unbounded growth
+            // Check if adding this content would exceed the limit
             let available = MAX_PASTE_BUFFER_SIZE.saturating_sub(self.paste_buffer.len());
-            let to_copy = effective_input.len().min(available);
-            self.paste_buffer
-                .extend_from_slice(&effective_input[..to_copy]);
+            if effective_input.len() > available {
+                // Paste would overflow - reset state and return error
+                self.in_paste = false;
+                self.paste_buffer.clear();
+                return Err(ParseError::PasteBufferOverflow);
+            }
+
+            self.paste_buffer.extend_from_slice(effective_input);
             Err(ParseError::Incomplete)
         }
     }
@@ -1435,6 +1475,85 @@ mod tests {
         }
     }
 
+    // =========================================================================
+    // Resize parsing error tests (bd-1nv2)
+    // =========================================================================
+
+    #[test]
+    fn test_parse_resize_invalid_height() {
+        let mut parser = InputParser::new();
+        // Height with non-digit CSI parameter bytes should fail
+        // Using '<' (0x3C) which is a valid CSI parameter byte but not a digit
+        let result = parser.parse(b"\x1b[8;<10;120t");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidResizeFormat),
+            "Non-numeric height should return error"
+        );
+    }
+
+    #[test]
+    fn test_parse_resize_invalid_width() {
+        let mut parser = InputParser::new();
+        // Width with non-digit CSI parameter bytes should fail
+        let result = parser.parse(b"\x1b[8;50;>80t");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidResizeFormat),
+            "Non-numeric width should return error"
+        );
+    }
+
+    #[test]
+    fn test_parse_resize_overflow_dimensions() {
+        let mut parser = InputParser::new();
+        // Dimensions that overflow u16 should return error
+        let result = parser.parse(b"\x1b[8;99999;120t");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidResizeFormat),
+            "Overflow height should return error"
+        );
+    }
+
+    #[test]
+    fn test_parse_resize_empty_values() {
+        let mut parser = InputParser::new();
+        // Empty height/width should return error
+        let result = parser.parse(b"\x1b[8;;t");
+        assert_eq!(
+            result,
+            Err(ParseError::InvalidResizeFormat),
+            "Empty height/width should return error"
+        );
+    }
+
+    #[test]
+    fn test_parse_resize_zero_dimensions() {
+        let mut parser = InputParser::new();
+        // Zero dimensions should be parsed as valid (terminal might report this)
+        let (event, _) = parser.parse(b"\x1b[8;0;0t").unwrap();
+        if let Event::Resize(resize) = event {
+            assert_eq!(resize.width, 0);
+            assert_eq!(resize.height, 0);
+        } else {
+            panic!("Expected Resize event");
+        }
+    }
+
+    #[test]
+    fn test_parse_resize_large_dimensions() {
+        let mut parser = InputParser::new();
+        // Large valid dimensions should work
+        let (event, _) = parser.parse(b"\x1b[8;1000;2000t").unwrap();
+        if let Event::Resize(resize) = event {
+            assert_eq!(resize.width, 2000);
+            assert_eq!(resize.height, 1000);
+        } else {
+            panic!("Expected Resize event");
+        }
+    }
+
     #[test]
     fn test_parse_keyboard_with_all_modifiers() {
         let mut parser = InputParser::new();
@@ -1461,5 +1580,171 @@ mod tests {
             mouse.shift,
             "Shift modifier should be detected in X11 encoding"
         );
+    }
+
+    // =========================================================================
+    // Paste Buffer Overflow Tests (bd-nkgh)
+    // =========================================================================
+
+    #[test]
+    fn test_paste_buffer_overflow_single_chunk() {
+        eprintln!(
+            "[TEST] test_paste_buffer_overflow_single_chunk: Testing overflow in single chunk"
+        );
+        let mut parser = InputParser::new();
+
+        // Enter paste mode
+        let result = parser.parse(b"\x1b[200~");
+        assert_eq!(result, Err(ParseError::Incomplete));
+        assert!(parser.in_paste, "Should be in paste mode");
+
+        // Create content larger than MAX_PASTE_BUFFER_SIZE (10 MB)
+        let oversized_content: Vec<u8> = vec![b'X'; MAX_PASTE_BUFFER_SIZE + 1];
+        let result = parser.parse(&oversized_content);
+
+        eprintln!("[TEST] Result: {:?}", result);
+        assert_eq!(
+            result,
+            Err(ParseError::PasteBufferOverflow),
+            "Should return PasteBufferOverflow error"
+        );
+        assert!(
+            !parser.in_paste,
+            "Parser should exit paste mode after overflow"
+        );
+        assert!(
+            parser.paste_buffer.is_empty(),
+            "Paste buffer should be cleared after overflow"
+        );
+        eprintln!("[TEST] PASS: Single chunk overflow handled correctly");
+    }
+
+    #[test]
+    fn test_paste_buffer_overflow_incremental() {
+        eprintln!(
+            "[TEST] test_paste_buffer_overflow_incremental: Testing overflow across multiple chunks"
+        );
+        let mut parser = InputParser::new();
+
+        // Enter paste mode
+        let _ = parser.parse(b"\x1b[200~");
+        assert!(parser.in_paste);
+
+        // Fill the buffer close to the limit (leave room for just a few bytes)
+        let almost_full: Vec<u8> = vec![b'A'; MAX_PASTE_BUFFER_SIZE - 10];
+        let result = parser.parse(&almost_full);
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Should still be accumulating"
+        );
+        assert!(parser.in_paste, "Should still be in paste mode");
+
+        // Now send more than the remaining 10 bytes (but without end sequence)
+        let overflow_chunk: Vec<u8> = vec![b'B'; 20];
+        let result = parser.parse(&overflow_chunk);
+
+        eprintln!("[TEST] Result after overflow chunk: {:?}", result);
+        assert_eq!(
+            result,
+            Err(ParseError::PasteBufferOverflow),
+            "Should return PasteBufferOverflow"
+        );
+        assert!(!parser.in_paste, "Parser should exit paste mode");
+        assert!(
+            parser.paste_buffer.is_empty(),
+            "Buffer should be cleared after overflow"
+        );
+        eprintln!("[TEST] PASS: Incremental overflow handled correctly");
+    }
+
+    #[test]
+    fn test_paste_buffer_overflow_with_end_sequence() {
+        eprintln!(
+            "[TEST] test_paste_buffer_overflow_with_end_sequence: Testing overflow when end sequence present"
+        );
+        let mut parser = InputParser::new();
+
+        // Enter paste mode
+        let _ = parser.parse(b"\x1b[200~");
+        assert!(parser.in_paste);
+
+        // Fill buffer close to limit
+        let almost_full: Vec<u8> = vec![b'X'; MAX_PASTE_BUFFER_SIZE - 5];
+        let _ = parser.parse(&almost_full);
+
+        // Send content that overflows even though end sequence is present
+        let mut final_chunk = vec![b'Y'; 20]; // 20 bytes > remaining 5
+        final_chunk.extend_from_slice(b"\x1b[201~"); // Add end sequence
+        let result = parser.parse(&final_chunk);
+
+        eprintln!("[TEST] Result: {:?}", result);
+        assert_eq!(
+            result,
+            Err(ParseError::PasteBufferOverflow),
+            "Should return overflow error even with end sequence"
+        );
+        assert!(!parser.in_paste, "Should exit paste mode");
+        assert!(parser.paste_buffer.is_empty(), "Buffer should be cleared");
+        eprintln!("[TEST] PASS: Overflow with end sequence handled correctly");
+    }
+
+    #[test]
+    fn test_paste_buffer_exactly_at_limit() {
+        eprintln!("[TEST] test_paste_buffer_exactly_at_limit: Testing paste exactly at size limit");
+        let mut parser = InputParser::new();
+
+        // Enter paste mode
+        let _ = parser.parse(b"\x1b[200~");
+        assert!(parser.in_paste);
+
+        // Fill buffer to exactly the limit
+        let exact_limit: Vec<u8> = vec![b'E'; MAX_PASTE_BUFFER_SIZE];
+        let result = parser.parse(&exact_limit);
+        assert_eq!(
+            result,
+            Err(ParseError::Incomplete),
+            "Should accept exactly at limit"
+        );
+        assert!(parser.in_paste, "Should still be in paste mode");
+
+        // Now send end sequence
+        let (event, _) = parser.parse(b"\x1b[201~").expect("Should complete paste");
+        let paste = event.paste().expect("Should be paste event");
+        assert_eq!(
+            paste.content.len(),
+            MAX_PASTE_BUFFER_SIZE,
+            "Content should be exactly at limit"
+        );
+        eprintln!("[TEST] PASS: Exactly at limit works correctly");
+    }
+
+    #[test]
+    fn test_paste_buffer_overflow_resets_for_next_paste() {
+        eprintln!(
+            "[TEST] test_paste_buffer_overflow_resets_for_next_paste: Testing recovery after overflow"
+        );
+        let mut parser = InputParser::new();
+
+        // First paste: overflow
+        let _ = parser.parse(b"\x1b[200~");
+        let oversized: Vec<u8> = vec![b'X'; MAX_PASTE_BUFFER_SIZE + 100];
+        let result = parser.parse(&oversized);
+        assert_eq!(result, Err(ParseError::PasteBufferOverflow));
+        assert!(!parser.in_paste, "Should exit paste mode after overflow");
+
+        // Second paste: should work normally
+        let _ = parser.parse(b"\x1b[200~");
+        assert!(parser.in_paste, "Should enter paste mode again");
+
+        let (event, _) = parser
+            .parse(b"normal paste content\x1b[201~")
+            .expect("Normal paste should work after overflow");
+        let paste = event.paste().expect("Should be paste event");
+        assert_eq!(
+            paste.content, "normal paste content",
+            "Normal paste should work after previous overflow"
+        );
+        eprintln!("[TEST] PASS: Recovery after overflow works correctly");
     }
 }

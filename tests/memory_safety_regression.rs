@@ -6,7 +6,7 @@
 //! - GraphemeId width encoding
 //! - GraphemePool ID limits
 
-use opentui::buffer::{OptimizedBuffer, PixelBuffer, GrayscaleBuffer};
+use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::cell::GraphemeId;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;

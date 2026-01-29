@@ -28,19 +28,25 @@ fn transparent_rgba_strategy() -> impl Strategy<Value = Rgba> {
 
 /// Generate a valid 6-char hex string.
 fn hex_6_strategy() -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::sample::select(vec![
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B',
-        'C', 'D', 'E', 'F',
-    ]), 6)
+    prop::collection::vec(
+        prop::sample::select(vec![
+            '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'A',
+            'B', 'C', 'D', 'E', 'F',
+        ]),
+        6,
+    )
     .prop_map(|chars| chars.into_iter().collect::<String>())
 }
 
 /// Generate a valid 3-char hex string.
 fn hex_3_strategy() -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::sample::select(vec![
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'A', 'B',
-        'C', 'D', 'E', 'F',
-    ]), 3)
+    prop::collection::vec(
+        prop::sample::select(vec![
+            '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'A',
+            'B', 'C', 'D', 'E', 'F',
+        ]),
+        3,
+    )
     .prop_map(|chars| chars.into_iter().collect::<String>())
 }
 

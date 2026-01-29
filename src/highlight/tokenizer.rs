@@ -50,10 +50,15 @@ pub trait Tokenizer: Send + Sync {
     fn tokenize_line(&self, line: &str, state: LineState) -> (Vec<Token>, LineState);
 
     /// Tokenize an entire text by calling `tokenize_line` for each line.
+    ///
+    /// Handles both LF (`\n`) and CRLF (`\r\n`) line endings correctly by
+    /// tracking the actual byte position in the original text rather than
+    /// assuming a fixed line separator length.
     fn tokenize(&self, text: &str) -> Vec<Token> {
         let mut tokens = Vec::new();
         let mut state = LineState::Normal;
         let mut offset = 0usize;
+        let bytes = text.as_bytes();
 
         for line in text.lines() {
             let (line_tokens, new_state) = self.tokenize_line(line, state);
@@ -62,7 +67,23 @@ pub trait Tokenizer: Send + Sync {
                 token.end += offset;
                 tokens.push(token);
             }
-            offset += line.len() + 1;
+
+            // Advance offset past the line content
+            offset += line.len();
+
+            // Advance past the line ending (LF, CRLF, or end of text)
+            // Check for CRLF first, then LF
+            if offset < bytes.len() {
+                if bytes[offset] == b'\r' && offset + 1 < bytes.len() && bytes[offset + 1] == b'\n'
+                {
+                    offset += 2; // CRLF
+                } else if bytes[offset] == b'\n' {
+                    offset += 1; // LF
+                } else if bytes[offset] == b'\r' {
+                    offset += 1; // Bare CR (old Mac style)
+                }
+            }
+
             state = new_state;
         }
 
@@ -194,12 +215,67 @@ mod tests {
     }
 
     #[test]
-    fn tokenizer_default_tokenize_offsets_lines() {
+    fn tokenizer_default_tokenize_offsets_lines_lf() {
         let tokenizer = StubTokenizer;
+        // LF line endings: "aa\nbbb" = 6 bytes total
         let tokens = tokenizer.tokenize("aa\nbbb");
         assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].range(), 0..2); // "aa" at bytes 0-2
+        assert_eq!(tokens[1].range(), 3..6); // "bbb" at bytes 3-6
+    }
+
+    #[test]
+    fn tokenizer_default_tokenize_offsets_lines_crlf() {
+        let tokenizer = StubTokenizer;
+        // CRLF line endings: "aa\r\nbbb" = 7 bytes total
+        // Line 1: "aa" at bytes 0-2, then \r\n at bytes 2-4
+        // Line 2: "bbb" at bytes 4-7
+        let tokens = tokenizer.tokenize("aa\r\nbbb");
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].range(), 0..2); // "aa" at bytes 0-2
+        assert_eq!(tokens[1].range(), 4..7); // "bbb" at bytes 4-7 (after \r\n)
+    }
+
+    #[test]
+    fn tokenizer_default_tokenize_offsets_lines_mixed() {
+        let tokenizer = StubTokenizer;
+        // Mixed line endings: "a\nb\r\nc" = 7 bytes total
+        // Line 1: "a" at byte 0, then \n at byte 1
+        // Line 2: "b" at byte 2, then \r\n at bytes 3-5
+        // Line 3: "c" at byte 5
+        let tokens = tokenizer.tokenize("a\nb\r\nc");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].range(), 0..1); // "a" at byte 0
+        assert_eq!(tokens[1].range(), 2..3); // "b" at byte 2
+        assert_eq!(tokens[2].range(), 5..6); // "c" at byte 5
+    }
+
+    #[test]
+    fn tokenizer_handles_trailing_newline() {
+        let tokenizer = StubTokenizer;
+        // Trailing LF: "aa\n" = 3 bytes, single line
+        let tokens = tokenizer.tokenize("aa\n");
+        assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].range(), 0..2);
-        assert_eq!(tokens[1].range(), 3..6);
+
+        // Trailing CRLF: "aa\r\n" = 4 bytes, single line
+        let tokens = tokenizer.tokenize("aa\r\n");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].range(), 0..2);
+    }
+
+    #[test]
+    fn tokenizer_handles_empty_lines_crlf() {
+        let tokenizer = StubTokenizer;
+        // Empty line with CRLF: "a\r\n\r\nb" = 6 bytes
+        // Line 1: "a" at byte 0, then \r\n at bytes 1-3
+        // Line 2: "" (empty), then \r\n at bytes 3-5
+        // Line 3: "b" at byte 5
+        let tokens = tokenizer.tokenize("a\r\n\r\nb");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].range(), 0..1); // "a"
+        assert_eq!(tokens[1].range(), 3..3); // empty line
+        assert_eq!(tokens[2].range(), 5..6); // "b"
     }
 
     #[test]
