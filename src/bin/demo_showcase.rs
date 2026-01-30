@@ -1465,7 +1465,7 @@ impl HelpState {
             "Navigation",
             &[
                 "Tab / Shift+Tab    Cycle focus between panels",
-                "1-6                Jump to section by number",
+                "1-9, 0, -, =       Jump to section (12 total)",
                 "↑/↓                Navigate within focused panel",
             ],
         ),
@@ -2458,20 +2458,39 @@ pub enum Section {
     Unicode,
     /// Performance / FPS demonstration.
     Performance,
+    /// Drawing primitives demonstration (box styles, lines, fills).
+    Drawing,
+    /// Color system demonstration (gradients, alpha blending, color modes).
+    Colors,
+    /// Input handling demonstration (cursor styles, focus events, paste).
+    Input,
+    /// Editing demonstration (EditBuffer, undo/redo, wrap modes).
+    Editing,
+    /// Terminal capabilities detection.
+    Capabilities,
+    /// Animation easing functions demonstration.
+    Animations,
 }
 
 impl Section {
     /// All sections for iteration.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 12] = [
         Self::Overview,
         Self::Editor,
         Self::Preview,
         Self::Logs,
         Self::Unicode,
         Self::Performance,
+        Self::Drawing,
+        Self::Colors,
+        Self::Input,
+        Self::Editing,
+        Self::Capabilities,
+        Self::Animations,
     ];
 
     /// Get section by index (for number key navigation).
+    /// Keys 1-9 map to sections 0-8, 0 maps to section 9, - to 10, = to 11.
     #[must_use]
     pub fn from_index(idx: usize) -> Option<Self> {
         Self::ALL.get(idx).copied()
@@ -2487,6 +2506,31 @@ impl Section {
             Self::Logs => "Logs",
             Self::Unicode => "Unicode",
             Self::Performance => "Performance",
+            Self::Drawing => "Drawing",
+            Self::Colors => "Colors",
+            Self::Input => "Input",
+            Self::Editing => "Editing",
+            Self::Capabilities => "Capabilities",
+            Self::Animations => "Animations",
+        }
+    }
+
+    /// Get short key hint for sidebar display.
+    #[must_use]
+    pub const fn key_hint(self) -> &'static str {
+        match self {
+            Self::Overview => "1",
+            Self::Editor => "2",
+            Self::Preview => "3",
+            Self::Logs => "4",
+            Self::Unicode => "5",
+            Self::Performance => "6",
+            Self::Drawing => "7",
+            Self::Colors => "8",
+            Self::Input => "9",
+            Self::Editing => "0",
+            Self::Capabilities => "-",
+            Self::Animations => "=",
         }
     }
 }
@@ -2912,9 +2956,16 @@ impl App {
         }
 
         // Number keys for section navigation (in Normal mode)
+        // Keys 1-9 map to sections 0-8, 0 maps to section 9, - to 10, = to 11
         if self.mode == AppMode::Normal {
-            if let KeyCode::Char(c @ '1'..='6') = key.code {
-                let idx = (c as usize) - ('1' as usize);
+            let idx = match key.code {
+                KeyCode::Char(c @ '1'..='9') => Some((c as usize) - ('1' as usize)),
+                KeyCode::Char('0') => Some(9),  // Editing section
+                KeyCode::Char('-') => Some(10), // Capabilities section
+                KeyCode::Char('=') => Some(11), // Animations section
+                _ => None,
+            };
+            if let Some(idx) = idx {
                 if let Some(section) = Section::from_index(idx) {
                     return Action::NavigateSection(section);
                 }
@@ -4854,11 +4905,32 @@ fn draw_pass_panels(
 
     // --- Editor panel ---
     if !panels.editor.is_empty() {
-        // Unicode section gets special rendering with grapheme pool
-        if app.section == Section::Unicode {
-            draw_unicode_showcase(buffer, pool, &panels.editor, theme);
-        } else {
-            draw_editor_panel(buffer, &panels.editor, theme, app);
+        // Different sections get different content in the editor area
+        match app.section {
+            Section::Unicode => {
+                draw_unicode_showcase(buffer, pool, &panels.editor, theme);
+            }
+            Section::Drawing => {
+                draw_drawing_section(buffer, &panels.editor, theme, app);
+            }
+            Section::Colors => {
+                draw_colors_section(buffer, &panels.editor, theme, app);
+            }
+            Section::Input => {
+                draw_input_section(buffer, &panels.editor, theme, app);
+            }
+            Section::Editing => {
+                draw_editing_section(buffer, &panels.editor, theme, app);
+            }
+            Section::Capabilities => {
+                draw_capabilities_section(buffer, &panels.editor, theme, app);
+            }
+            Section::Animations => {
+                draw_animations_section(buffer, &panels.editor, theme, app);
+            }
+            _ => {
+                draw_editor_panel(buffer, &panels.editor, theme, app);
+            }
         }
     }
 
@@ -7642,13 +7714,17 @@ mod tests {
     fn test_section_from_index() {
         assert_eq!(Section::from_index(0), Some(Section::Overview));
         assert_eq!(Section::from_index(5), Some(Section::Performance));
-        assert_eq!(Section::from_index(6), None);
+        assert_eq!(Section::from_index(6), Some(Section::Drawing));
+        assert_eq!(Section::from_index(11), Some(Section::Animations));
+        assert_eq!(Section::from_index(12), None);
     }
 
     #[test]
     fn test_section_name() {
         assert_eq!(Section::Overview.name(), "Overview");
         assert_eq!(Section::Performance.name(), "Performance");
+        assert_eq!(Section::Drawing.name(), "Drawing");
+        assert_eq!(Section::Animations.name(), "Animations");
     }
 
     #[test]
