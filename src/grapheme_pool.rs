@@ -645,7 +645,14 @@ impl GraphemePool {
     pub fn free_batch(&mut self, ids: &[u32]) -> usize {
         let mut freed_count = 0;
         for &pool_id in ids {
-            if !self.decref_by_pool_id(pool_id) {
+            // Check if this ID was valid before decrementing
+            let was_valid = self
+                .slots
+                .get(pool_id as usize)
+                .is_some_and(|slot| slot.refcount > 0);
+
+            if was_valid && !self.decref_by_pool_id(pool_id) {
+                // Was valid and now freed (refcount went to 0)
                 freed_count += 1;
             }
         }
