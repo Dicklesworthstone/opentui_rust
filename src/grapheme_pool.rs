@@ -1985,4 +1985,363 @@ mod tests {
         assert!(usage_before_free > 0);
         assert!(usage_after_free > 0);
     }
+
+    // ========== compact() tests ==========
+
+    #[test]
+    fn test_compact_empty_pool() {
+        let mut pool = GraphemePool::new();
+        let result = pool.compact();
+
+        assert!(result.old_to_new.is_empty());
+        assert_eq!(result.slots_freed, 0);
+        assert_eq!(result.bytes_saved, 0);
+        assert!(!result.has_remappings());
+    }
+
+    #[test]
+    fn test_compact_no_free_slots() {
+        let mut pool = GraphemePool::new();
+        let _ = pool.alloc("a");
+        let _ = pool.alloc("b");
+        let _ = pool.alloc("c");
+
+        let result = pool.compact();
+
+        // No free slots means nothing to compact
+        assert!(result.old_to_new.is_empty());
+        assert_eq!(result.slots_freed, 0);
+        assert!(!result.has_remappings());
+
+        // Pool should be unchanged
+        assert_eq!(pool.total_slots(), 3);
+        assert_eq!(pool.active_count(), 3);
+    }
+
+    #[test]
+    fn test_compact_single_gap() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+        let id3 = pool.alloc("gamma");
+
+        // Free the middle one to create a gap
+        pool.decref(id2);
+
+        // Before compact: slots at 1, 3 with gap at 2
+        assert_eq!(pool.total_slots(), 3);
+        assert_eq!(pool.active_count(), 2);
+        assert_eq!(pool.free_count(), 1);
+
+        let result = pool.compact();
+
+        // After compact: slots at 1, 2 with no gaps
+        assert_eq!(result.slots_freed, 1);
+        assert!(result.has_remappings());
+        assert_eq!(pool.total_slots(), 2);
+        assert_eq!(pool.active_count(), 2);
+        assert_eq!(pool.free_count(), 0);
+
+        // Verify remapping
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+
+        // id1 was at slot 1, should stay at slot 1
+        assert_eq!(new_id1, 1);
+        // id3 was at slot 3, should now be at slot 2
+        assert_eq!(new_id3, 2);
+
+        // Verify data is accessible via remapped IDs
+        let remapped1 = GraphemeId::new(new_id1, id1.width() as u8);
+        let remapped3 = GraphemeId::new(new_id3, id3.width() as u8);
+
+        assert_eq!(pool.get(remapped1), Some("alpha"));
+        assert_eq!(pool.get(remapped3), Some("gamma"));
+    }
+
+    #[test]
+    fn test_compact_multiple_gaps() {
+        let mut pool = GraphemePool::new();
+        let ids: Vec<_> = (0..10).map(|i| pool.alloc(&format!("g{i}"))).collect();
+
+        // Free every other slot (creating 5 gaps)
+        for (i, id) in ids.iter().enumerate() {
+            if i % 2 == 1 {
+                pool.decref(*id);
+            }
+        }
+
+        // Before compact: 10 slots, 5 active, 5 free
+        assert_eq!(pool.total_slots(), 10);
+        assert_eq!(pool.active_count(), 5);
+        assert_eq!(pool.free_count(), 5);
+
+        let result = pool.compact();
+
+        // After compact: 5 slots, 5 active, 0 free
+        assert_eq!(result.slots_freed, 5);
+        assert_eq!(pool.total_slots(), 5);
+        assert_eq!(pool.active_count(), 5);
+        assert_eq!(pool.free_count(), 0);
+
+        // Verify all surviving entries are accessible
+        for (i, id) in ids.iter().enumerate() {
+            if i % 2 == 0 {
+                let new_pool_id = result.remap(id.pool_id()).unwrap_or(id.pool_id());
+                let remapped = GraphemeId::new(new_pool_id, id.width() as u8);
+                assert_eq!(pool.get(remapped), Some(format!("g{i}").as_str()));
+            }
+        }
+    }
+
+    #[test]
+    fn test_compact_all_freed() {
+        let mut pool = GraphemePool::new();
+        let ids: Vec<_> = (0..5).map(|i| pool.alloc(&format!("g{i}"))).collect();
+
+        // Free all slots
+        for id in &ids {
+            pool.decref(*id);
+        }
+
+        // Before compact: 5 slots, 0 active, 5 free
+        assert_eq!(pool.total_slots(), 5);
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.free_count(), 5);
+
+        let result = pool.compact();
+
+        // After compact: 0 slots (just reserved slot 0)
+        assert_eq!(result.slots_freed, 5);
+        assert_eq!(pool.total_slots(), 0);
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.free_count(), 0);
+
+        // old_to_new should be empty (nothing to remap)
+        assert!(result.old_to_new.is_empty());
+    }
+
+    #[test]
+    fn test_compact_preserves_refcounts() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        pool.incref(id1);
+        pool.incref(id1);
+
+        let id2 = pool.alloc("beta");
+        pool.decref(id2);
+
+        let id3 = pool.alloc("gamma");
+
+        // id1 has refcount 3, id2 freed (gap), id3 has refcount 1
+        assert_eq!(pool.refcount(id1), 3);
+        assert_eq!(pool.refcount(id3), 1);
+
+        let result = pool.compact();
+
+        // Remap and verify refcounts are preserved
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+
+        let remapped1 = GraphemeId::new(new_id1, id1.width());
+        let remapped3 = GraphemeId::new(new_id3, id3.width());
+
+        assert_eq!(pool.refcount(remapped1), 3);
+        assert_eq!(pool.refcount(remapped3), 1);
+    }
+
+    #[test]
+    fn test_compact_preserves_widths() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate entries with different widths
+        let id1 = pool.alloc("A"); // width 1
+        let id2 = pool.alloc("👍"); // width 2
+        let id3 = pool.alloc("世"); // width 2
+
+        // Free the middle one
+        pool.decref(id2);
+
+        let result = pool.compact();
+
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+
+        // Original IDs had correct widths - verify they're preserved in slots
+        // The width is stored in the Slot, not just the GraphemeId
+        assert_eq!(pool.get_by_pool_id(new_id1), Some("A"));
+        assert_eq!(pool.get_by_pool_id(new_id3), Some("世"));
+    }
+
+    #[test]
+    fn test_compact_updates_index() {
+        let mut pool = GraphemePool::new();
+
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+        let id3 = pool.alloc("gamma");
+
+        // Free middle one
+        pool.decref(id2);
+
+        pool.compact();
+
+        // Index should be updated - intern should find existing entries
+        let interned1 = pool.intern("alpha");
+        let interned3 = pool.intern("gamma");
+
+        // Should find existing entries (refcount increases)
+        assert_eq!(pool.refcount(interned1), 2);
+        assert_eq!(pool.refcount(interned3), 2);
+
+        // And intern of "beta" should create new entry
+        let interned2 = pool.intern("beta");
+        assert_eq!(pool.refcount(interned2), 1);
+    }
+
+    #[test]
+    fn test_compact_result_remap_helper() {
+        let mut pool = GraphemePool::new();
+
+        let id1 = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        pool.decref(id1);
+
+        let result = pool.compact();
+
+        // id2 was at slot 2, now at slot 1
+        assert_eq!(result.remap(id2.pool_id()), Some(1));
+
+        // id1 was freed - not in remapping
+        assert_eq!(result.remap(id1.pool_id()), None);
+
+        // Non-existent ID
+        assert_eq!(result.remap(9999), None);
+    }
+
+    #[test]
+    fn test_compact_result_has_remappings() {
+        let mut pool = GraphemePool::new();
+
+        // No compaction needed
+        let result1 = pool.compact();
+        assert!(!result1.has_remappings());
+
+        // Compaction with only freed slots
+        let id = pool.alloc("test");
+        pool.decref(id);
+        let result2 = pool.compact();
+        // Even though slot was freed, there's nothing to remap
+        assert!(!result2.has_remappings());
+
+        // Actual remapping needed
+        let _ = pool.alloc("a");
+        let id_to_free = pool.alloc("b");
+        let _ = pool.alloc("c");
+        pool.decref(id_to_free);
+        let result3 = pool.compact();
+        assert!(result3.has_remappings());
+    }
+
+    #[test]
+    fn test_compact_bytes_saved_estimate() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate entries with some string content
+        for i in 0..100 {
+            let _ = pool.alloc(&format!("grapheme_string_{i}"));
+        }
+
+        // Free half
+        // We need to collect IDs first since intern would affect the test
+        let ids: Vec<_> = pool.iter_active().map(|(id, _)| id).collect();
+        for (i, id) in ids.iter().enumerate() {
+            if i % 2 == 0 {
+                pool.decref_by_pool_id(*id);
+            }
+        }
+
+        let result = pool.compact();
+
+        // bytes_saved should be positive
+        assert!(result.bytes_saved > 0);
+        assert_eq!(result.slots_freed, 50);
+    }
+
+    #[test]
+    fn test_compact_large_pool() {
+        let mut pool = GraphemePool::new();
+
+        // Create a large fragmented pool
+        let ids: Vec<_> = (0..2000).map(|i| pool.alloc(&format!("g{i}"))).collect();
+
+        // Free ~66% of entries
+        for (i, id) in ids.iter().enumerate() {
+            if i % 3 != 0 {
+                pool.decref(*id);
+            }
+        }
+
+        assert!(pool.should_compact()); // Verify precondition
+
+        let result = pool.compact();
+
+        // Should have freed ~1333 slots
+        assert!(result.slots_freed > 1300);
+        assert!(result.slots_freed < 1400);
+
+        // Pool should now be compact
+        assert!(!pool.should_compact());
+        assert_eq!(pool.free_count(), 0);
+        assert_eq!(pool.active_count(), pool.total_slots());
+
+        // Verify surviving entries
+        for (i, id) in ids.iter().enumerate() {
+            if i % 3 == 0 {
+                let new_pool_id = result.remap(id.pool_id()).unwrap_or(id.pool_id());
+                let remapped = GraphemeId::new(new_pool_id, id.width());
+                assert_eq!(pool.get(remapped), Some(format!("g{i}").as_str()));
+            }
+        }
+    }
+
+    #[test]
+    fn test_compact_then_alloc_reuses_correctly() {
+        let mut pool = GraphemePool::new();
+
+        let _ = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        let _ = pool.alloc("c");
+
+        pool.decref(id2);
+        pool.compact();
+
+        // After compaction, pool has 2 slots, no free list
+        assert_eq!(pool.total_slots(), 2);
+        assert_eq!(pool.free_count(), 0);
+
+        // New alloc should extend the pool (no free slots to reuse)
+        let id_new = pool.alloc("new");
+        assert_eq!(id_new.pool_id(), 3);
+        assert_eq!(pool.total_slots(), 3);
+    }
+
+    #[test]
+    fn test_compact_idempotent() {
+        let mut pool = GraphemePool::new();
+
+        let _ = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        let _ = pool.alloc("c");
+        pool.decref(id2);
+
+        // First compact
+        let result1 = pool.compact();
+        assert_eq!(result1.slots_freed, 1);
+
+        // Second compact should be no-op
+        let result2 = pool.compact();
+        assert_eq!(result2.slots_freed, 0);
+        assert!(!result2.has_remappings());
+    }
 }
