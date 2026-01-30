@@ -934,6 +934,7 @@ impl Default for OptimizedBuffer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
     use super::*;
 
     // =========================================================================

@@ -3,6 +3,8 @@
 //! Uses proptest to verify invariants of Rgba operations including
 //! alpha blending, color interpolation, HSV conversion, and hex parsing.
 
+#![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
+
 use opentui::color::Rgba;
 use proptest::prelude::*;
 

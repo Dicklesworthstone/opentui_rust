@@ -3,6 +3,8 @@
 //! Tests cover cell creation, comparison, wide characters, grapheme handling,
 //! style application, blending, and content operations.
 
+#![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
+
 use opentui::cell::{Cell, CellContent, GraphemeId};
 use opentui::color::Rgba;
 use opentui::style::{Style, TextAttributes};

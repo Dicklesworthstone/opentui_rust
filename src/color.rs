@@ -862,6 +862,7 @@ mod proptests {
 /// documented test cases per bd-2fv0.
 #[cfg(test)]
 mod porter_duff_tests {
+    #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
     use super::*;
 
     // =========================================================================
@@ -1180,6 +1181,7 @@ mod porter_duff_tests {
 // =========================================================================
 #[cfg(test)]
 mod edge_case_tests {
+    #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
     use super::*;
 
     // --- Blend edge cases with ALPHA_EPSILON threshold ---

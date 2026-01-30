@@ -536,6 +536,7 @@ impl Drop for Renderer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
     use super::*;
     use crate::cell::Cell;
 

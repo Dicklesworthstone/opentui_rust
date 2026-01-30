@@ -2,6 +2,8 @@
 //!
 //! This file verifies that the fixtures module compiles and works correctly.
 
+#![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
+
 mod fixtures;
 
 use fixtures::*;

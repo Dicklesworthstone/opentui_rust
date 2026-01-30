@@ -2,6 +2,8 @@
 //!
 //! Provides sample data, random generators, and common test scenarios.
 
+#![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
+
 use opentui::buffer::OptimizedBuffer;
 use opentui::cell::Cell;
 use opentui::color::Rgba;
