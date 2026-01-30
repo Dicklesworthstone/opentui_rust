@@ -3,6 +3,7 @@
 //! Provides sample data, random generators, and common test scenarios.
 
 #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
 
 use opentui::buffer::OptimizedBuffer;
 use opentui::cell::Cell;

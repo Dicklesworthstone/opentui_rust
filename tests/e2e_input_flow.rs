@@ -3,6 +3,8 @@
 //! Tests complete input handling from raw bytes → parsed events → verification.
 //! Covers keyboard, mouse, paste, and focus events.
 
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+
 mod common;
 
 use common::harness::E2EHarness;

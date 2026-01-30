@@ -3,6 +3,8 @@
 //! Tests complex input sequences representing real user workflows:
 //! - Text editing workflows
 //! - Navigation workflows
+
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
 //! - Selection workflows
 //! - Undo/redo sequences
 

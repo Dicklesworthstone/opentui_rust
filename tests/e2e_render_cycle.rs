@@ -3,6 +3,8 @@
 //! Tests complete render cycle from initialization through multiple frames to cleanup.
 //! Verifies diff rendering, ANSI output correctness, and frame sequence behavior.
 
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+
 mod common;
 
 use common::harness::E2EHarness;

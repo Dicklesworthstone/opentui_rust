@@ -3,6 +3,8 @@
 //! This module provides comprehensive tests for Unicode handling edge cases,
 //! including wide characters, emoji, combining characters, and stress tests.
 
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+
 mod common;
 
 use opentui::OptimizedBuffer;

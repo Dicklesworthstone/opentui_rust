@@ -8,6 +8,8 @@
 //! - **Startup time** - from spawn to first frame output
 //! - **Frame render time** - per-frame duration estimates
 //! - **Tour step transitions** - time between tour mode steps
+
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
 //! - **Total runtime** - spawn to exit
 //! - **Memory high-water mark** - peak memory usage (best effort)
 //!
