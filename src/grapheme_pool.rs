@@ -659,6 +659,51 @@ impl GraphemePool {
         freed_count
     }
 
+    /// Allocate multiple graphemes at once.
+    ///
+    /// This is more efficient than calling [`alloc()`](Self::alloc) individually
+    /// as it can pre-size internal structures. Like `alloc()`, this does NOT
+    /// deduplicate - each grapheme gets its own slot even if duplicates exist.
+    /// Use [`intern()`](Self::intern) if you want deduplication.
+    ///
+    /// # Arguments
+    ///
+    /// * `graphemes` - Slice of grapheme strings to allocate
+    ///
+    /// # Returns
+    ///
+    /// A vector of [`GraphemeId`]s in the same order as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pool would exceed 16M entries.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    ///
+    /// let ids = pool.alloc_batch(&["alpha", "beta", "gamma"]);
+    ///
+    /// assert_eq!(ids.len(), 3);
+    /// assert_eq!(pool.get(ids[0]), Some("alpha"));
+    /// assert_eq!(pool.get(ids[1]), Some("beta"));
+    /// assert_eq!(pool.get(ids[2]), Some("gamma"));
+    /// ```
+    #[must_use]
+    pub fn alloc_batch(&mut self, graphemes: &[&str]) -> Vec<GraphemeId> {
+        // Pre-allocate result vector
+        let mut result = Vec::with_capacity(graphemes.len());
+
+        for &grapheme in graphemes {
+            result.push(self.alloc(grapheme));
+        }
+
+        result
+    }
+
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
     ///
     /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns
@@ -1565,5 +1610,98 @@ mod tests {
 
         assert_eq!(freed, 1); // Now freed
         assert!(!pool.is_valid(id));
+    }
+
+    #[test]
+    fn test_alloc_batch_empty() {
+        let mut pool = GraphemePool::new();
+
+        let ids = pool.alloc_batch(&[]);
+
+        assert!(ids.is_empty());
+        assert_eq!(pool.active_count(), 0);
+    }
+
+    #[test]
+    fn test_alloc_batch_single() {
+        let mut pool = GraphemePool::new();
+
+        let ids = pool.alloc_batch(&["single"]);
+
+        assert_eq!(ids.len(), 1);
+        assert_eq!(pool.get(ids[0]), Some("single"));
+    }
+
+    #[test]
+    fn test_alloc_batch_multiple() {
+        let mut pool = GraphemePool::new();
+
+        let ids = pool.alloc_batch(&["alpha", "beta", "gamma", "delta"]);
+
+        assert_eq!(ids.len(), 4);
+        assert_eq!(pool.active_count(), 4);
+
+        // Order should be preserved
+        assert_eq!(pool.get(ids[0]), Some("alpha"));
+        assert_eq!(pool.get(ids[1]), Some("beta"));
+        assert_eq!(pool.get(ids[2]), Some("gamma"));
+        assert_eq!(pool.get(ids[3]), Some("delta"));
+    }
+
+    #[test]
+    fn test_alloc_batch_with_duplicates() {
+        let mut pool = GraphemePool::new();
+
+        // Unlike intern, alloc_batch should NOT deduplicate
+        let ids = pool.alloc_batch(&["dup", "dup", "dup"]);
+
+        assert_eq!(ids.len(), 3);
+        assert_eq!(pool.active_count(), 3);
+
+        // Each should be a different slot
+        assert_ne!(ids[0].pool_id(), ids[1].pool_id());
+        assert_ne!(ids[1].pool_id(), ids[2].pool_id());
+
+        // But all should retrieve the same string
+        assert_eq!(pool.get(ids[0]), Some("dup"));
+        assert_eq!(pool.get(ids[1]), Some("dup"));
+        assert_eq!(pool.get(ids[2]), Some("dup"));
+    }
+
+    #[test]
+    fn test_alloc_batch_preserves_width() {
+        let mut pool = GraphemePool::new();
+
+        let ids = pool.alloc_batch(&["A", "👍", "世"]);
+
+        // ASCII has width 1
+        assert_eq!(ids[0].width(), 1);
+        // Emoji has width 2
+        assert_eq!(ids[1].width(), 2);
+        // CJK has width 2
+        assert_eq!(ids[2].width(), 2);
+    }
+
+    #[test]
+    fn test_alloc_batch_reuses_freed_slots() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate and free some slots
+        let old_ids = pool.alloc_batch(&["old1", "old2", "old3"]);
+        for id in &old_ids {
+            pool.decref(*id);
+        }
+
+        // Now allocate new batch - should reuse freed slots
+        let new_ids = pool.alloc_batch(&["new1", "new2"]);
+
+        // Pool should not have grown beyond original size
+        assert_eq!(pool.total_slots(), 3);
+        assert_eq!(pool.active_count(), 2);
+        assert_eq!(pool.free_count(), 1);
+
+        // New graphemes should be retrievable
+        assert_eq!(pool.get(new_ids[0]), Some("new1"));
+        assert_eq!(pool.get(new_ids[1]), Some("new2"));
     }
 }
