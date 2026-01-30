@@ -557,19 +557,20 @@ impl GraphemePool {
     ///
     /// let mut pool = GraphemePool::new();
     ///
-    /// // Small pool - not worth compacting
-    /// for i in 0..10 {
-    ///     let id = pool.alloc(&format!("g{i}"));
-    ///     pool.decref(id);
+    /// // Small pool - not worth compacting even if fragmented
+    /// let small_ids: Vec<_> = (0..10).map(|i| pool.alloc(&format!("g{i}"))).collect();
+    /// for id in &small_ids {
+    ///     pool.decref(*id);
     /// }
     /// assert!(!pool.should_compact()); // Too small
     ///
     /// // Large fragmented pool - should compact
+    /// // First allocate all entries, THEN free some (to avoid slot reuse)
     /// let mut pool = GraphemePool::new();
-    /// for i in 0..2000 {
-    ///     let id = pool.alloc(&format!("g{i}"));
-    ///     if i % 2 == 0 {
-    ///         pool.decref(id); // Free half
+    /// let ids: Vec<_> = (0..2000).map(|i| pool.alloc(&format!("g{i}"))).collect();
+    /// for (i, id) in ids.iter().enumerate() {
+    ///     if i % 3 != 0 {
+    ///         pool.decref(*id); // Free ~66%
     ///     }
     /// }
     /// assert!(pool.should_compact()); // Large and >50% fragmented
