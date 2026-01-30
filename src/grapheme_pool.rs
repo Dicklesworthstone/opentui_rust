@@ -57,6 +57,47 @@ pub const COMPACTION_FRAGMENTATION_THRESHOLD: f32 = 0.5;
 /// Minimum pool size to consider compaction worthwhile.
 pub const COMPACTION_MIN_SLOTS: usize = 1000;
 
+/// Result of a pool compaction operation.
+///
+/// Contains the remapping from old IDs to new IDs, which callers must use
+/// to update their stored [`GraphemeId`] references. Any ID not present in
+/// `old_to_new` was either invalid or freed before compaction.
+#[derive(Clone, Debug, Default)]
+pub struct CompactionResult {
+    /// Mapping from old pool IDs to new pool IDs.
+    ///
+    /// Callers must iterate through their stored IDs and remap them:
+    /// ```ignore
+    /// for id in buffer.grapheme_ids_mut() {
+    ///     if let Some(&new_id) = result.old_to_new.get(&id.pool_id()) {
+    ///         *id = GraphemeId::new(new_id, id.width());
+    ///     }
+    /// }
+    /// ```
+    pub old_to_new: HashMap<u32, u32>,
+    /// Number of free slots removed during compaction.
+    pub slots_freed: usize,
+    /// Estimated bytes saved by compaction.
+    pub bytes_saved: usize,
+}
+
+impl CompactionResult {
+    /// Check if any IDs were remapped.
+    #[must_use]
+    pub fn has_remappings(&self) -> bool {
+        !self.old_to_new.is_empty()
+    }
+
+    /// Remap a pool ID to its new value, if it changed.
+    ///
+    /// Returns `Some(new_id)` if the ID was remapped, `None` if it wasn't
+    /// (either because it didn't exist or because compaction didn't occur).
+    #[must_use]
+    pub fn remap(&self, old_id: u32) -> Option<u32> {
+        self.old_to_new.get(&old_id).copied()
+    }
+}
+
 /// Statistics about pool utilization.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PoolStats {
@@ -805,6 +846,128 @@ impl GraphemePool {
 
         // Need to allocate - use try_alloc which respects soft limit
         self.try_alloc(grapheme)
+    }
+
+    /// Compact the pool by removing gaps from freed slots.
+    ///
+    /// This defragments the pool by creating new contiguous storage containing
+    /// only active entries. All existing pool IDs become invalid and must be
+    /// remapped using the returned [`CompactionResult::old_to_new`] mapping.
+    ///
+    /// # Important
+    ///
+    /// **All code holding [`GraphemeId`] references must update them after compaction!**
+    /// Failure to do so will result in incorrect lookups or panics.
+    ///
+    /// # When to Compact
+    ///
+    /// Use [`should_compact()`](Self::should_compact) to check if compaction would be beneficial.
+    /// Compaction is most useful when:
+    /// - Fragmentation is high (>50% of slots are freed)
+    /// - The pool is large (>1000 slots)
+    /// - Memory pressure is a concern
+    ///
+    /// # Returns
+    ///
+    /// A [`CompactionResult`] containing:
+    /// - `old_to_new`: Mapping from old pool IDs to new pool IDs
+    /// - `slots_freed`: Number of free slots removed
+    /// - `bytes_saved`: Estimated memory reclaimed
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    ///
+    /// // Allocate some entries
+    /// let id1 = pool.alloc("alpha");
+    /// let id2 = pool.alloc("beta");
+    /// let id3 = pool.alloc("gamma");
+    ///
+    /// // Free the middle one - creates a gap
+    /// pool.decref(id2);
+    ///
+    /// // Now id1 is at slot 1, id3 is at slot 3 (gap at 2)
+    /// assert_eq!(id1.pool_id(), 1);
+    /// assert_eq!(id3.pool_id(), 3);
+    ///
+    /// // Compact to remove the gap
+    /// let result = pool.compact();
+    ///
+    /// // Slots are now contiguous: 0 (reserved), 1 (alpha), 2 (gamma)
+    /// assert_eq!(result.slots_freed, 1);
+    ///
+    /// // Remap the IDs
+    /// let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
+    /// let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+    ///
+    /// // Verify the remapped IDs work
+    /// use opentui::cell::GraphemeId;
+    /// let remapped1 = GraphemeId::new(new_id1, id1.width());
+    /// let remapped3 = GraphemeId::new(new_id3, id3.width());
+    ///
+    /// assert_eq!(pool.get(remapped1), Some("alpha"));
+    /// assert_eq!(pool.get(remapped3), Some("gamma"));
+    /// ```
+    #[must_use]
+    pub fn compact(&mut self) -> CompactionResult {
+        // Early exit if nothing to compact
+        if self.free_list.is_empty() {
+            return CompactionResult::default();
+        }
+
+        let slots_freed = self.free_list.len();
+
+        // Estimate bytes saved: average slot size * freed count
+        // This is approximate since we're clearing String heap allocations
+        let avg_slot_heap: usize = self
+            .slots
+            .iter()
+            .skip(1)
+            .filter(|s| !s.is_free())
+            .map(|s| s.bytes.capacity())
+            .sum::<usize>()
+            .checked_div(self.active_count())
+            .unwrap_or(0);
+        let bytes_saved = slots_freed * (std::mem::size_of::<Slot>() + avg_slot_heap);
+
+        // Build new compact storage
+        let active_count = self.active_count();
+        let mut new_slots = Vec::with_capacity(active_count + 1);
+        let mut old_to_new = HashMap::with_capacity(active_count);
+        let mut new_index = HashMap::with_capacity(active_count);
+
+        // Keep reserved slot 0
+        new_slots.push(Slot {
+            bytes: String::new(),
+            refcount: 0,
+            width: 0,
+        });
+
+        // Copy active slots to new contiguous positions
+        for (old_id, slot) in self.slots.iter().enumerate().skip(1) {
+            if slot.is_free() {
+                continue;
+            }
+
+            let new_id = new_slots.len() as u32;
+            old_to_new.insert(old_id as u32, new_id);
+            new_index.insert(slot.bytes.clone(), new_id);
+            new_slots.push(slot.clone());
+        }
+
+        // Swap in new data structures
+        self.slots = new_slots;
+        self.free_list.clear();
+        self.index = new_index;
+
+        CompactionResult {
+            old_to_new,
+            slots_freed,
+            bytes_saved,
+        }
     }
 }
 
