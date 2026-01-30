@@ -2143,8 +2143,8 @@ mod tests {
         let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
         let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
 
-        let remapped1 = GraphemeId::new(new_id1, id1.width());
-        let remapped3 = GraphemeId::new(new_id3, id3.width());
+        let remapped1 = GraphemeId::new(new_id1, id1.width() as u8);
+        let remapped3 = GraphemeId::new(new_id3, id3.width() as u8);
 
         assert_eq!(pool.refcount(remapped1), 3);
         assert_eq!(pool.refcount(remapped3), 1);
@@ -2299,7 +2299,7 @@ mod tests {
         for (i, id) in ids.iter().enumerate() {
             if i % 3 == 0 {
                 let new_pool_id = result.remap(id.pool_id()).unwrap_or(id.pool_id());
-                let remapped = GraphemeId::new(new_pool_id, id.width());
+                let remapped = GraphemeId::new(new_pool_id, id.width() as u8);
                 assert_eq!(pool.get(remapped), Some(format!("g{i}").as_str()));
             }
         }
