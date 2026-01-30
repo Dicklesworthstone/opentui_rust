@@ -498,6 +498,43 @@ impl GraphemePool {
         self.free_count() as f32 / total as f32
     }
 
+    /// Iterate over all active (non-freed) entries in the pool.
+    ///
+    /// Yields `(pool_id, grapheme)` pairs for each allocated slot that has not been freed.
+    /// Skips slot 0 (reserved/invalid) and any freed slots.
+    ///
+    /// This is useful for debugging, serialization, and pool inspection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// let _id1 = pool.alloc("alpha");
+    /// let id2 = pool.alloc("beta");
+    /// let _id3 = pool.alloc("gamma");
+    /// pool.decref(id2); // Free "beta"
+    ///
+    /// let active: Vec<_> = pool.iter_active().collect();
+    /// assert_eq!(active.len(), 2);
+    /// assert!(active.iter().any(|(_, s)| *s == "alpha"));
+    /// assert!(active.iter().any(|(_, s)| *s == "gamma"));
+    /// ```
+    pub fn iter_active(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .skip(1) // Skip reserved slot 0
+            .filter_map(|(idx, slot)| {
+                if slot.is_free() {
+                    None
+                } else {
+                    Some((idx as u32, slot.bytes.as_str()))
+                }
+            })
+    }
+
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
     ///
     /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns

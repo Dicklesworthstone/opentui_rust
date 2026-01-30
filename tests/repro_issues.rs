@@ -68,7 +68,11 @@ mod tests {
 
         // Buffer now has clear_cell, but orphaned grapheme is tracked internally.
         // Refcount is still 1 because we haven't called a pool-aware method yet.
-        assert_eq!(pool.refcount(id), 1, "Refcount should still be 1 before drain");
+        assert_eq!(
+            pool.refcount(id),
+            1,
+            "Refcount should still be 1 before drain"
+        );
 
         // 4. Clear buffer with pool - this drains orphaned graphemes
         buffer.clear_with_pool(&mut pool, opentui::color::Rgba::BLACK);
@@ -124,10 +128,7 @@ mod tests {
             "Position 1 should be continuation"
         );
         assert!(
-            matches!(
-                old_buf.get(2, 0).unwrap().content,
-                CellContent::Char('B')
-            ),
+            matches!(old_buf.get(2, 0).unwrap().content, CellContent::Char('B')),
             "Position 2 should be 'B'"
         );
 
