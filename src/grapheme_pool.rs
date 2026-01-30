@@ -1351,4 +1351,84 @@ mod tests {
         assert!(pool.total_slots() > 1000);
         assert!(pool.get_fragmentation_ratio() > 0.5);
     }
+
+    #[test]
+    fn test_clone_batch_empty() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Clone empty batch - should be no-op
+        pool.clone_batch(&[]);
+
+        assert_eq!(pool.refcount(id), 1);
+    }
+
+    #[test]
+    fn test_clone_batch_valid_ids() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+        let id3 = pool.alloc("gamma");
+
+        // Clone all three
+        pool.clone_batch(&[id1.pool_id(), id2.pool_id(), id3.pool_id()]);
+
+        assert_eq!(pool.refcount(id1), 2);
+        assert_eq!(pool.refcount(id2), 2);
+        assert_eq!(pool.refcount(id3), 2);
+    }
+
+    #[test]
+    fn test_clone_batch_skips_id_zero() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Clone with ID 0 (invalid) - should skip it
+        pool.clone_batch(&[0, id.pool_id()]);
+
+        // Only the valid ID should be incremented
+        assert_eq!(pool.refcount(id), 2);
+    }
+
+    #[test]
+    fn test_clone_batch_skips_invalid_ids() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Clone with out-of-range ID - should skip it
+        pool.clone_batch(&[9999, id.pool_id(), 12345]);
+
+        // Only the valid ID should be incremented
+        assert_eq!(pool.refcount(id), 2);
+    }
+
+    #[test]
+    fn test_clone_batch_skips_freed_ids() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+
+        // Free id1
+        pool.decref(id1);
+
+        // Clone both - id1 should be skipped
+        pool.clone_batch(&[id1.pool_id(), id2.pool_id()]);
+
+        // id1 is freed, should still be 0
+        assert_eq!(pool.refcount(id1), 0);
+        // id2 should be incremented
+        assert_eq!(pool.refcount(id2), 2);
+    }
+
+    #[test]
+    fn test_clone_batch_duplicate_ids() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Clone same ID multiple times
+        pool.clone_batch(&[id.pool_id(), id.pool_id(), id.pool_id()]);
+
+        // Should increment by 3
+        assert_eq!(pool.refcount(id), 4);
+    }
 }
