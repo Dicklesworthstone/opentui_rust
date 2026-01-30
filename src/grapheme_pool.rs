@@ -51,6 +51,12 @@ pub const DEFAULT_SOFT_LIMIT: usize = 1_000_000;
 /// Utilization threshold considered "high" (80%).
 pub const HIGH_UTILIZATION_THRESHOLD: usize = 80;
 
+/// Minimum fragmentation ratio to consider compaction (50%).
+pub const COMPACTION_FRAGMENTATION_THRESHOLD: f32 = 0.5;
+
+/// Minimum pool size to consider compaction worthwhile.
+pub const COMPACTION_MIN_SLOTS: usize = 1000;
+
 /// Statistics about pool utilization.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PoolStats {
@@ -533,6 +539,77 @@ impl GraphemePool {
                     Some((idx as u32, slot.bytes.as_str()))
                 }
             })
+    }
+
+    /// Check if the pool should be compacted based on fragmentation and size.
+    ///
+    /// Returns `true` if compaction would be beneficial. The heuristic considers:
+    /// - Fragmentation ratio > 50% (more than half of allocated slots are freed)
+    /// - Pool size > 1000 slots (compaction overhead is worth it for larger pools)
+    ///
+    /// Small pools or lightly fragmented pools return `false` since the overhead
+    /// of compaction would outweigh the benefits.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    ///
+    /// // Small pool - not worth compacting
+    /// for i in 0..10 {
+    ///     let id = pool.alloc(&format!("g{i}"));
+    ///     pool.decref(id);
+    /// }
+    /// assert!(!pool.should_compact()); // Too small
+    ///
+    /// // Large fragmented pool - should compact
+    /// let mut pool = GraphemePool::new();
+    /// for i in 0..2000 {
+    ///     let id = pool.alloc(&format!("g{i}"));
+    ///     if i % 2 == 0 {
+    ///         pool.decref(id); // Free half
+    ///     }
+    /// }
+    /// assert!(pool.should_compact()); // Large and >50% fragmented
+    /// ```
+    #[must_use]
+    pub fn should_compact(&self) -> bool {
+        let ratio = self.get_fragmentation_ratio();
+        let size = self.total_slots();
+        ratio > COMPACTION_FRAGMENTATION_THRESHOLD && size > COMPACTION_MIN_SLOTS
+    }
+
+    /// Increment reference counts for multiple pool IDs.
+    ///
+    /// This is more efficient than calling [`incref()`](Self::incref) individually
+    /// when copying regions between buffers. Invalid IDs (including ID 0 and
+    /// IDs for freed slots) are silently skipped.
+    ///
+    /// # Arguments
+    ///
+    /// * `ids` - Slice of pool IDs to increment references for
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// let id1 = pool.alloc("alpha");
+    /// let id2 = pool.alloc("beta");
+    ///
+    /// // Clone both references at once
+    /// pool.clone_batch(&[id1.pool_id(), id2.pool_id()]);
+    ///
+    /// assert_eq!(pool.refcount(id1), 2);
+    /// assert_eq!(pool.refcount(id2), 2);
+    /// ```
+    pub fn clone_batch(&mut self, ids: &[u32]) {
+        for &pool_id in ids {
+            self.incref_by_pool_id(pool_id);
+        }
     }
 
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
@@ -1198,5 +1275,80 @@ mod tests {
         let active: Vec<_> = pool.iter_active().collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0], (1, "new"));
+    }
+
+    #[test]
+    fn test_should_compact_empty_pool() {
+        let pool = GraphemePool::new();
+        assert!(!pool.should_compact());
+    }
+
+    #[test]
+    fn test_should_compact_small_fragmented_pool() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate 10 entries and free all of them - 100% fragmented but small
+        for i in 0..10 {
+            let id = pool.alloc(&format!("g{i}"));
+            pool.decref(id);
+        }
+
+        // Should return false because pool is too small
+        assert!(!pool.should_compact());
+        assert!((pool.get_fragmentation_ratio() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_should_compact_large_unfragmented_pool() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate 2000 entries but don't free any
+        for i in 0..2000 {
+            let _ = pool.alloc(&format!("g{i}"));
+        }
+
+        // Should return false because pool is not fragmented
+        assert!(!pool.should_compact());
+        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_should_compact_large_fragmented_pool() {
+        let mut pool = GraphemePool::new();
+
+        // First allocate all 2000 entries
+        let ids: Vec<_> = (0..2000).map(|i| pool.alloc(&format!("g{i}"))).collect();
+
+        // Then free more than half (free every entry where index % 3 != 0)
+        for (i, id) in ids.iter().enumerate() {
+            if i % 3 != 0 {
+                pool.decref(*id);
+            }
+        }
+
+        // Should return true: large (2000 slots) and >50% fragmented (~66% freed)
+        assert!(pool.should_compact());
+        assert!(pool.get_fragmentation_ratio() > 0.5);
+    }
+
+    #[test]
+    fn test_should_compact_threshold_boundary() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate exactly 1001 entries and free exactly 501 (just over 50%)
+        let mut ids = Vec::new();
+        for i in 0..1001 {
+            ids.push(pool.alloc(&format!("g{i}")));
+        }
+
+        // Free 501 entries (>50%)
+        for id in ids.iter().take(501) {
+            pool.decref(*id);
+        }
+
+        // Should return true: size > 1000 and fragmentation > 50%
+        assert!(pool.should_compact());
+        assert!(pool.total_slots() > 1000);
+        assert!(pool.get_fragmentation_ratio() > 0.5);
     }
 }
