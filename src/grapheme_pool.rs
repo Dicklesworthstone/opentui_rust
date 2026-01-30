@@ -905,8 +905,8 @@ impl GraphemePool {
     ///
     /// // Verify the remapped IDs work
     /// use opentui::cell::GraphemeId;
-    /// let remapped1 = GraphemeId::new(new_id1, id1.width());
-    /// let remapped3 = GraphemeId::new(new_id3, id3.width());
+    /// let remapped1 = GraphemeId::new(new_id1, id1.width() as u8);
+    /// let remapped3 = GraphemeId::new(new_id3, id3.width() as u8);
     ///
     /// assert_eq!(pool.get(remapped1), Some("alpha"));
     /// assert_eq!(pool.get(remapped3), Some("gamma"));
@@ -2184,7 +2184,7 @@ mod tests {
         // Free middle one
         pool.decref(id2);
 
-        pool.compact();
+        let _ = pool.compact();
 
         // Index should be updated - intern should find existing entries
         let interned1 = pool.intern("alpha");
@@ -2314,7 +2314,7 @@ mod tests {
         let _ = pool.alloc("c");
 
         pool.decref(id2);
-        pool.compact();
+        let _ = pool.compact();
 
         // After compaction, pool has 2 slots, no free list
         assert_eq!(pool.total_slots(), 2);
