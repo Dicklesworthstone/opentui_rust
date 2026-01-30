@@ -519,6 +519,7 @@ impl GraphemePool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::let_underscore_must_use)] // Intentionally discarding alloc() returns in tests
     use super::*;
 
     #[test]
@@ -794,9 +795,9 @@ mod tests {
     fn test_index_cleared_on_clear() {
         let mut pool = GraphemePool::new();
 
-        pool.alloc("a");
-        pool.alloc("b");
-        pool.alloc("c");
+        let _ = pool.alloc("a");
+        let _ = pool.alloc("b");
+        let _ = pool.alloc("c");
 
         pool.clear();
 

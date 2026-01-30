@@ -238,12 +238,11 @@ impl TimingMetrics {
     /// Assert that metrics are within thresholds, panicking on violation.
     pub fn assert_within_thresholds(&self, thresholds: &MetricThresholds) {
         let result = self.check_thresholds(thresholds);
-        if !result.is_ok() {
-            panic!(
-                "Timing metrics exceeded thresholds:\n{}",
-                result.violations_summary()
-            );
-        }
+        assert!(
+            result.is_ok(),
+            "Timing metrics exceeded thresholds:\n{}",
+            result.violations_summary()
+        );
     }
 }
 

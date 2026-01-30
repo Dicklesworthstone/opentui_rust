@@ -164,9 +164,7 @@ pub fn compare_buffers(expected: &OptimizedBuffer, actual: &OptimizedBuffer) -> 
 /// Panics with a detailed diff if they differ.
 pub fn assert_buffers_equal(expected: &OptimizedBuffer, actual: &OptimizedBuffer) {
     let diff = compare_buffers(expected, actual);
-    if !diff.equal {
-        panic!("Buffer assertion failed:\n{}", diff.summary);
-    }
+    assert!(diff.equal, "Buffer assertion failed:\n{}", diff.summary);
 }
 
 /// Assert that a cell at position (x, y) has the expected character.
@@ -177,9 +175,11 @@ pub fn assert_cell_char(buffer: &OptimizedBuffer, x: u32, y: u32, expected: char
 
     match cell.content {
         CellContent::Char(c) => {
-            if c != expected {
-                panic!("Cell ({}, {}) expected '{}', got '{}'", x, y, expected, c);
-            }
+            assert_eq!(
+                c, expected,
+                "Cell ({}, {}) expected '{}', got '{}'",
+                x, y, expected, c
+            );
         }
         other => {
             panic!(
