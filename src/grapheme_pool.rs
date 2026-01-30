@@ -612,6 +612,46 @@ impl GraphemePool {
         }
     }
 
+    /// Decrement reference counts for multiple pool IDs.
+    ///
+    /// This is more efficient than calling [`decref()`](Self::decref) individually
+    /// when clearing regions or buffers. Invalid IDs (including ID 0 and
+    /// IDs for already-freed slots) are silently skipped.
+    ///
+    /// # Arguments
+    ///
+    /// * `ids` - Slice of pool IDs to decrement references for
+    ///
+    /// # Returns
+    ///
+    /// The number of entries that were actually freed (refcount went to 0).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// let id1 = pool.alloc("alpha");
+    /// let id2 = pool.alloc("beta");
+    ///
+    /// // Free both at once
+    /// let freed = pool.free_batch(&[id1.pool_id(), id2.pool_id()]);
+    ///
+    /// assert_eq!(freed, 2);
+    /// assert!(!pool.is_valid(id1));
+    /// assert!(!pool.is_valid(id2));
+    /// ```
+    pub fn free_batch(&mut self, ids: &[u32]) -> usize {
+        let mut freed_count = 0;
+        for &pool_id in ids {
+            if !self.decref_by_pool_id(pool_id) {
+                freed_count += 1;
+            }
+        }
+        freed_count
+    }
+
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
     ///
     /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns
@@ -1430,5 +1470,93 @@ mod tests {
 
         // Should increment by 3
         assert_eq!(pool.refcount(id), 4);
+    }
+
+    #[test]
+    fn test_free_batch_empty() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Free empty batch - should be no-op
+        let freed = pool.free_batch(&[]);
+
+        assert_eq!(freed, 0);
+        assert_eq!(pool.refcount(id), 1);
+    }
+
+    #[test]
+    fn test_free_batch_valid_ids() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+        let id3 = pool.alloc("gamma");
+
+        // Free all three
+        let freed = pool.free_batch(&[id1.pool_id(), id2.pool_id(), id3.pool_id()]);
+
+        assert_eq!(freed, 3);
+        assert!(!pool.is_valid(id1));
+        assert!(!pool.is_valid(id2));
+        assert!(!pool.is_valid(id3));
+    }
+
+    #[test]
+    fn test_free_batch_skips_id_zero() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Free with ID 0 (invalid) - should skip it
+        let freed = pool.free_batch(&[0, id.pool_id()]);
+
+        assert_eq!(freed, 1);
+        assert!(!pool.is_valid(id));
+    }
+
+    #[test]
+    fn test_free_batch_skips_invalid_ids() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+
+        // Free with out-of-range IDs - should skip them
+        let freed = pool.free_batch(&[9999, id.pool_id(), 12345]);
+
+        assert_eq!(freed, 1);
+        assert!(!pool.is_valid(id));
+    }
+
+    #[test]
+    fn test_free_batch_skips_freed_ids() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+
+        // Free id1 first
+        pool.decref(id1);
+
+        // Free both - id1 should be skipped (already freed)
+        let freed = pool.free_batch(&[id1.pool_id(), id2.pool_id()]);
+
+        // Only id2 was actually freed
+        assert_eq!(freed, 1);
+    }
+
+    #[test]
+    fn test_free_batch_with_multiple_refs() {
+        let mut pool = GraphemePool::new();
+        let id = pool.alloc("test");
+        pool.incref(id);
+        pool.incref(id);
+
+        // Refcount is 3, free once should decrement but not free
+        let freed = pool.free_batch(&[id.pool_id()]);
+
+        assert_eq!(freed, 0); // Not freed yet
+        assert_eq!(pool.refcount(id), 2);
+
+        // Free twice more
+        let freed = pool.free_batch(&[id.pool_id(), id.pool_id()]);
+
+        assert_eq!(freed, 1); // Now freed
+        assert!(!pool.is_valid(id));
     }
 }
