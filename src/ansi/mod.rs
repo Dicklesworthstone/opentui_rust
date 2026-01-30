@@ -824,13 +824,13 @@ mod tests {
         // Normal colors: 30-37, bright: 90-97
         let black = fg_color_with_mode(Rgba::BLACK, ColorMode::Color16);
         assert!(black.contains("\x1b["), "Should have CSI prefix");
-        assert!(black.ends_with("m"), "Should end with m");
+        assert!(black.ends_with('m'), "Should end with m");
 
         let white = fg_color_with_mode(Rgba::WHITE, ColorMode::Color16);
         // White maps to bright white (97)
         let code: u8 = white
             .trim_start_matches("\x1b[")
-            .trim_end_matches("m")
+            .trim_end_matches('m')
             .parse()
             .unwrap_or(0);
         assert!(
@@ -844,7 +844,7 @@ mod tests {
         // Test 256-color format: ESC[38;5;Nm
         let color = fg_color_with_mode(Rgba::new(0.5, 0.5, 0.5, 1.0), ColorMode::Color256);
         assert!(color.starts_with("\x1b[38;5;"), "256-color fg format");
-        assert!(color.ends_with("m"), "Should end with m");
+        assert!(color.ends_with('m'), "Should end with m");
 
         let bg = bg_color_with_mode(Rgba::RED, ColorMode::Color256);
         assert!(bg.starts_with("\x1b[48;5;"), "256-color bg format");
@@ -859,7 +859,7 @@ mod tests {
         // Parse out the RGB values
         let parts: Vec<&str> = color
             .trim_start_matches("\x1b[38;2;")
-            .trim_end_matches("m")
+            .trim_end_matches('m')
             .split(';')
             .collect();
         assert_eq!(parts.len(), 3, "Should have 3 color components");
@@ -967,7 +967,7 @@ mod tests {
         assert!(seq.contains("1"), "Has bold");
         assert!(seq.contains("3"), "Has italic");
         assert!(seq.contains(";"), "Semicolon separator");
-        assert!(seq.ends_with("m"), "SGR terminator");
+        assert!(seq.ends_with('m'), "SGR terminator");
     }
 
     #[test]

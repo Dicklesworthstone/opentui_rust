@@ -865,9 +865,9 @@ mod tests {
 
         // Should only emit italic (SGR 3), not bold again
         let output = String::from_utf8_lossy(writer.buffer());
-        assert!(output.contains("3"), "Should add italic");
+        assert!(output.contains('3'), "Should add italic");
         // Should not re-emit bold since it's already set
-        assert_eq!(output.matches("1").count(), 0, "Should not re-emit bold");
+        assert_eq!(output.matches('1').count(), 0, "Should not re-emit bold");
     }
 
     // ============================================
@@ -1046,9 +1046,9 @@ mod tests {
         let output = String::from_utf8_lossy(writer.buffer());
         assert!(output.contains('X'), "Character rendered");
         // Should have attribute codes
-        assert!(output.contains("1"), "Bold");
-        assert!(output.contains("3"), "Italic");
-        assert!(output.contains("4"), "Underline");
-        assert!(output.contains("9"), "Strikethrough");
+        assert!(output.contains('1'), "Bold");
+        assert!(output.contains('3'), "Italic");
+        assert!(output.contains('4'), "Underline");
+        assert!(output.contains('9'), "Strikethrough");
     }
 }
