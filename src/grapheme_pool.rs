@@ -180,6 +180,9 @@ pub struct GraphemePool {
     total_allocations: u64,
     /// Total number of frees over pool lifetime.
     total_frees: u64,
+    /// Configurable fragmentation ratio threshold for should_compact().
+    /// Default is COMPACTION_FRAGMENTATION_THRESHOLD (0.5).
+    compact_threshold: f32,
 }
 
 impl Default for GraphemePool {
@@ -207,6 +210,7 @@ impl GraphemePool {
             peak_usage: 0,
             total_allocations: 0,
             total_frees: 0,
+            compact_threshold: COMPACTION_FRAGMENTATION_THRESHOLD,
         }
     }
 
@@ -232,6 +236,7 @@ impl GraphemePool {
             peak_usage: 0,
             total_allocations: 0,
             total_frees: 0,
+            compact_threshold: COMPACTION_FRAGMENTATION_THRESHOLD,
         }
     }
 
@@ -258,6 +263,7 @@ impl GraphemePool {
             peak_usage: 0,
             total_allocations: 0,
             total_frees: 0,
+            compact_threshold: COMPACTION_FRAGMENTATION_THRESHOLD,
         }
     }
 
