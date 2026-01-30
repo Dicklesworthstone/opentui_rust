@@ -9,7 +9,7 @@
 //! ```bash
 //! # Run all performance tests
 
-#![allow(clippy::format_push_string)] // Test code - clarity over micro-optimization
+#![allow(clippy::format_push_string, clippy::uninlined_format_args)] // Test code - clarity over micro-optimization
 //! cargo test --test e2e_perf
 //!
 //! # Run with verbose output

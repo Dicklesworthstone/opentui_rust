@@ -8,6 +8,8 @@
 //! These tests are ignored by default to avoid CI flakiness. To run them:
 //!
 //! ```bash
+
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
 //! # First, build the demo_showcase binary
 //! cargo build --bin demo_showcase
 //!

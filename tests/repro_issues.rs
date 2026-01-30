@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+
 #[cfg(test)]
 mod tests {
     use opentui::buffer::{BoxOptions, BoxStyle, OptimizedBuffer};

@@ -8,6 +8,8 @@
 //!
 //! # Environment Variables
 //!
+
+#![allow(clippy::uninlined_format_args)] // Clarity over style in test code
 //! - `HARNESS_ARTIFACTS=1` - Enable artifact capture
 //! - `HARNESS_ARTIFACTS_DIR` - Custom artifact directory (default: `target/e2e-artifacts`)
 //! - `HARNESS_PRESERVE_SUCCESS=1` - Keep artifacts even for passing tests
