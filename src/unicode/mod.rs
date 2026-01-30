@@ -5,7 +5,8 @@ mod search;
 mod width;
 
 pub use grapheme::{
-    GraphemeInfo, GraphemeIterator, grapheme_indices, grapheme_info, graphemes, is_ascii_only,
+    GraphemeInfo, GraphemeIterator, find_grapheme_boundary, grapheme_indices, grapheme_info,
+    graphemes, is_ascii_only, split_graphemes_with_widths,
 };
 pub use search::{
     BreakType, LineBreakResult, TabStopResult, WrapBreakResult, calculate_text_width,
