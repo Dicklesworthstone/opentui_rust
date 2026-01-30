@@ -918,6 +918,7 @@ impl<'a> TextBufferView<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::uninlined_format_args)]
     use super::*;
 
     #[test]

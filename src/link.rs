@@ -91,6 +91,7 @@ impl LinkPool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::uninlined_format_args)]
     use super::*;
 
     // ============================================
