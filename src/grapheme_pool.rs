@@ -654,11 +654,14 @@ impl GraphemePool {
     /// Check if the pool should be compacted based on fragmentation and size.
     ///
     /// Returns `true` if compaction would be beneficial. The heuristic considers:
-    /// - Fragmentation ratio > 50% (more than half of allocated slots are freed)
+    /// - Fragmentation ratio > configurable threshold (default 50%)
     /// - Pool size > 1000 slots (compaction overhead is worth it for larger pools)
     ///
     /// Small pools or lightly fragmented pools return `false` since the overhead
     /// of compaction would outweigh the benefits.
+    ///
+    /// Use [`set_compact_threshold()`](Self::set_compact_threshold) to customize
+    /// the fragmentation threshold.
     ///
     /// # Example
     ///
@@ -689,7 +692,49 @@ impl GraphemePool {
     pub fn should_compact(&self) -> bool {
         let ratio = self.get_fragmentation_ratio();
         let size = self.total_slots();
-        ratio > COMPACTION_FRAGMENTATION_THRESHOLD && size > COMPACTION_MIN_SLOTS
+        ratio > self.compact_threshold && size > COMPACTION_MIN_SLOTS
+    }
+
+    /// Set the fragmentation ratio threshold for [`should_compact()`](Self::should_compact).
+    ///
+    /// The threshold is clamped to the range `[0.0, 1.0]`.
+    /// - Lower values make compaction trigger more easily (e.g., 0.3 = 30% fragmentation)
+    /// - Higher values make compaction trigger less often (e.g., 0.7 = 70% fragmentation)
+    ///
+    /// Default is 0.5 (50%).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    ///
+    /// // Default threshold is 0.5
+    /// assert!((pool.compact_threshold() - 0.5).abs() < f32::EPSILON);
+    ///
+    /// // Make compaction more aggressive
+    /// pool.set_compact_threshold(0.3);
+    /// assert!((pool.compact_threshold() - 0.3).abs() < f32::EPSILON);
+    ///
+    /// // Values are clamped to [0.0, 1.0]
+    /// pool.set_compact_threshold(-0.5);
+    /// assert!((pool.compact_threshold() - 0.0).abs() < f32::EPSILON);
+    ///
+    /// pool.set_compact_threshold(1.5);
+    /// assert!((pool.compact_threshold() - 1.0).abs() < f32::EPSILON);
+    /// ```
+    pub fn set_compact_threshold(&mut self, ratio: f32) -> &mut Self {
+        self.compact_threshold = ratio.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Get the current fragmentation ratio threshold for compaction.
+    ///
+    /// See [`set_compact_threshold()`](Self::set_compact_threshold) for details.
+    #[must_use]
+    pub fn compact_threshold(&self) -> f32 {
+        self.compact_threshold
     }
 
     /// Increment reference counts for multiple pool IDs.
@@ -2596,5 +2641,81 @@ mod tests {
         // But alloc() always counts even for duplicates
         let _ = pool.alloc("new");
         assert_eq!(pool.total_allocations(), 2);
+    }
+
+    // ========== Compact threshold tests ==========
+
+    #[test]
+    fn test_compact_threshold_default() {
+        let pool = GraphemePool::new();
+        assert!((pool.compact_threshold() - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_compact_threshold_set_get() {
+        let mut pool = GraphemePool::new();
+
+        pool.set_compact_threshold(0.3);
+        assert!((pool.compact_threshold() - 0.3).abs() < f32::EPSILON);
+
+        pool.set_compact_threshold(0.7);
+        assert!((pool.compact_threshold() - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_compact_threshold_clamped() {
+        let mut pool = GraphemePool::new();
+
+        // Values below 0 are clamped to 0
+        pool.set_compact_threshold(-0.5);
+        assert!((pool.compact_threshold() - 0.0).abs() < f32::EPSILON);
+
+        // Values above 1 are clamped to 1
+        pool.set_compact_threshold(1.5);
+        assert!((pool.compact_threshold() - 1.0).abs() < f32::EPSILON);
+
+        // Boundary values work
+        pool.set_compact_threshold(0.0);
+        assert!((pool.compact_threshold() - 0.0).abs() < f32::EPSILON);
+
+        pool.set_compact_threshold(1.0);
+        assert!((pool.compact_threshold() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_compact_threshold_affects_should_compact() {
+        let mut pool = GraphemePool::new();
+
+        // Create a large pool with 40% fragmentation
+        let ids: Vec<_> = (0..2000).map(|i| pool.alloc(&format!("g{i}"))).collect();
+        for (i, id) in ids.iter().enumerate() {
+            if i % 5 < 2 {
+                // Free 40% of entries
+                pool.decref(*id);
+            }
+        }
+
+        // With default 50% threshold, should NOT compact (40% < 50%)
+        pool.set_compact_threshold(0.5);
+        assert!(!pool.should_compact());
+
+        // With 30% threshold, SHOULD compact (40% > 30%)
+        pool.set_compact_threshold(0.3);
+        assert!(pool.should_compact());
+
+        // With 60% threshold, should NOT compact (40% < 60%)
+        pool.set_compact_threshold(0.6);
+        assert!(!pool.should_compact());
+    }
+
+    #[test]
+    fn test_compact_threshold_builder_pattern() {
+        let mut pool = GraphemePool::new();
+
+        // set_compact_threshold returns &mut Self for chaining
+        pool.set_compact_threshold(0.4).set_soft_limit(500);
+
+        assert!((pool.compact_threshold() - 0.4).abs() < f32::EPSILON);
+        assert_eq!(pool.soft_limit(), 500);
     }
 }
