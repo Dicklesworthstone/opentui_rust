@@ -686,6 +686,10 @@ fn render_diff(
 
     scratch.clear();
     let mut writer = AnsiWriter::new(&mut *scratch);
+    // Emit cursor home to synchronize terminal cursor with writer's internal tracking.
+    // The writer starts tracking at (0,0), but the terminal cursor may be elsewhere
+    // from the previous frame. Without this, relative moves would be incorrect.
+    writer.write_str("\x1b[H");
 
     for &(x, y) in &diff.changed_cells {
         if let Some(cell) = buffer.get(x, y) {
