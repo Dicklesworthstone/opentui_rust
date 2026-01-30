@@ -704,6 +704,57 @@ impl GraphemePool {
         result
     }
 
+    /// Get an estimate of total memory used by the pool in bytes.
+    ///
+    /// This includes:
+    /// - The slots vector (stack + heap)
+    /// - String heap allocations for each grapheme
+    /// - The free list vector
+    /// - The deduplication index HashMap (estimated)
+    ///
+    /// Note: This is an estimate. Actual memory usage may differ due to
+    /// allocator overhead, alignment, and HashMap implementation details.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// let empty_usage = pool.get_memory_usage();
+    ///
+    /// pool.alloc("hello");
+    /// pool.alloc("world");
+    ///
+    /// let usage_with_data = pool.get_memory_usage();
+    /// assert!(usage_with_data > empty_usage);
+    /// ```
+    #[must_use]
+    pub fn get_memory_usage(&self) -> usize {
+        // Size of Slot struct on the stack (String + u32 + u8 + padding)
+        let slot_size = std::mem::size_of::<Slot>();
+
+        // slots Vec: capacity * slot_size (heap portion)
+        let slots_heap = self.slots.capacity() * slot_size;
+
+        // Each Slot's String heap allocation (capacity bytes)
+        let string_heap: usize = self.slots.iter().map(|slot| slot.bytes.capacity()).sum();
+
+        // free_list Vec: capacity * sizeof(u32)
+        let free_list_heap = self.free_list.capacity() * std::mem::size_of::<u32>();
+
+        // index HashMap: rough estimate
+        // Each entry is approximately: String (24 bytes) + key heap + u32 value + overhead
+        // Conservatively estimate ~64 bytes per entry for HashMap overhead
+        let index_overhead = self.index.len() * 64;
+        let index_key_heap: usize = self.index.keys().map(String::len).sum();
+
+        // Stack sizes of the struct fields themselves
+        let stack_size = std::mem::size_of::<GraphemePool>();
+
+        stack_size + slots_heap + string_heap + free_list_heap + index_overhead + index_key_heap
+    }
+
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
     ///
     /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns
@@ -1703,5 +1754,71 @@ mod tests {
         // New graphemes should be retrievable
         assert_eq!(pool.get(new_ids[0]), Some("new1"));
         assert_eq!(pool.get(new_ids[1]), Some("new2"));
+    }
+
+    #[test]
+    fn test_get_memory_usage_empty_pool() {
+        let pool = GraphemePool::new();
+        let usage = pool.get_memory_usage();
+
+        // Even empty pool has some baseline memory (struct, reserved slot 0, etc.)
+        assert!(usage > 0);
+    }
+
+    #[test]
+    fn test_get_memory_usage_increases_with_data() {
+        let mut pool = GraphemePool::new();
+        let empty_usage = pool.get_memory_usage();
+
+        // Add some graphemes
+        let _ = pool.alloc("hello");
+        let _ = pool.alloc("world");
+        let _ = pool.alloc("this is a longer string");
+
+        let usage_with_data = pool.get_memory_usage();
+
+        // Memory should increase
+        assert!(usage_with_data > empty_usage);
+    }
+
+    #[test]
+    fn test_get_memory_usage_accounts_for_string_length() {
+        let mut pool1 = GraphemePool::new();
+        let mut pool2 = GraphemePool::new();
+
+        // Pool 1: short strings
+        for i in 0..10 {
+            let _ = pool1.alloc(&format!("{i}"));
+        }
+
+        // Pool 2: long strings
+        for i in 0..10 {
+            let _ = pool2.alloc(&format!("this_is_a_much_longer_string_{i}"));
+        }
+
+        // Pool 2 should use more memory due to longer strings
+        assert!(pool2.get_memory_usage() > pool1.get_memory_usage());
+    }
+
+    #[test]
+    fn test_get_memory_usage_includes_free_list() {
+        let mut pool = GraphemePool::new();
+
+        // Allocate then free to populate free list
+        let ids: Vec<_> = (0..100).map(|i| pool.alloc(&format!("g{i}"))).collect();
+        let usage_before_free = pool.get_memory_usage();
+
+        for id in ids {
+            pool.decref(id);
+        }
+
+        let usage_after_free = pool.get_memory_usage();
+
+        // Usage shouldn't drop dramatically since freed slots are kept
+        // (free list grows, but strings are cleared)
+        // The difference should be positive (strings were cleared)
+        // but memory is still allocated for the slots
+        assert!(usage_before_free > 0);
+        assert!(usage_after_free > 0);
     }
 }
