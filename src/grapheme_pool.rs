@@ -1117,4 +1117,86 @@ mod tests {
         // Now no freed slots
         assert_eq!(pool.get_fragmentation_ratio(), 0.0);
     }
+
+    #[test]
+    fn test_iter_active_empty_pool() {
+        let pool = GraphemePool::new();
+        let active: Vec<_> = pool.iter_active().collect();
+        assert!(active.is_empty());
+    }
+
+    #[test]
+    fn test_iter_active_all_entries() {
+        let mut pool = GraphemePool::new();
+        let _ = pool.alloc("alpha");
+        let _ = pool.alloc("beta");
+        let _ = pool.alloc("gamma");
+
+        let active: Vec<_> = pool.iter_active().collect();
+        assert_eq!(active.len(), 3);
+
+        // Verify IDs start at 1 (slot 0 reserved)
+        let ids: Vec<_> = active.iter().map(|(id, _)| *id).collect();
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&2));
+        assert!(ids.contains(&3));
+
+        // Verify graphemes
+        let graphemes: Vec<_> = active.iter().map(|(_, s)| *s).collect();
+        assert!(graphemes.contains(&"alpha"));
+        assert!(graphemes.contains(&"beta"));
+        assert!(graphemes.contains(&"gamma"));
+    }
+
+    #[test]
+    fn test_iter_active_skips_freed() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("alpha");
+        let id2 = pool.alloc("beta");
+        let id3 = pool.alloc("gamma");
+
+        // Free the middle one
+        pool.decref(id2);
+
+        let active: Vec<_> = pool.iter_active().collect();
+        assert_eq!(active.len(), 2);
+
+        // Should have alpha and gamma, not beta
+        let graphemes: Vec<_> = active.iter().map(|(_, s)| *s).collect();
+        assert!(graphemes.contains(&"alpha"));
+        assert!(!graphemes.contains(&"beta"));
+        assert!(graphemes.contains(&"gamma"));
+
+        // IDs should match
+        assert!(active.iter().any(|(id, _)| *id == id1.pool_id()));
+        assert!(active.iter().any(|(id, _)| *id == id3.pool_id()));
+    }
+
+    #[test]
+    fn test_iter_active_ids_match_get() {
+        let mut pool = GraphemePool::new();
+        let _ = pool.alloc("one");
+        let _ = pool.alloc("two");
+        let id3 = pool.alloc("three");
+        pool.decref(id3);
+
+        // Verify that for each (id, grapheme) pair, pool.get_by_pool_id(id) == Some(grapheme)
+        for (id, grapheme) in pool.iter_active() {
+            assert_eq!(pool.get_by_pool_id(id), Some(grapheme));
+        }
+    }
+
+    #[test]
+    fn test_iter_active_after_reuse() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("old");
+        pool.decref(id1);
+
+        // This should reuse slot 1
+        let _ = pool.alloc("new");
+
+        let active: Vec<_> = pool.iter_active().collect();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0], (1, "new"));
+    }
 }
