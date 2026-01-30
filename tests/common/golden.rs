@@ -8,6 +8,8 @@
 //! - `GOLDEN_UPDATE=1` - Update golden files instead of comparing
 //! - `BLESS=1` - Alias for GOLDEN_UPDATE (insta-style)
 //!
+
+#![allow(clippy::format_push_string)] // Test code - clarity over micro-optimization
 //! # Golden File Format
 //!
 //! ```text

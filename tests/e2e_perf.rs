@@ -8,6 +8,8 @@
 //!
 //! ```bash
 //! # Run all performance tests
+
+#![allow(clippy::format_push_string)] // Test code - clarity over micro-optimization
 //! cargo test --test e2e_perf
 //!
 //! # Run with verbose output

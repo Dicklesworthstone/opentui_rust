@@ -4,7 +4,7 @@
 //! ANSI output sequences emitted during terminal I/O.
 
 // PTY operations require unsafe libc FFI calls
-#![allow(dead_code, unsafe_code)]
+#![allow(dead_code, unsafe_code, clippy::format_push_string)]
 
 use std::collections::HashMap;
 use std::ffi::CString;
