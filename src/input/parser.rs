@@ -35,7 +35,7 @@ pub enum ParseError {
     /// Paste buffer exceeded maximum size limit.
     ///
     /// The paste operation was aborted because the incoming paste data
-    /// exceeded [`MAX_PASTE_BUFFER_SIZE`] (10 MB). This prevents unbounded
+    /// exceeded the maximum paste buffer size (10 MB). This prevents unbounded
     /// memory growth from malformed or malicious input.
     PasteBufferOverflow,
     /// Invalid resize event format.
@@ -45,8 +45,8 @@ pub enum ParseError {
     InvalidResizeFormat,
     /// Escape sequence exceeded maximum allowed length.
     ///
-    /// CSI sequences are limited to [`MAX_CSI_LENGTH`] bytes and DCS sequences
-    /// are limited to [`MAX_DCS_LENGTH`] bytes. This prevents denial-of-service
+    /// CSI sequences are limited to 256 bytes and DCS sequences
+    /// are limited to 64 KB. This prevents denial-of-service
     /// attacks via maliciously long sequences that never terminate.
     SequenceTooLong,
 }

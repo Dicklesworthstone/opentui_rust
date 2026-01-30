@@ -180,8 +180,8 @@ impl OptimizedBuffer {
     /// Set cell at position, respecting scissor and opacity.
     ///
     /// Note: If the cell being overwritten contains a pooled grapheme, the
-    /// grapheme ID is tracked for later cleanup via [`clear_with_pool`] or
-    /// [`set_with_pool`].
+    /// grapheme ID is tracked for later cleanup via [`Self::clear_with_pool`] or
+    /// [`Self::set_with_pool`].
     pub fn set(&mut self, x: u32, y: u32, mut cell: Cell) {
         if !self.is_visible(x, y) {
             return;
@@ -244,8 +244,8 @@ impl OptimizedBuffer {
     /// Set cell with alpha blending over existing content.
     ///
     /// Note: If the cell being overwritten contains a pooled grapheme, the
-    /// grapheme ID is tracked for later cleanup via [`clear_with_pool`] or
-    /// [`set_blended_with_pool`].
+    /// grapheme ID is tracked for later cleanup via [`Self::clear_with_pool`] or
+    /// [`Self::set_blended_with_pool`].
     pub fn set_blended(&mut self, x: u32, y: u32, mut cell: Cell) {
         if !self.is_visible(x, y) {
             return;
@@ -339,8 +339,8 @@ impl OptimizedBuffer {
     /// the grapheme ID is tracked but not immediately released (since no pool is
     /// available). This method decrements the reference count for all such orphans.
     ///
-    /// Called automatically by pool-aware methods like [`clear_with_pool`] and
-    /// [`set_with_pool`].
+    /// Called automatically by pool-aware methods like [`Self::clear_with_pool`] and
+    /// [`Self::set_with_pool`].
     pub fn drain_orphaned_graphemes(&mut self, pool: &mut GraphemePool) {
         for id in self.orphaned_graphemes.drain(..) {
             pool.decref(id);
