@@ -111,6 +111,12 @@ pub struct PoolStats {
     pub soft_limit: usize,
     /// Current utilization percentage (0-100).
     pub utilization_percent: usize,
+    /// Peak number of active slots (lifetime high-water mark).
+    pub peak_usage: usize,
+    /// Total number of allocations over pool lifetime.
+    pub total_allocations: u64,
+    /// Total number of frees over pool lifetime.
+    pub total_frees: u64,
 }
 
 impl PoolStats {
@@ -168,6 +174,12 @@ pub struct GraphemePool {
     index: HashMap<String, u32>,
     /// Configurable soft limit for pool size (advisory, not enforced by alloc).
     soft_limit: usize,
+    /// Peak number of active slots (lifetime high-water mark).
+    peak_usage: usize,
+    /// Total number of allocations over pool lifetime.
+    total_allocations: u64,
+    /// Total number of frees over pool lifetime.
+    total_frees: u64,
 }
 
 impl Default for GraphemePool {
@@ -192,6 +204,9 @@ impl GraphemePool {
             free_list: Vec::new(),
             index: HashMap::new(),
             soft_limit: DEFAULT_SOFT_LIMIT,
+            peak_usage: 0,
+            total_allocations: 0,
+            total_frees: 0,
         }
     }
 
@@ -214,6 +229,9 @@ impl GraphemePool {
             free_list: Vec::new(),
             index: HashMap::with_capacity(capacity),
             soft_limit: DEFAULT_SOFT_LIMIT,
+            peak_usage: 0,
+            total_allocations: 0,
+            total_frees: 0,
         }
     }
 
@@ -237,6 +255,9 @@ impl GraphemePool {
             free_list: Vec::new(),
             index: HashMap::new(),
             soft_limit,
+            peak_usage: 0,
+            total_allocations: 0,
+            total_frees: 0,
         }
     }
 
@@ -297,6 +318,13 @@ impl GraphemePool {
 
         // Add to index for O(1) intern() lookup
         self.index.insert(grapheme_owned, pool_id);
+
+        // Update lifetime statistics
+        self.total_allocations = self.total_allocations.saturating_add(1);
+        let active = self.active_count();
+        if active > self.peak_usage {
+            self.peak_usage = active;
+        }
 
         GraphemeId::new(pool_id, width_u8)
     }
@@ -371,6 +399,8 @@ impl GraphemePool {
                     // Free the slot
                     slot.bytes.clear();
                     self.free_list.push(pool_id);
+                    // Update lifetime statistics
+                    self.total_frees = self.total_frees.saturating_add(1);
                     return false;
                 }
                 return true;
@@ -457,10 +487,40 @@ impl GraphemePool {
     /// Clear all graphemes from the pool.
     ///
     /// This resets the pool to its initial state with only slot 0 reserved.
+    /// Lifetime statistics (peak_usage, total_allocations, total_frees) are preserved.
     pub fn clear(&mut self) {
         self.slots.truncate(1);
         self.free_list.clear();
         self.index.clear();
+        // Note: We preserve lifetime statistics (peak_usage, total_allocations, total_frees)
+        // as they track the pool's entire lifetime, not just current state.
+    }
+
+    /// Get the peak number of active slots over the pool's lifetime.
+    ///
+    /// This is a high-water mark that tracks the maximum number of
+    /// simultaneously active graphemes the pool has held.
+    #[must_use]
+    pub fn peak_usage(&self) -> usize {
+        self.peak_usage
+    }
+
+    /// Get the total number of allocations over the pool's lifetime.
+    ///
+    /// This counts every call to [`alloc()`](Self::alloc) and
+    /// [`alloc_batch()`](Self::alloc_batch), not unique graphemes.
+    #[must_use]
+    pub fn total_allocations(&self) -> u64 {
+        self.total_allocations
+    }
+
+    /// Get the total number of frees over the pool's lifetime.
+    ///
+    /// This counts every time a grapheme's refcount reached zero
+    /// (i.e., the slot was actually freed, not just decremented).
+    #[must_use]
+    pub fn total_frees(&self) -> u64 {
+        self.total_frees
     }
 
     /// Get current pool utilization statistics.
@@ -483,6 +543,9 @@ impl GraphemePool {
             free_slots,
             soft_limit: self.soft_limit,
             utilization_percent,
+            peak_usage: self.peak_usage,
+            total_allocations: self.total_allocations,
+            total_frees: self.total_frees,
         }
     }
 
@@ -1417,6 +1480,9 @@ mod tests {
             free_slots: 15,
             soft_limit: 100,
             utilization_percent: 85,
+            peak_usage: 90,
+            total_allocations: 100,
+            total_frees: 15,
         };
 
         assert!(stats.is_above_threshold(80));
@@ -2343,5 +2409,186 @@ mod tests {
         let result2 = pool.compact();
         assert_eq!(result2.slots_freed, 0);
         assert!(!result2.has_remappings());
+    }
+
+    // ========== Lifetime statistics tests ==========
+
+    #[test]
+    fn test_peak_usage_tracking() {
+        let mut pool = GraphemePool::new();
+
+        // Initial state
+        assert_eq!(pool.peak_usage(), 0);
+
+        // Allocate 3 entries
+        let id1 = pool.alloc("a");
+        assert_eq!(pool.peak_usage(), 1);
+
+        let id2 = pool.alloc("b");
+        assert_eq!(pool.peak_usage(), 2);
+
+        let id3 = pool.alloc("c");
+        assert_eq!(pool.peak_usage(), 3);
+
+        // Free one - peak should stay at 3
+        pool.decref(id2);
+        assert_eq!(pool.peak_usage(), 3);
+
+        // Free another - peak should stay at 3
+        pool.decref(id1);
+        assert_eq!(pool.peak_usage(), 3);
+
+        // Allocate again - peak stays at 3 since we only reach 2 active
+        let _ = pool.alloc("d");
+        assert_eq!(pool.peak_usage(), 3);
+
+        // Free one more to get back to 1, then alloc 3 new
+        pool.decref(id3);
+        let _ = pool.alloc("e");
+        let _ = pool.alloc("f");
+        let _ = pool.alloc("g");
+
+        // Now we have 4 active, peak should update
+        assert_eq!(pool.peak_usage(), 4);
+    }
+
+    #[test]
+    fn test_total_allocations_tracking() {
+        let mut pool = GraphemePool::new();
+
+        assert_eq!(pool.total_allocations(), 0);
+
+        // Each alloc increments counter
+        let _ = pool.alloc("a");
+        assert_eq!(pool.total_allocations(), 1);
+
+        let _ = pool.alloc("b");
+        assert_eq!(pool.total_allocations(), 2);
+
+        // Even if we free and realloc same slot
+        let id = pool.alloc("c");
+        pool.decref(id);
+        let _ = pool.alloc("d");
+        assert_eq!(pool.total_allocations(), 4);
+
+        // Batch alloc should increment for each
+        let _ = pool.alloc_batch(&["e", "f", "g"]);
+        assert_eq!(pool.total_allocations(), 7);
+    }
+
+    #[test]
+    fn test_total_frees_tracking() {
+        let mut pool = GraphemePool::new();
+
+        assert_eq!(pool.total_frees(), 0);
+
+        let id1 = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        let id3 = pool.alloc("c");
+
+        // Free one
+        pool.decref(id1);
+        assert_eq!(pool.total_frees(), 1);
+
+        // Free another
+        pool.decref(id2);
+        assert_eq!(pool.total_frees(), 2);
+
+        // incref then decref doesn't free (refcount goes 1->2->1, not to 0)
+        pool.incref(id3);
+        pool.decref(id3);
+        assert_eq!(pool.total_frees(), 2);
+
+        // Now free id3 twice
+        pool.decref(id3);
+        assert_eq!(pool.total_frees(), 3);
+
+        // Decrementing already-freed ID doesn't increment counter
+        pool.decref(id1);
+        assert_eq!(pool.total_frees(), 3);
+    }
+
+    #[test]
+    fn test_stats_includes_lifetime_fields() {
+        let mut pool = GraphemePool::new();
+
+        let id1 = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        let _ = pool.alloc("c");
+
+        pool.decref(id1);
+        pool.decref(id2);
+
+        let stats = pool.stats();
+
+        // Verify lifetime fields are populated
+        assert_eq!(stats.peak_usage, 3);
+        assert_eq!(stats.total_allocations, 3);
+        assert_eq!(stats.total_frees, 2);
+
+        // Verify other fields still work
+        assert_eq!(stats.active_slots, 1);
+        assert_eq!(stats.free_slots, 2);
+        assert_eq!(stats.total_slots, 3);
+    }
+
+    #[test]
+    fn test_clear_preserves_lifetime_stats() {
+        let mut pool = GraphemePool::new();
+
+        // Build up some history
+        let ids: Vec<_> = (0..10).map(|i| pool.alloc(&format!("g{i}"))).collect();
+        for id in &ids[0..5] {
+            pool.decref(*id);
+        }
+
+        // Record stats before clear
+        let peak_before = pool.peak_usage();
+        let allocs_before = pool.total_allocations();
+        let frees_before = pool.total_frees();
+
+        assert_eq!(peak_before, 10);
+        assert_eq!(allocs_before, 10);
+        assert_eq!(frees_before, 5);
+
+        // Clear the pool
+        pool.clear();
+
+        // Lifetime stats should be preserved
+        assert_eq!(pool.peak_usage(), 10);
+        assert_eq!(pool.total_allocations(), 10);
+        assert_eq!(pool.total_frees(), 5);
+
+        // But current state should be reset
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.total_slots(), 0);
+    }
+
+    #[test]
+    fn test_lifetime_stats_in_stats_struct() {
+        let pool = GraphemePool::new();
+        let stats = pool.stats();
+
+        // Empty pool should have zero lifetime stats
+        assert_eq!(stats.peak_usage, 0);
+        assert_eq!(stats.total_allocations, 0);
+        assert_eq!(stats.total_frees, 0);
+    }
+
+    #[test]
+    fn test_intern_counts_as_allocation() {
+        let mut pool = GraphemePool::new();
+
+        // intern() that allocates new should count
+        let _ = pool.intern("new");
+        assert_eq!(pool.total_allocations(), 1);
+
+        // intern() that finds existing should NOT count (just increments refcount)
+        let _ = pool.intern("new");
+        assert_eq!(pool.total_allocations(), 1);
+
+        // But alloc() always counts even for duplicates
+        let _ = pool.alloc("new");
+        assert_eq!(pool.total_allocations(), 2);
     }
 }
