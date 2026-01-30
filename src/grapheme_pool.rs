@@ -465,6 +465,39 @@ impl GraphemePool {
         self.utilization_percent() >= threshold_percent
     }
 
+    /// Get the fragmentation ratio of the pool.
+    ///
+    /// Returns the ratio of freed slots to total slots as a value in `[0.0, 1.0]`.
+    /// A high ratio suggests that compaction may be beneficial.
+    ///
+    /// # Returns
+    ///
+    /// - `0.0` if the pool is empty or has no freed slots
+    /// - Values approaching `1.0` indicate high fragmentation
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use opentui::grapheme_pool::GraphemePool;
+    ///
+    /// let mut pool = GraphemePool::new();
+    /// assert_eq!(pool.get_fragmentation_ratio(), 0.0); // Empty pool
+    ///
+    /// let id1 = pool.alloc("a");
+    /// let id2 = pool.alloc("b");
+    /// pool.decref(id1); // Free one slot
+    ///
+    /// assert_eq!(pool.get_fragmentation_ratio(), 0.5); // 1 freed / 2 total
+    /// ```
+    #[must_use]
+    pub fn get_fragmentation_ratio(&self) -> f32 {
+        let total = self.total_slots();
+        if total == 0 {
+            return 0.0;
+        }
+        self.free_count() as f32 / total as f32
+    }
+
     /// Try to allocate a grapheme, returning `None` if the pool is at soft limit.
     ///
     /// Unlike [`alloc()`](Self::alloc), this respects the soft limit and returns
@@ -983,5 +1016,68 @@ mod tests {
         // Utilization should be 150%
         assert_eq!(pool.utilization_percent(), 150);
         assert!(pool.is_high_utilization());
+    }
+
+    #[test]
+    fn test_get_fragmentation_ratio_empty_pool() {
+        let pool = GraphemePool::new();
+        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_get_fragmentation_ratio_no_freed_slots() {
+        let mut pool = GraphemePool::new();
+        let _ = pool.alloc("a");
+        let _ = pool.alloc("b");
+        let _ = pool.alloc("c");
+
+        // No freed slots, ratio should be 0.0
+        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_get_fragmentation_ratio_half_freed() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("a");
+        let _ = pool.alloc("b");
+
+        // Free one of two slots
+        pool.decref(id1);
+
+        // 1 freed / 2 total = 0.5
+        assert!((pool.get_fragmentation_ratio() - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_get_fragmentation_ratio_all_freed() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("a");
+        let id2 = pool.alloc("b");
+        let id3 = pool.alloc("c");
+
+        // Free all slots
+        pool.decref(id1);
+        pool.decref(id2);
+        pool.decref(id3);
+
+        // 3 freed / 3 total = 1.0
+        assert!((pool.get_fragmentation_ratio() - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_get_fragmentation_ratio_after_reuse() {
+        let mut pool = GraphemePool::new();
+        let id1 = pool.alloc("a");
+        let _ = pool.alloc("b");
+
+        // Free one slot
+        pool.decref(id1);
+        assert!((pool.get_fragmentation_ratio() - 0.5).abs() < f32::EPSILON);
+
+        // Allocate again - should reuse the freed slot
+        let _ = pool.alloc("c");
+
+        // Now no freed slots
+        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
     }
 }
