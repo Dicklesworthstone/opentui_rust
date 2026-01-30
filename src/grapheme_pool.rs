@@ -1405,7 +1405,7 @@ mod tests {
 
         // Add some graphemes
         for i in 0..50 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
 
         let stats = pool.stats();
@@ -1424,13 +1424,13 @@ mod tests {
 
         // 10% utilization
         for i in 0..10 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
         assert_eq!(pool.utilization_percent(), 10);
 
         // 80% utilization
         for i in 10..80 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
         assert_eq!(pool.utilization_percent(), 80);
     }
@@ -1441,16 +1441,16 @@ mod tests {
 
         // Under 80% - not high
         for i in 0..79 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
         assert!(!pool.is_high_utilization());
 
         // At 80% - high
-        pool.alloc("g79");
+        let _ = pool.alloc("g79");
         assert!(pool.is_high_utilization());
 
         // Over 80% - still high
-        pool.alloc("g80");
+        let _ = pool.alloc("g80");
         assert!(pool.is_high_utilization());
     }
 
@@ -1459,7 +1459,7 @@ mod tests {
         let mut pool = GraphemePool::with_soft_limit(100);
 
         for i in 0..90 {
-            pool.alloc(&format!("g{i}"));
+            let _ = pool.alloc(&format!("g{i}"));
         }
 
         assert!(pool.is_above_utilization(80));
@@ -2294,9 +2294,9 @@ mod tests {
     fn test_compact_updates_index() {
         let mut pool = GraphemePool::new();
 
-        let id1 = pool.alloc("alpha");
+        let _id1 = pool.alloc("alpha");
         let id2 = pool.alloc("beta");
-        let id3 = pool.alloc("gamma");
+        let _id3 = pool.alloc("gamma");
 
         // Free middle one
         pool.decref(id2);
