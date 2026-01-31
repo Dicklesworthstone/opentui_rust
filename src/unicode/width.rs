@@ -1,6 +1,8 @@
 //! Display width calculation for terminal rendering.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{OnceLock, RwLock};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Width calculation method for ambiguous-width characters.
@@ -17,6 +19,47 @@ const WIDTH_METHOD_WCWIDTH: u8 = 0;
 const WIDTH_METHOD_UNICODE: u8 = 1;
 
 static WIDTH_METHOD: AtomicU8 = AtomicU8::new(WIDTH_METHOD_WCWIDTH);
+
+static WIDTH_OVERRIDES: OnceLock<RwLock<HashMap<char, usize>>> = OnceLock::new();
+static WIDTH_OVERRIDES_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn width_overrides() -> &'static RwLock<HashMap<char, usize>> {
+    WIDTH_OVERRIDES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Override the display width for a specific character.
+pub fn set_width_override(ch: char, width: usize) {
+    {
+        let mut map = width_overrides()
+            .write()
+            .expect("width override lock poisoned");
+        map.insert(ch, width);
+    }
+    WIDTH_OVERRIDES_ENABLED.store(true, Ordering::Release);
+}
+
+/// Get a width override for `ch`, if one exists.
+#[must_use]
+pub fn get_width_override(ch: char) -> Option<usize> {
+    if !WIDTH_OVERRIDES_ENABLED.load(Ordering::Acquire) {
+        return None;
+    }
+
+    let map = WIDTH_OVERRIDES
+        .get()?
+        .read()
+        .expect("width override lock poisoned");
+    map.get(&ch).copied()
+}
+
+/// Clear all configured width overrides.
+pub fn clear_width_overrides() {
+    if let Some(map) = WIDTH_OVERRIDES.get() {
+        map.write().expect("width override lock poisoned").clear();
+    }
+    WIDTH_OVERRIDES_ENABLED.store(false, Ordering::Release);
+}
 
 /// Set the global width method used by `display_width` helpers.
 pub fn set_width_method(method: WidthMethod) {
@@ -64,6 +107,13 @@ pub fn display_width_char(c: char) -> usize {
 /// Get the display width of a string in terminal columns using a specific method.
 #[must_use]
 pub fn display_width_with_method(s: &str, method: WidthMethod) -> usize {
+    if WIDTH_OVERRIDES_ENABLED.load(Ordering::Acquire) {
+        return s
+            .chars()
+            .map(|ch| display_width_char_with_method(ch, method))
+            .sum();
+    }
+
     match method {
         WidthMethod::WcWidth => UnicodeWidthStr::width(s),
         WidthMethod::Unicode => UnicodeWidthStr::width_cjk(s),
@@ -73,6 +123,10 @@ pub fn display_width_with_method(s: &str, method: WidthMethod) -> usize {
 /// Get the display width of a character in terminal columns using a specific method.
 #[must_use]
 pub fn display_width_char_with_method(c: char, method: WidthMethod) -> usize {
+    if let Some(width) = get_width_override(c) {
+        return width;
+    }
+
     match method {
         WidthMethod::WcWidth => UnicodeWidthChar::width(c).unwrap_or(0),
         WidthMethod::Unicode => UnicodeWidthChar::width_cjk(c).unwrap_or(0),
@@ -94,6 +148,14 @@ pub fn is_wide(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ClearOverridesOnDrop;
+
+    impl Drop for ClearOverridesOnDrop {
+        fn drop(&mut self) {
+            clear_width_overrides();
+        }
+    }
 
     #[test]
     fn test_ascii_width() {
@@ -127,5 +189,30 @@ mod tests {
         let ch = '①';
         assert_eq!(display_width_char_with_method(ch, WidthMethod::WcWidth), 1);
         assert_eq!(display_width_char_with_method(ch, WidthMethod::Unicode), 2);
+    }
+
+    #[test]
+    fn test_width_overrides_set_get_clear() {
+        let _guard = ClearOverridesOnDrop;
+
+        assert_eq!(get_width_override('🦀'), None);
+
+        set_width_override('🦀', 1);
+        assert_eq!(get_width_override('🦀'), Some(1));
+
+        clear_width_overrides();
+        assert_eq!(get_width_override('🦀'), None);
+    }
+
+    #[test]
+    fn test_width_calculation_uses_override() {
+        let _guard = ClearOverridesOnDrop;
+
+        // Default emoji width (unicode-width) is expected to be 2 columns.
+        assert_eq!(display_width_char('🦀'), 2);
+
+        set_width_override('🦀', 1);
+        assert_eq!(display_width_char('🦀'), 1);
+        assert_eq!(display_width("A🦀B"), 3);
     }
 }
