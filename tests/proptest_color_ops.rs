@@ -179,10 +179,10 @@ proptest! {
     #[test]
     fn lerp_half_is_midpoint(a in rgba_strategy(), b in rgba_strategy()) {
         let result = a.lerp(b, 0.5);
-        let expected_r = (a.r + b.r) / 2.0;
-        let expected_g = (a.g + b.g) / 2.0;
-        let expected_b = (a.b + b.b) / 2.0;
-        let expected_a = (a.a + b.a) / 2.0;
+        let expected_r = f32::midpoint(a.r, b.r);
+        let expected_g = f32::midpoint(a.g, b.g);
+        let expected_b = f32::midpoint(a.b, b.b);
+        let expected_a = f32::midpoint(a.a, b.a);
         prop_assert!(approx_eq(result.r, expected_r), "r: {} != {}", result.r, expected_r);
         prop_assert!(approx_eq(result.g, expected_g), "g: {} != {}", result.g, expected_g);
         prop_assert!(approx_eq(result.b, expected_b), "b: {} != {}", result.b, expected_b);
@@ -330,7 +330,7 @@ proptest! {
     /// Empty and invalid length hex returns None.
     #[test]
     fn hex_invalid_length_fails(len in (0usize..10).prop_filter("not 3, 6, or 8", |l| *l != 3 && *l != 6 && *l != 8)) {
-        let hex: String = std::iter::repeat('a').take(len).collect();
+        let hex = "a".repeat(len);
         prop_assert!(Rgba::from_hex(&hex).is_none(),
             "hex of length {} should fail: {}", len, hex);
     }
@@ -363,7 +363,11 @@ proptest! {
     #[test]
     fn luminance_bounded(c in rgba_strategy()) {
         let lum = c.luminance();
-        prop_assert!(lum >= 0.0 && lum <= 1.0, "luminance {} out of bounds", lum);
+        prop_assert!(
+            (0.0..=1.0).contains(&lum),
+            "luminance {} out of bounds",
+            lum
+        );
     }
 
     /// Black has luminance 0.

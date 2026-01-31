@@ -56,13 +56,9 @@ fn test_e2e_basic_render_cycle() {
     );
 
     // Verify "Hello, OpenTUI!" is in the changed region (15 characters at row 0)
-    let row0_changes: Vec<_> = diff1
-        .changed_cells
-        .iter()
-        .filter(|(_, y)| *y == 0)
-        .collect();
+    let row0_changes = diff1.changed_cells.iter().filter(|(_, y)| *y == 0).count();
     assert!(
-        row0_changes.len() >= 15,
+        row0_changes >= 15,
         "Row 0 should have at least 15 changed cells for 'Hello, OpenTUI!'"
     );
 
@@ -94,24 +90,16 @@ fn test_e2e_basic_render_cycle() {
     );
 
     // Verify row 0 has no changes (content unchanged)
-    let row0_changes2: Vec<_> = diff2
-        .changed_cells
-        .iter()
-        .filter(|(_, y)| *y == 0)
-        .collect();
+    let row0_changes2 = diff2.changed_cells.iter().any(|(_, y)| *y == 0);
     assert!(
-        row0_changes2.is_empty(),
+        !row0_changes2,
         "Row 0 should have no changes (content unchanged)"
     );
 
     // Verify row 1 has changes
-    let row1_changes: Vec<_> = diff2
-        .changed_cells
-        .iter()
-        .filter(|(_, y)| *y == 1)
-        .collect();
+    let row1_changes = diff2.changed_cells.iter().any(|(_, y)| *y == 1);
     assert!(
-        !row1_changes.is_empty(),
+        row1_changes,
         "Row 1 should have changes (Frame 1 -> Frame 2)"
     );
 

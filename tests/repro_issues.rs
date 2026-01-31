@@ -87,11 +87,11 @@ mod tests {
 
     /// Regression test for cursor drift when continuation cells are skipped.
     ///
-    /// BUG: In present_diff(), when iterating over dirty regions and skipping
+    /// BUG: In `present_diff()`, when iterating over dirty regions and skipping
     /// continuation cells, the cursor position would not advance properly,
     /// causing subsequent characters to be written at wrong positions.
     ///
-    /// SYMPTOM: Text became garbled as log lines scrolled ("HashMap" -> "skseshap").
+    /// SYMPTOM: Text became garbled as log lines scrolled ("`HashMap`" -> "skseshap").
     #[test]
     fn test_continuation_cell_cursor_positioning() {
         use opentui::buffer::OptimizedBuffer;
@@ -167,7 +167,7 @@ mod tests {
 
         for &(x, _y) in &diff.changed_cells {
             assert!(
-                x >= 2 && x <= 4,
+                (2..=4).contains(&x),
                 "Changed cell at x={} should be in range [2, 4]",
                 x
             );

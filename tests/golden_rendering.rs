@@ -6,7 +6,7 @@
 //! # Test Categories
 //!
 //! 1. **Basic Rendering** (5 cases): Empty buffers, single chars, boxes
-//! 2. **Color Rendering** (5 cases): TrueColor, 256-color, 16-color, attributes
+//! 2. **Color Rendering** (5 cases): `TrueColor`, 256-color, 16-color, attributes
 //! 3. **Complex Rendering** (5 cases): Alpha blending, scissor clipping
 //! 4. **Unicode** (5 cases): Emoji, ZWJ, combining marks, mixed width
 //! 5. **Demo Showcase** (5 cases): Tour screens, overlays, panels
@@ -150,9 +150,9 @@ fn test_golden_truecolor_gradient() {
 
     // Create a horizontal RGB gradient
     for x in 0..80 {
-        let r = (x as f32) / 79.0;
+        let r = f32::from(u8::try_from(x).expect("x fits in u8")) / 79.0;
         for y in 0..24 {
-            let g = (y as f32) / 23.0;
+            let g = f32::from(u8::try_from(y).expect("y fits in u8")) / 23.0;
             let b = 0.5;
             let color = Rgba::new(r, g, b, 1.0);
             buffer.set(x, y, Cell::new(' ', Style::bg(color)));
@@ -171,8 +171,8 @@ fn test_golden_color256_palette() {
 
     // Display 256 color palette (16x16 grid)
     for i in 0u8..=255 {
-        let x = ((i % 16) * 4) as u32;
-        let y = (i / 16) as u32;
+        let x = u32::from((i % 16) * 4);
+        let y = u32::from(i / 16);
 
         // Convert 256 color index to approximate RGB
         let color = color_256_to_rgba(i);
@@ -210,8 +210,9 @@ fn test_golden_color16_palette() {
     ];
 
     for (i, &color) in colors.iter().enumerate() {
-        let x = ((i % 8) * 10) as u32;
-        let y = ((i / 8) * 3) as u32;
+        let i = u32::try_from(i).expect("palette index fits u32");
+        let x = (i % 8) * 10;
+        let y = (i / 8) * 3;
         buffer.fill_rect(x, y, 10, 3, color);
     }
 

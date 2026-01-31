@@ -386,7 +386,7 @@ fn test_minimal_terminal_size() {
 /// Demo showcase may either:
 /// - Exit with an error about terminal being too small
 /// - Continue running with degraded/minimal layout
-/// Either behavior is acceptable for stability.
+///   Either behavior is acceptable for stability.
 #[test]
 #[cfg_attr(
     not(feature = "pty-tests"),

@@ -64,16 +64,20 @@ impl MockTerminal {
     /// Create a mock terminal with no color support.
     #[must_use]
     pub fn no_color(width: u16, height: u16) -> Self {
-        let mut caps = Capabilities::default();
-        caps.color = ColorSupport::None;
+        let caps = Capabilities {
+            color: ColorSupport::None,
+            ..Capabilities::default()
+        };
         Self::with_capabilities(width, height, caps)
     }
 
     /// Create a mock terminal with 256-color support.
     #[must_use]
     pub fn color_256(width: u16, height: u16) -> Self {
-        let mut caps = Capabilities::default();
-        caps.color = ColorSupport::Extended;
+        let caps = Capabilities {
+            color: ColorSupport::Extended,
+            ..Capabilities::default()
+        };
         Self::with_capabilities(width, height, caps)
     }
 
@@ -675,7 +679,7 @@ mod tests {
         let data = b"\x1b[?25lHello\x1b[38;2;255;0;0mWorld\x1b[0m";
         let sequences = AnsiSequenceParser::parse_all(data);
 
-        assert!(sequences.iter().any(|s| *s == AnsiSequence::HideCursor));
+        assert!(sequences.contains(&AnsiSequence::HideCursor));
         assert!(
             sequences
                 .iter()
@@ -686,12 +690,8 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, AnsiSequence::Text(t) if t == "World"))
         );
-        assert!(
-            sequences
-                .iter()
-                .any(|s| *s == AnsiSequence::SetFgColor(Rgba::RED))
-        );
-        assert!(sequences.iter().any(|s| *s == AnsiSequence::Reset));
+        assert!(sequences.contains(&AnsiSequence::SetFgColor(Rgba::RED)));
+        assert!(sequences.contains(&AnsiSequence::Reset));
     }
 
     #[test]

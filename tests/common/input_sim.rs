@@ -502,7 +502,7 @@ pub fn key_to_ansi(key: &KeyEvent) -> Vec<u8> {
                 10 => 21,
                 11 => 23,
                 12 => 24,
-                _ => 15 + n as u8,
+                _ => 15 + n,
             };
             result.extend_from_slice(format!("\x1b[{code}{mod_suffix}~").as_bytes());
         }

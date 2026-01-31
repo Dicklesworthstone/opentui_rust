@@ -217,8 +217,7 @@ proptest! {
         let w2 = display_width_with_method(&s, WidthMethod::Unicode);
         // Both should be non-negative (trivially true for usize)
         // Unicode method should be >= WcWidth method (ambiguous chars wider)
-        prop_assert!(w2 >= w1 || true,
-            "Unicode method width {} vs WcWidth {}", w2, w1);
+        prop_assert!(w2 >= w1, "Unicode method width {} vs WcWidth {}", w2, w1);
     }
 
     /// For pure ASCII, both methods agree.
@@ -313,9 +312,15 @@ proptest! {
         use opentui::unicode::find_wrap_position;
         // Short ASCII text should fit in wide columns
         let w = display_width(&s);
-        if (w as u32) <= max_cols {
-            prop_assert!(find_wrap_position(&s, max_cols, 4).is_none(),
-                "text of width {} should fit in {} columns", w, max_cols);
+        if let Ok(w) = u32::try_from(w) {
+            if w <= max_cols {
+                prop_assert!(
+                    find_wrap_position(&s, max_cols, 4).is_none(),
+                    "text of width {} should fit in {} columns",
+                    w,
+                    max_cols
+                );
+            }
         }
     }
 }

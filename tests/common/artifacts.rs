@@ -33,8 +33,7 @@ fn get_run_timestamp() -> &'static str {
             .unwrap_or_default();
         let secs = now.as_secs();
         // Format: YYYY-MM-DDTHHMMSS
-        let datetime = chrono_lite_format(secs);
-        datetime
+        chrono_lite_format(secs)
     })
 }
 
@@ -443,7 +442,8 @@ impl SequenceAnalysis {
 
     fn analyze_private_mode(&mut self, seq: &[u8], offset: usize) {
         // Check common private modes
-        let patterns: &[(&[u8], &str, bool, fn(&mut SequenceSummary))] = &[
+        type PrivateModePattern = (&'static [u8], &'static str, bool, fn(&mut SequenceSummary));
+        let patterns: &[PrivateModePattern] = &[
             (b"\x1b[?1049h", "alt_screen", true, |s| {
                 s.alt_screen_enter += 1
             }),

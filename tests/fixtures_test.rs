@@ -113,7 +113,8 @@ fn test_assert_text_at() {
 
     let mut buffer = OptimizedBuffer::new(20, 5);
     for (i, c) in "Hello".chars().enumerate() {
-        buffer.set(5 + i as u32, 2, Cell::new(c, Style::default()));
+        let x = 5 + u32::try_from(i).expect("text index fits u32");
+        buffer.set(x, 2, Cell::new(c, Style::default()));
     }
 
     assert_text_at(&buffer, 5, 2, "Hello");

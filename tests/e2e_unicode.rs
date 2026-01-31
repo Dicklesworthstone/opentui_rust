@@ -22,7 +22,7 @@ use opentui::unicode::{display_width, display_width_char, graphemes};
 fn verify_text_render(buffer: &OptimizedBuffer, x: u32, y: u32, text: &str, _style: Style) {
     let mut col = x;
     for grapheme in graphemes(text) {
-        let width = display_width(grapheme) as u32;
+        let width = u32::try_from(display_width(grapheme)).expect("width fits u32");
         if width == 0 {
             continue;
         }
@@ -99,7 +99,7 @@ fn test_mixed_ascii_cjk() {
     buffer.draw_text(0, 0, text, Style::NONE);
 
     // Check total display width: 5 (Hello) + 4 (世界 = 2+2) + 5 (World) = 14
-    let total_width: usize = graphemes(text).map(|g| display_width(g)).sum();
+    let total_width: usize = graphemes(text).map(display_width).sum();
     assert_eq!(total_width, 14);
 
     // Verify positions:
@@ -185,7 +185,7 @@ fn test_basic_emoji_single_codepoint() {
     let emojis = ["\u{1F600}", "\u{1F601}", "\u{1F602}"]; // 😀😁😂
 
     for (i, emoji) in emojis.iter().enumerate() {
-        let x = (i * 2) as u32;
+        let x = u32::try_from(i * 2).expect("emoji offset fits u32");
         buffer.draw_text(x, 0, emoji, Style::NONE);
 
         // Verify the emoji cell exists and has correct width
@@ -213,7 +213,7 @@ fn test_emoji_with_skin_tone() {
     // The emoji + skin tone should render as a single grapheme
     let cell = buffer.get(0, 0).unwrap();
     assert!(!cell.is_continuation());
-    assert_eq!(cell.display_width() as usize, width);
+    assert_eq!(cell.display_width(), width);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn test_emoji_in_text_flow() {
     buffer.draw_text(0, 0, text, Style::NONE);
 
     // Calculate expected width
-    let expected_width: usize = graphemes(text).map(|g| display_width(g)).sum();
+    let expected_width: usize = graphemes(text).map(display_width).sum();
 
     // Verify no panics and reasonable width
     assert!(expected_width > 0);
@@ -499,7 +499,7 @@ fn test_many_different_graphemes() {
     let mut x = 0u32;
     let mut y = 0u32;
     for grapheme in graphemes(&text) {
-        let w = display_width(grapheme) as u32;
+        let w = u32::try_from(display_width(grapheme)).expect("grapheme width fits in u32");
         if x + w > 200 {
             x = 0;
             y += 1;

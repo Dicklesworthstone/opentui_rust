@@ -1,6 +1,6 @@
 //! Property-based tests for buffer diff algorithm (bd-1m90).
 //!
-//! Uses proptest to verify invariants of BufferDiff::compute, Cell::bits_eq,
+//! Uses proptest to verify invariants of `BufferDiff::compute`, `Cell::bits_eq`,
 //! and dirty region merging.
 
 use opentui::buffer::OptimizedBuffer;
@@ -107,7 +107,7 @@ proptest! {
     fn no_duplicate_changed_cells((a, b, _w, _h) in buffer_pair_strategy()) {
         let diff = BufferDiff::compute(&a, &b);
         let mut sorted = diff.changed_cells.clone();
-        sorted.sort();
+        sorted.sort_unstable();
         sorted.dedup();
         prop_assert_eq!(sorted.len(), diff.changed_cells.len(),
             "changed_cells should have no duplicates");

@@ -138,6 +138,9 @@ enum PerfStatus {
 
 impl PerfResult {
     fn new(name: &str, actual_ms: u64, baseline_ms: u64, threshold_percent: f64) -> Self {
+        // `u64 -> f64` is potentially lossy, but these values are milliseconds measured in tests
+        // and are expected to be well within the precise integer range of `f64`.
+        #[allow(clippy::cast_precision_loss)]
         let diff_percent = if baseline_ms == 0 {
             0.0
         } else {
@@ -259,12 +262,18 @@ fn time_ms<F: FnMut()>(mut f: F, iterations: u32) -> u64 {
     for _ in 0..iterations {
         f();
     }
-    start.elapsed().as_millis() as u64
+    u64::try_from(start.elapsed().as_millis()).expect("elapsed ms fits u64")
 }
 
 /// Check if we should update baselines.
 fn should_update_baselines() -> bool {
     std::env::var("UPDATE_BASELINES").is_ok()
+}
+
+fn regression_threshold(baseline: Option<&PerfBaseline>) -> f64 {
+    baseline.map_or(DEFAULT_REGRESSION_THRESHOLD, |b| {
+        b.thresholds.regression_threshold_percent / 100.0
+    })
 }
 
 // =============================================================================
@@ -274,14 +283,10 @@ fn should_update_baselines() -> bool {
 #[test]
 fn perf_full_screen_clear() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
+    let threshold = regression_threshold(baseline.as_ref());
     let expected = baseline
         .as_ref()
-        .map(|b| b.baselines.rendering.full_screen_clear_100x_ms)
-        .unwrap_or(50);
+        .map_or(50, |b| b.baselines.rendering.full_screen_clear_100x_ms);
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     let actual = time_ms(|| buffer.clear(Rgba::BLACK), 100);
@@ -309,14 +314,10 @@ fn perf_full_screen_clear() {
 #[test]
 fn perf_full_screen_text_render() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.rendering.full_screen_text_render_100x_ms)
-        .unwrap_or(100);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(100, |b| {
+        b.baselines.rendering.full_screen_text_render_100x_ms
+    });
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     let style = Style::fg(Rgba::WHITE);
@@ -358,14 +359,10 @@ fn perf_full_screen_text_render() {
 #[test]
 fn perf_large_buffer_create() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.buffer_operations.large_buffer_create_200x60_ms)
-        .unwrap_or(10);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(10, |b| {
+        b.baselines.buffer_operations.large_buffer_create_200x60_ms
+    });
 
     let actual = time_ms(|| drop(OptimizedBuffer::new(200, 60)), 100);
 
@@ -394,14 +391,10 @@ fn perf_scissor_push_pop() {
     use opentui::buffer::ClipRect;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.buffer_operations.scissor_push_pop_1000x_ms)
-        .unwrap_or(20);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(20, |b| {
+        b.baselines.buffer_operations.scissor_push_pop_1000x_ms
+    });
 
     let mut buffer = OptimizedBuffer::new(200, 50);
 
@@ -438,14 +431,10 @@ fn perf_scissor_push_pop() {
 #[test]
 fn perf_opacity_stack() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
+    let threshold = regression_threshold(baseline.as_ref());
     let expected = baseline
         .as_ref()
-        .map(|b| b.baselines.buffer_operations.opacity_stack_1000x_ms)
-        .unwrap_or(20);
+        .map_or(20, |b| b.baselines.buffer_operations.opacity_stack_1000x_ms);
 
     let mut buffer = OptimizedBuffer::new(200, 50);
 
@@ -482,14 +471,10 @@ fn perf_opacity_stack() {
 #[test]
 fn perf_cell_iteration() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.buffer_operations.cell_iteration_full_buffer_ms)
-        .unwrap_or(30);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(30, |b| {
+        b.baselines.buffer_operations.cell_iteration_full_buffer_ms
+    });
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     buffer.clear(Rgba::WHITE);
@@ -540,21 +525,17 @@ fn perf_text_insert() {
     use opentui::text::EditBuffer;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.text_operations.text_insert_1000_chars_ms)
-        .unwrap_or(50);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(50, |b| {
+        b.baselines.text_operations.text_insert_1000_chars_ms
+    });
 
     let mut edit_buffer = EditBuffer::new();
 
     let actual = time_ms(
         || {
-            for i in 0..100 {
-                let c = char::from(b'a' + (i % 26) as u8);
+            for i in 0u8..100 {
+                let c = char::from(b'a' + (i % 26));
                 edit_buffer.insert(&c.to_string());
             }
         },
@@ -586,21 +567,17 @@ fn perf_undo_redo() {
     use opentui::text::EditBuffer;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
+    let threshold = regression_threshold(baseline.as_ref());
     let expected = baseline
         .as_ref()
-        .map(|b| b.baselines.text_operations.undo_redo_100x_ms)
-        .unwrap_or(30);
+        .map_or(30, |b| b.baselines.text_operations.undo_redo_100x_ms);
 
     let mut edit_buffer = EditBuffer::new();
 
     // Setup: add some content to undo/redo
     // EditBuffer tracks undo automatically, no checkpoint needed
-    for i in 0..50 {
-        let c = char::from(b'a' + (i % 26) as u8);
+    for i in 0u8..50 {
+        let c = char::from(b'a' + (i % 26));
         edit_buffer.insert(&c.to_string());
     }
 
@@ -647,14 +624,10 @@ fn perf_parse_keystrokes() {
     use opentui::input::InputParser;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.input_processing.parse_1000_keystrokes_ms)
-        .unwrap_or(20);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(20, |b| {
+        b.baselines.input_processing.parse_1000_keystrokes_ms
+    });
 
     let mut parser = InputParser::new();
 
@@ -706,14 +679,10 @@ fn perf_parse_mouse_events() {
     use opentui::input::InputParser;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.input_processing.parse_1000_mouse_events_ms)
-        .unwrap_or(30);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(30, |b| {
+        b.baselines.input_processing.parse_1000_mouse_events_ms
+    });
 
     let mut parser = InputParser::new();
 
@@ -760,20 +729,19 @@ fn perf_parse_large_paste() {
     use opentui::input::InputParser;
 
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
-    let expected = baseline
-        .as_ref()
-        .map(|b| b.baselines.input_processing.parse_large_paste_10kb_ms)
-        .unwrap_or(50);
+    let threshold = regression_threshold(baseline.as_ref());
+    let expected = baseline.as_ref().map_or(50, |b| {
+        b.baselines.input_processing.parse_large_paste_10kb_ms
+    });
 
     let mut parser = InputParser::new();
 
     // Simulate 10KB paste with bracketed paste mode
-    let paste_content: String = (0..10240)
-        .map(|i| ('a' as u8 + (i % 26) as u8) as char)
+    let paste_content: String = (0usize..10240)
+        .map(|i| {
+            let offset = u8::try_from(i % 26).expect("alphabet index fits u8");
+            char::from(b'a' + offset)
+        })
         .collect();
     let paste_sequence = format!("\x1b[200~{paste_content}\x1b[201~");
     let paste_bytes = paste_sequence.as_bytes();
@@ -812,10 +780,7 @@ fn perf_parse_large_paste() {
 #[test]
 fn perf_comprehensive_report() {
     let baseline = load_baseline();
-    let threshold = baseline
-        .as_ref()
-        .map(|b| b.thresholds.regression_threshold_percent / 100.0)
-        .unwrap_or(DEFAULT_REGRESSION_THRESHOLD);
+    let threshold = regression_threshold(baseline.as_ref());
 
     let mut report = PerfReport::new();
 
@@ -823,8 +788,7 @@ fn perf_comprehensive_report() {
     {
         let expected = baseline
             .as_ref()
-            .map(|b| b.baselines.rendering.full_screen_clear_100x_ms)
-            .unwrap_or(50);
+            .map_or(50, |b| b.baselines.rendering.full_screen_clear_100x_ms);
         let mut buffer = OptimizedBuffer::new(200, 50);
         let actual = time_ms(|| buffer.clear(Rgba::BLACK), 100);
         report.add(PerfResult::new(
@@ -837,10 +801,9 @@ fn perf_comprehensive_report() {
 
     // Buffer operations
     {
-        let expected = baseline
-            .as_ref()
-            .map(|b| b.baselines.buffer_operations.large_buffer_create_200x60_ms)
-            .unwrap_or(10);
+        let expected = baseline.as_ref().map_or(10, |b| {
+            b.baselines.buffer_operations.large_buffer_create_200x60_ms
+        });
         let actual = time_ms(|| drop(OptimizedBuffer::new(200, 60)), 100);
         report.add(PerfResult::new(
             "large_buffer_create_100x",
@@ -908,11 +871,7 @@ fn perf_alpha_blending() {
     }
     let elapsed = start.elapsed();
 
-    let ops_per_ms = if elapsed.as_millis() > 0 {
-        10000.0 / elapsed.as_millis() as f64
-    } else {
-        10000.0 / elapsed.as_secs_f64() / 1000.0 // fallback for sub-ms
-    };
+    let ops_per_ms = 10000.0 / (elapsed.as_secs_f64() * 1000.0);
     println!(
         "alpha_blending_10k: {:?} ({:.2} ops/ms)",
         elapsed, ops_per_ms
@@ -935,11 +894,11 @@ fn perf_diff_rendering_simulation() {
 
     // Simulate 10% changes
     let style = Style::fg(Rgba::WHITE);
-    let changed_cells = (200 * 50) / 10; // 10%
+    let changed_cells = (200u32 * 50) / 10; // 10%
 
     for i in 0..changed_cells {
-        let x = ((i * 7) % 200) as u32;
-        let y = ((i * 3) % 50) as u32;
+        let x = (i * 7) % 200;
+        let y = (i * 3) % 50;
         back.set(x, y, Cell::new('X', style));
     }
 

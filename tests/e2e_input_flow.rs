@@ -19,7 +19,7 @@ use opentui::input::{
 // Keyboard Input Flow Tests
 // ============================================================================
 
-/// Test single keypress → KeyEvent.
+/// Test single keypress → `KeyEvent`.
 #[test]
 fn test_e2e_single_keypress() {
     let mut harness = E2EHarness::new("input_flow", "single_keypress", 80, 24);
@@ -98,19 +98,16 @@ fn test_e2e_function_keys() {
     let mut parser = InputParser::new();
 
     // F1-F4 use SS3 sequences
-    let f1_ansi = b"\x1bOP";
-    let (event, _) = parser.parse(f1_ansi).expect("Should parse F1");
+    let (event, _) = parser.parse(b"\x1bOP").expect("Should parse F1");
     assert_eq!(event.key().unwrap().code, KeyCode::F(1));
     harness.log().info("verify", "F1 parsed correctly");
 
     // F5+ use CSI tilde sequences
-    let f5_ansi = b"\x1b[15~";
-    let (event, _) = parser.parse(f5_ansi).expect("Should parse F5");
+    let (event, _) = parser.parse(b"\x1b[15~").expect("Should parse F5");
     assert_eq!(event.key().unwrap().code, KeyCode::F(5));
     harness.log().info("verify", "F5 parsed correctly");
 
-    let f12_ansi = b"\x1b[24~";
-    let (event, _) = parser.parse(f12_ansi).expect("Should parse F12");
+    let (event, _) = parser.parse(b"\x1b[24~").expect("Should parse F12");
     assert_eq!(event.key().unwrap().code, KeyCode::F(12));
     harness.log().info("verify", "F12 parsed correctly");
 
@@ -224,7 +221,7 @@ fn test_e2e_escape_handling() {
 // Mouse Input Flow Tests
 // ============================================================================
 
-/// Test click → MouseEvent with correct position.
+/// Test click → `MouseEvent` with correct position.
 #[test]
 fn test_e2e_mouse_click_position() {
     let mut harness = E2EHarness::new("input_flow", "mouse_click_position", 80, 24);
