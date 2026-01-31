@@ -17,6 +17,9 @@
 //! assert!(term.output().contains("\x1b[2J"));
 //! ```
 
+#![allow(clippy::nursery)] // Test fixtures prioritize clarity over pedantry
+#![allow(clippy::pedantic)] // Test fixtures prioritize clarity over pedantry
+
 pub mod assertions;
 pub mod mock_input;
 pub mod mock_terminal;
