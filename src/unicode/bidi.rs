@@ -107,8 +107,8 @@ mod tests {
         let info = resolve_bidi(text);
         assert_eq!(info.base_direction, Direction::Ltr);
         assert_eq!(info.levels.len(), text.chars().count());
-        assert!(info.levels.iter().any(|&l| l == 1));
-        assert!(info.levels.iter().any(|&l| l == 0));
+        assert!(info.levels.contains(&1));
+        assert!(info.levels.contains(&0));
     }
 
     #[test]
