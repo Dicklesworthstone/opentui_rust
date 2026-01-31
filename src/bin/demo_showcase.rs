@@ -3228,7 +3228,19 @@ impl App {
                             2 => Some(Action::CycleTheme),  // "Cycle Theme"
                             3 => Some(Action::ForceRedraw), // "Force Redraw"
                             4 => Some(Action::ToggleDebug), // "Toggle Debug"
-                            5 => Some(Action::Quit),        // "Quit"
+                            5 => Some(Action::NavigateSection(Section::Overview)),    // "Go to Overview"
+                            6 => Some(Action::NavigateSection(Section::Editor)),      // "Go to Editor"
+                            7 => Some(Action::NavigateSection(Section::Preview)),     // "Go to Preview"
+                            8 => Some(Action::NavigateSection(Section::Logs)),        // "Go to Logs"
+                            9 => Some(Action::NavigateSection(Section::Unicode)),     // "Go to Unicode"
+                            10 => Some(Action::NavigateSection(Section::Performance)), // "Go to Performance"
+                            11 => Some(Action::NavigateSection(Section::Drawing)),    // "Go to Drawing"
+                            12 => Some(Action::NavigateSection(Section::Colors)),     // "Go to Colors"
+                            13 => Some(Action::NavigateSection(Section::Input)),      // "Go to Input"
+                            14 => Some(Action::NavigateSection(Section::Editing)),    // "Go to Editing"
+                            15 => Some(Action::NavigateSection(Section::Capabilities)), // "Go to Capabilities"
+                            16 => Some(Action::NavigateSection(Section::Animations)), // "Go to Animations"
+                            17 => Some(Action::Quit),        // "Quit"
                             _ => None,
                         };
                         action.map(|a| (name, a))
