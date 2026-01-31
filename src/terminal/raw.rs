@@ -244,8 +244,8 @@ mod tests {
     #[test]
     fn test_termios_control_chars() {
         // VMIN and VTIME indices should be valid
-        assert!(libc::VMIN < libc::NCCS);
-        assert!(libc::VTIME < libc::NCCS);
+        const { assert!(libc::VMIN < libc::NCCS) };
+        const { assert!(libc::VTIME < libc::NCCS) };
     }
 
     // ============================================

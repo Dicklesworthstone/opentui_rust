@@ -1041,9 +1041,7 @@ mod porter_duff_tests {
 
         assert!(
             r_diff > 0.1 || b_diff > 0.1,
-            "Blending should not be commutative: red_over_blue={:?}, blue_over_red={:?}",
-            red_over_blue,
-            blue_over_red
+            "Blending should not be commutative: red_over_blue={red_over_blue:?}, blue_over_red={blue_over_red:?}"
         );
     }
 

@@ -9614,7 +9614,7 @@ mod tests {
         // Filter to "Quit" - should match only one
         state.query = "Quit".to_string();
         state.update_filter();
-        assert!(state.filtered.len() >= 1);
+        assert!(!state.filtered.is_empty());
     }
 
     #[test]
@@ -9867,9 +9867,10 @@ mod tests {
         let mut buf = OptimizedBuffer::new(width, height);
         let style = Style::default();
         for (i, &ch) in chars.iter().enumerate() {
-            let x = i as u32;
-            if x < width {
-                buf.set(x, 0, Cell::new(ch, style));
+            if let Ok(x) = u32::try_from(i) {
+                if x < width {
+                    buf.set(x, 0, Cell::new(ch, style));
+                }
             }
         }
         buf
@@ -10152,8 +10153,10 @@ mod tests {
 
     #[test]
     fn test_palette_filter_help() {
-        let mut state = PaletteState::default();
-        state.query = "help".to_string();
+        let mut state = PaletteState {
+            query: "help".to_string(),
+            ..PaletteState::default()
+        };
         state.update_filter();
         assert!(
             !state.filtered.is_empty(),
@@ -10163,8 +10166,10 @@ mod tests {
 
     #[test]
     fn test_palette_filter_no_match() {
-        let mut state = PaletteState::default();
-        state.query = "xyznonexistent".to_string();
+        let mut state = PaletteState {
+            query: "xyznonexistent".to_string(),
+            ..PaletteState::default()
+        };
         state.update_filter();
         assert!(
             state.filtered.is_empty(),
@@ -10226,23 +10231,23 @@ mod tests {
     #[test]
     fn test_hitgrid_id_ranges() {
         // Button IDs should be in the 1000-1999 range
-        assert!(hit_ids::BTN_HELP >= 1000 && hit_ids::BTN_HELP < 2000);
-        assert!(hit_ids::BTN_PALETTE >= 1000 && hit_ids::BTN_PALETTE < 2000);
-        assert!(hit_ids::BTN_TOUR >= 1000 && hit_ids::BTN_TOUR < 2000);
-        assert!(hit_ids::BTN_THEME >= 1000 && hit_ids::BTN_THEME < 2000);
+        const { assert!(hit_ids::BTN_HELP >= 1000 && hit_ids::BTN_HELP < 2000) };
+        const { assert!(hit_ids::BTN_PALETTE >= 1000 && hit_ids::BTN_PALETTE < 2000) };
+        const { assert!(hit_ids::BTN_TOUR >= 1000 && hit_ids::BTN_TOUR < 2000) };
+        const { assert!(hit_ids::BTN_THEME >= 1000 && hit_ids::BTN_THEME < 2000) };
 
         // Sidebar in 2000-2999 range
-        assert!(hit_ids::SIDEBAR_ROW_BASE >= 2000 && hit_ids::SIDEBAR_ROW_BASE < 3000);
+        const { assert!(hit_ids::SIDEBAR_ROW_BASE >= 2000 && hit_ids::SIDEBAR_ROW_BASE < 3000) };
 
         // Panels in 3000-3999 range
-        assert!(hit_ids::PANEL_SIDEBAR >= 3000 && hit_ids::PANEL_SIDEBAR < 4000);
-        assert!(hit_ids::PANEL_EDITOR >= 3000 && hit_ids::PANEL_EDITOR < 4000);
-        assert!(hit_ids::PANEL_PREVIEW >= 3000 && hit_ids::PANEL_PREVIEW < 4000);
-        assert!(hit_ids::PANEL_LOGS >= 3000 && hit_ids::PANEL_LOGS < 4000);
+        const { assert!(hit_ids::PANEL_SIDEBAR >= 3000 && hit_ids::PANEL_SIDEBAR < 4000) };
+        const { assert!(hit_ids::PANEL_EDITOR >= 3000 && hit_ids::PANEL_EDITOR < 4000) };
+        const { assert!(hit_ids::PANEL_PREVIEW >= 3000 && hit_ids::PANEL_PREVIEW < 4000) };
+        const { assert!(hit_ids::PANEL_LOGS >= 3000 && hit_ids::PANEL_LOGS < 4000) };
 
         // Overlays in 4000+ range
-        assert!(hit_ids::OVERLAY_CLOSE >= 4000);
-        assert!(hit_ids::PALETTE_ITEM_BASE >= 4000);
+        const { assert!(hit_ids::OVERLAY_CLOSE >= 4000) };
+        const { assert!(hit_ids::PALETTE_ITEM_BASE >= 4000) };
     }
 
     #[test]

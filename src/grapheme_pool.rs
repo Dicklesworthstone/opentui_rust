@@ -1303,11 +1303,11 @@ mod tests {
         assert_eq!(initial_capacity, MAX_POOL_ID as usize);
 
         // After allocation, capacity decreases
-        let _id = pool.alloc("test");
+        let id = pool.alloc("test");
         assert_eq!(pool.capacity_remaining(), initial_capacity - 1);
 
         // Free slot adds to capacity
-        pool.decref(_id);
+        pool.decref(id);
         assert_eq!(pool.capacity_remaining(), initial_capacity);
     }
 
@@ -1559,7 +1559,7 @@ mod tests {
     #[test]
     fn test_get_fragmentation_ratio_empty_pool() {
         let pool = GraphemePool::new();
-        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+        assert!(pool.get_fragmentation_ratio().abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1570,7 +1570,7 @@ mod tests {
         let _ = pool.alloc("c");
 
         // No freed slots, ratio should be 0.0
-        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+        assert!(pool.get_fragmentation_ratio().abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1616,7 +1616,7 @@ mod tests {
         let _ = pool.alloc("c");
 
         // Now no freed slots
-        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+        assert!(pool.get_fragmentation_ratio().abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1733,7 +1733,7 @@ mod tests {
 
         // Should return false because pool is not fragmented
         assert!(!pool.should_compact());
-        assert_eq!(pool.get_fragmentation_ratio(), 0.0);
+        assert!(pool.get_fragmentation_ratio().abs() < f32::EPSILON);
     }
 
     #[test]
@@ -2160,8 +2160,8 @@ mod tests {
         assert_eq!(pool.free_count(), 0);
 
         // Verify remapping
-        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
-        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or_else(|| id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or_else(|| id3.pool_id());
 
         // id1 was at slot 1, should stay at slot 1
         assert_eq!(new_id1, 1);
@@ -2204,7 +2204,7 @@ mod tests {
         // Verify all surviving entries are accessible
         for (i, id) in ids.iter().enumerate() {
             if i % 2 == 0 {
-                let new_pool_id = result.remap(id.pool_id()).unwrap_or(id.pool_id());
+                let new_pool_id = result.remap(id.pool_id()).unwrap_or_else(|| id.pool_id());
                 let remapped = GraphemeId::new(new_pool_id, id.width() as u8);
                 assert_eq!(pool.get(remapped), Some(format!("g{i}").as_str()));
             }
@@ -2257,8 +2257,8 @@ mod tests {
         let result = pool.compact();
 
         // Remap and verify refcounts are preserved
-        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
-        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or_else(|| id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or_else(|| id3.pool_id());
 
         let remapped1 = GraphemeId::new(new_id1, id1.width() as u8);
         let remapped3 = GraphemeId::new(new_id3, id3.width() as u8);
@@ -2281,8 +2281,8 @@ mod tests {
 
         let result = pool.compact();
 
-        let new_id1 = result.remap(id1.pool_id()).unwrap_or(id1.pool_id());
-        let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
+        let new_id1 = result.remap(id1.pool_id()).unwrap_or_else(|| id1.pool_id());
+        let new_id3 = result.remap(id3.pool_id()).unwrap_or_else(|| id3.pool_id());
 
         // Original IDs had correct widths - verify they're preserved in slots
         // The width is stored in the Slot, not just the GraphemeId
@@ -2415,7 +2415,7 @@ mod tests {
         // Verify surviving entries
         for (i, id) in ids.iter().enumerate() {
             if i % 3 == 0 {
-                let new_pool_id = result.remap(id.pool_id()).unwrap_or(id.pool_id());
+                let new_pool_id = result.remap(id.pool_id()).unwrap_or_else(|| id.pool_id());
                 let remapped = GraphemeId::new(new_pool_id, id.width() as u8);
                 assert_eq!(pool.get(remapped), Some(format!("g{i}").as_str()));
             }
