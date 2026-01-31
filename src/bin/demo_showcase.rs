@@ -6765,7 +6765,7 @@ fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Th
     buffer.draw_text(x + 2, row, "Easing Functions:", label_style);
     row += 2;
 
-    if row + 8 < y + rect.h {
+    if row + 8 < y + rect.h && track_w >= 2 {
         let easings: [(&str, fn(f32) -> f32); 4] = [
             ("Linear:   ", |t| t),
             ("Smoothstep:", easing::smoothstep),
@@ -6788,7 +6788,7 @@ fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Th
 
             // Draw moving dot
             let eased = ease_fn(t);
-            let dot_pos = (eased * (track_w - 1) as f32) as u32;
+            let dot_pos = (eased * (track_w.saturating_sub(1)) as f32) as u32;
             buffer.draw_text(
                 track_x + dot_pos,
                 row,
