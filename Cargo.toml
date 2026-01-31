@@ -34,6 +34,7 @@ pty-tests = []
 bitflags = "2.10"
 libc = "0.2.180"
 ropey = "1.6"
+unicode-bidi = "0.3.18"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 

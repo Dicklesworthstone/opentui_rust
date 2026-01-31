@@ -1,9 +1,11 @@
 //! Unicode utilities for grapheme handling and display width.
 
+mod bidi;
 mod grapheme;
 mod search;
 mod width;
 
+pub use bidi::{BidiInfo, Direction, resolve_bidi};
 pub use grapheme::{
     GraphemeInfo, GraphemeIterator, find_grapheme_boundary, grapheme_indices, grapheme_info,
     graphemes, is_ascii_only, split_graphemes_with_widths,
