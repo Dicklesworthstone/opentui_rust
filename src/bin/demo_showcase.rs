@@ -6883,6 +6883,8 @@ fn draw_editor_panel(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, a
     let lang_indicator = match app.current_file_language() {
         content::Language::Rust => " [Rust]",
         content::Language::Markdown => " [Markdown]",
+        content::Language::Python => " [Python]",
+        content::Language::Toml => " [TOML]",
         content::Language::Plain => "",
     };
     let header_text = format!(" {file_name}{lang_indicator}");
@@ -7000,6 +7002,56 @@ fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Sty
             // Link
             if trimmed.contains('[') && trimmed.contains("](") {
                 return Style::fg(theme.accent_primary);
+            }
+            Style::fg(theme.fg0)
+        }
+        content::Language::Python => {
+            // Comment
+            if trimmed.starts_with('#') && !trimmed.starts_with("#!") {
+                return Style::fg(theme.fg2);
+            }
+            // Shebang
+            if trimmed.starts_with("#!") {
+                return Style::fg(theme.fg2);
+            }
+            // Docstring
+            if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
+                return Style::fg(theme.accent_success);
+            }
+            // Decorator
+            if trimmed.starts_with('@') {
+                return Style::fg(theme.accent_secondary);
+            }
+            // Keywords
+            let keywords = [
+                "def ", "class ", "if ", "else:", "elif ", "for ", "while ",
+                "import ", "from ", "return ", "async ", "await ", "with ",
+                "try:", "except ", "finally:", "raise ", "pass", "break",
+                "continue", "yield ", "lambda ", "None", "True", "False",
+            ];
+            for kw in keywords {
+                if trimmed.starts_with(kw) || trimmed.contains(&format!(" {kw}")) {
+                    return Style::fg(theme.accent_primary);
+                }
+            }
+            // String
+            if trimmed.contains('"') || trimmed.contains('\'') {
+                return Style::fg(theme.accent_secondary);
+            }
+            Style::fg(theme.fg0)
+        }
+        content::Language::Toml => {
+            // Comment
+            if trimmed.starts_with('#') {
+                return Style::fg(theme.fg2);
+            }
+            // Section header
+            if trimmed.starts_with('[') {
+                return Style::fg(theme.accent_primary).with_bold();
+            }
+            // Key = value (highlight key)
+            if trimmed.contains('=') {
+                return Style::fg(theme.accent_secondary);
             }
             Style::fg(theme.fg0)
         }
@@ -7688,6 +7740,91 @@ renderer.present()?;
 - [Unicode TR11](https://unicode.org/reports/tr11/)
 "#;
 
+    /// Python sample demonstrating syntax highlighting.
+    pub const EDITOR_SAMPLE_PYTHON: &str = r#"#!/usr/bin/env python3
+"""OpenTUI Demo - Python Sample
+
+This file demonstrates Python syntax highlighting.
+"""
+
+from dataclasses import dataclass
+from typing import Optional, List
+import asyncio
+
+@dataclass
+class CacheEntry:
+    """A single cache entry with optional TTL."""
+    value: str
+    expires_at: Optional[float] = None
+
+class Cache:
+    """Simple in-memory cache with TTL support."""
+
+    def __init__(self, max_size: int = 100):
+        self._entries: dict[str, CacheEntry] = {}
+        self._max_size = max_size
+
+    def get(self, key: str) -> Optional[str]:
+        """Get a value if it exists and hasn't expired."""
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        # TODO: Check expiration
+        return entry.value
+
+    async def fetch_or_compute(
+        self,
+        key: str,
+        compute_fn
+    ) -> str:
+        """Fetch from cache or compute and store."""
+        if (cached := self.get(key)) is not None:
+            return cached
+
+        value = await compute_fn()
+        self._entries[key] = CacheEntry(value=value)
+        return value
+
+if __name__ == "__main__":
+    cache = Cache(max_size=50)
+    print(f"Cache size: {len(cache._entries)}")
+"#;
+
+    /// TOML configuration sample.
+    pub const EDITOR_SAMPLE_TOML: &str = r#"# OpenTUI Configuration
+# This file demonstrates TOML syntax highlighting.
+
+[package]
+name = "opentui"
+version = "0.1.0"
+edition = "2021"
+authors = ["OpenTUI Contributors"]
+description = "A high-performance TUI rendering library"
+
+[features]
+default = ["truecolor", "mouse"]
+truecolor = []
+mouse = []
+hyperlinks = []
+all = ["truecolor", "mouse", "hyperlinks"]
+
+[dependencies]
+unicode-width = "0.1"
+unicode-segmentation = "1.10"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bin]]
+name = "demo_showcase"
+path = "src/bin/demo_showcase.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+"#;
+
     /// Log entry structure for the logs panel.
     ///
     /// Uses `Cow<'static, str>` to support both static content (no allocation)
@@ -7998,6 +8135,10 @@ renderer.present()?;
         Rust,
         /// Markdown text.
         Markdown,
+        /// Python source code.
+        Python,
+        /// TOML configuration.
+        Toml,
         /// Plain text (no highlighting).
         Plain,
     }
@@ -8009,6 +8150,8 @@ renderer.present()?;
             match self {
                 Self::Rust => "rs",
                 Self::Markdown => "md",
+                Self::Python => "py",
+                Self::Toml => "toml",
                 Self::Plain => "txt",
             }
         }
@@ -8078,6 +8221,16 @@ renderer.present()?;
             name: "README.md",
             language: Language::Markdown,
             text: EDITOR_SAMPLE_MARKDOWN,
+        },
+        DemoFile {
+            name: "cache.py",
+            language: Language::Python,
+            text: EDITOR_SAMPLE_PYTHON,
+        },
+        DemoFile {
+            name: "Cargo.toml",
+            language: Language::Toml,
+            text: EDITOR_SAMPLE_TOML,
         },
     ];
 
@@ -8682,7 +8835,7 @@ mod tests {
 
     #[test]
     fn test_section_all() {
-        assert_eq!(Section::ALL.len(), 6);
+        assert_eq!(Section::ALL.len(), 12);
     }
 
     #[test]
@@ -9082,6 +9235,12 @@ mod tests {
         app.next_file();
         assert_eq!(app.current_file_idx, 1);
         assert_eq!(app.current_file_name(), "README.md");
+        app.next_file();
+        assert_eq!(app.current_file_idx, 2);
+        assert_eq!(app.current_file_name(), "cache.py");
+        app.next_file();
+        assert_eq!(app.current_file_idx, 3);
+        assert_eq!(app.current_file_name(), "Cargo.toml");
         // Wrap around
         app.next_file();
         assert_eq!(app.current_file_idx, 0);
@@ -9092,12 +9251,19 @@ mod tests {
     fn test_app_prev_file() {
         let mut app = App::default();
         assert_eq!(app.current_file_idx, 0);
-        // Wrap to last
+        // Wrap to last (now 4 files)
+        app.prev_file();
+        assert_eq!(app.current_file_idx, 3);
+        assert_eq!(app.current_file_name(), "Cargo.toml");
+        app.prev_file();
+        assert_eq!(app.current_file_idx, 2);
+        assert_eq!(app.current_file_name(), "cache.py");
         app.prev_file();
         assert_eq!(app.current_file_idx, 1);
         assert_eq!(app.current_file_name(), "README.md");
         app.prev_file();
         assert_eq!(app.current_file_idx, 0);
+        assert_eq!(app.current_file_name(), "cache.rs");
     }
 
     #[test]

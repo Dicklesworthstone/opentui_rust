@@ -245,8 +245,8 @@ fn extract_tour_snapshot(json: &serde_json::Value) -> serde_json::Value {
 #[test]
 fn test_tour_determinism_snapshot() {
     // Run tour with fixed seed and enough frames to complete
-    // Tour takes ~3090 frames (51.5s at 60fps), so use 3200 for buffer
-    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3200"]);
+    // Tour now has 19 steps taking ~75.5s at 60fps, so use 4800 for buffer
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "4800"]);
     let snapshot = extract_tour_snapshot(&json);
 
     // Assert tour completed successfully
@@ -328,8 +328,8 @@ fn test_tour_deterministic_across_runs() {
 fn test_tour_exits_cleanly() {
     // This test verifies clean exit by checking the process succeeds
     // (run_headless_json already asserts success, but we verify tour-specific output)
-    // Tour takes ~3090 frames (51.5s at 60fps), so use 3200 for buffer
-    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "3200"]);
+    // Tour now has 19 steps taking ~75.5s at 60fps, so use 4800 for buffer
+    let json = run_headless_json(&["--seed", "42", "--tour", "--max-frames", "4800"]);
 
     // Verify tour completed (not just started)
     assert!(

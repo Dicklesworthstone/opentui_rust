@@ -6,7 +6,7 @@ expression: snapshot
   "config": {
     "seed": 42
   },
-  "final_step_idx": 12,
+  "final_step_idx": 18,
   "step_transition_frames": [
     240,
     480,
@@ -19,8 +19,14 @@ expression: snapshot
     2077,
     2318,
     2559,
-    2800
+    2800,
+    3041,
+    3282,
+    3493,
+    3734,
+    3944,
+    4214
   ],
-  "total_steps": 13,
+  "total_steps": 19,
   "tour_completed": true
 }
