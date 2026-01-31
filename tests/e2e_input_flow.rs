@@ -9,8 +9,7 @@ mod common;
 
 use common::harness::E2EHarness;
 use common::input_sim::{
-    InputSequence, TimingMode, event_to_ansi, key_to_ansi, mouse_to_sgr, paste_to_ansi,
-    sequence_to_ansi,
+    InputSequence, TimingMode, key_to_ansi, mouse_to_sgr, paste_to_ansi, sequence_to_ansi,
 };
 use opentui::input::{
     Event, InputParser, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,

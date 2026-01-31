@@ -10,6 +10,7 @@
 //! - **Tour step transitions** - time between tour mode steps
 
 #![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+#![allow(dead_code)] // Shared test helper; not every integration test uses every metric/builder
 //! - **Total runtime** - spawn to exit
 //! - **Memory high-water mark** - peak memory usage (best effort)
 //!

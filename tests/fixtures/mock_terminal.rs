@@ -4,6 +4,8 @@
 //! all ANSI sequences for later inspection. Useful for testing renderer output
 //! without needing actual terminal access.
 
+#![allow(dead_code)] // Shared test helper; not every integration test uses every method
+
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 

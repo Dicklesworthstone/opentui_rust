@@ -6,6 +6,8 @@
 //! - Paste events (bracketed paste mode)
 //! - Timing simulation (instant, realistic WPM, stress testing)
 
+#![allow(dead_code)] // Shared test helper; not every integration test uses every builder/mode
+
 use opentui::input::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };

@@ -4,6 +4,7 @@
 
 #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
 #![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+#![allow(dead_code)] // Shared test data; not every integration test uses every helper/constant
 
 use opentui::buffer::OptimizedBuffer;
 use opentui::cell::Cell;
@@ -179,9 +180,9 @@ pub mod colors {
 
     /// Generate a random-ish color from a seed (deterministic).
     pub fn from_seed(seed: u32) -> Rgba {
-        let r = (seed.wrapping_mul(1103515245).wrapping_add(12345) % 256) as f32 / 255.0;
-        let g = (seed.wrapping_mul(1103515245).wrapping_add(12346) % 256) as f32 / 255.0;
-        let b = (seed.wrapping_mul(1103515245).wrapping_add(12347) % 256) as f32 / 255.0;
+        let r = (seed.wrapping_mul(1_103_515_245).wrapping_add(12345) % 256) as f32 / 255.0;
+        let g = (seed.wrapping_mul(1_103_515_245).wrapping_add(12346) % 256) as f32 / 255.0;
+        let b = (seed.wrapping_mul(1_103_515_245).wrapping_add(12347) % 256) as f32 / 255.0;
         Rgba::rgb(r, g, b)
     }
 }

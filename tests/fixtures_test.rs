@@ -51,8 +51,6 @@ fn test_mock_input_key_queue() {
 
 #[test]
 fn test_mock_input_builder() {
-    use opentui::input::KeyCode;
-
     let input = InputSequenceBuilder::new()
         .string("hello")
         .enter()
@@ -142,8 +140,6 @@ fn test_buffer_generators() {
 
 #[test]
 fn test_color_generators() {
-    use opentui::color::Rgba;
-
     let gray = colors::grayscale(0.5);
     assert!((gray.r - 0.5).abs() < 0.001);
     assert!((gray.g - 0.5).abs() < 0.001);

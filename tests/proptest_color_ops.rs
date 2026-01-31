@@ -394,13 +394,6 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// to_256_color returns value in [0, 255].
-    #[test]
-    fn to_256_color_in_range(c in rgba_strategy()) {
-        let idx = c.to_256_color();
-        prop_assert!(idx <= 255, "256-color index {} out of range", idx);
-    }
-
     /// to_16_color returns value in [0, 15].
     #[test]
     fn to_16_color_in_range(c in rgba_strategy()) {

@@ -4,6 +4,8 @@
 //! for controlled test scenarios. Supports keyboard events, mouse events,
 //! and raw byte sequences.
 
+#![allow(dead_code)] // Shared test helpers; not every integration test uses every input helper
+
 use opentui::input::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PasteEvent,
 };

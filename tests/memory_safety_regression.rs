@@ -2,9 +2,9 @@
 //!
 //! These tests ensure that memory safety fixes cannot regress.
 //! They cover integer overflow protection across the codebase:
-//! - Buffer index calculations (OptimizedBuffer, PixelBuffer, HitGrid)
-//! - GraphemeId width encoding
-//! - GraphemePool ID limits
+//! - Buffer index calculations (`OptimizedBuffer`, `PixelBuffer`, `HitGrid`)
+//! - `GraphemeId` width encoding
+//! - `GraphemePool` ID limits
 
 use opentui::buffer::{GrayscaleBuffer, OptimizedBuffer, PixelBuffer};
 use opentui::cell::GraphemeId;
@@ -212,14 +212,14 @@ mod grapheme_pool_capacity {
 
 mod safety_invariants {
     use super::*;
+    use opentui::cell::Cell;
+    use opentui::style::Style;
 
     #[test]
     fn buffer_operations_preserve_data() {
         let mut buffer = OptimizedBuffer::new(50, 50);
 
         // Set some valid data
-        use opentui::cell::Cell;
-        use opentui::style::Style;
         let cell = Cell::new('X', Style::default());
         buffer.set(25, 25, cell);
 

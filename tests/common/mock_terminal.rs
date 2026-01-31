@@ -17,6 +17,8 @@
 //! assert!(sequences.iter().any(|s| matches!(s, AnsiSequence::HideCursor)));
 //! ```
 
+#![allow(dead_code)] // Shared test helper; not every integration test uses every mock/utility
+
 use opentui::color::Rgba;
 use opentui::style::TextAttributes;
 use opentui::terminal::{Capabilities, ColorSupport, Terminal};

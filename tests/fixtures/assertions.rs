@@ -4,6 +4,7 @@
 //! buffers, cells, and ANSI sequences in tests.
 
 #![allow(clippy::uninlined_format_args)] // Clarity over style in test code
+#![allow(dead_code)] // Shared test helpers; not every integration test uses every assertion
 
 use opentui::buffer::OptimizedBuffer;
 use opentui::cell::{Cell, CellContent};
