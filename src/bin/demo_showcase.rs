@@ -1546,6 +1546,18 @@ impl PaletteState {
         ("Cycle Theme", "Switch to the next color theme"),
         ("Force Redraw", "Refresh the entire display"),
         ("Toggle Debug", "Show/hide performance overlay"),
+        ("Go to Overview", "Navigate to Overview section [1]"),
+        ("Go to Editor", "Navigate to Editor section [2]"),
+        ("Go to Preview", "Navigate to Preview section [3]"),
+        ("Go to Logs", "Navigate to Logs section [4]"),
+        ("Go to Unicode", "Navigate to Unicode section [5]"),
+        ("Go to Performance", "Navigate to Performance section [6]"),
+        ("Go to Drawing", "Navigate to Drawing section [7]"),
+        ("Go to Colors", "Navigate to Colors section [8]"),
+        ("Go to Input", "Navigate to Input section [9]"),
+        ("Go to Editing", "Navigate to Editing section [0]"),
+        ("Go to Capabilities", "Navigate to Capabilities section [-]"),
+        ("Go to Animations", "Navigate to Animations section [=]"),
         ("Quit", "Exit the application"),
     ];
 
@@ -1821,10 +1833,58 @@ pub const TOUR_SCRIPT: &[TourStep] = &[
         action: TourAction::SetSection(Section::Performance),
         spotlight: Some("preview"),
     },
-    // 13. Finale
+    // 13. Drawing Primitives
+    TourStep {
+        title: "Drawing Primitives",
+        description: "5 box styles: Single, Double, Rounded, Heavy, ASCII.\nTitled boxes, partial sides, fills.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Drawing),
+        spotlight: Some("editor"),
+    },
+    // 14. Color System
+    TourStep {
+        title: "Color System",
+        description: "Gradients, HSV color wheel, alpha blending.\nOpacity stacking for layered effects.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Colors),
+        spotlight: Some("editor"),
+    },
+    // 15. Input Handling
+    TourStep {
+        title: "Input Handling",
+        description: "Cursor styles: Block, Underline, Bar.\nFocus events and bracketed paste.",
+        duration_ms: 3500,
+        action: TourAction::SetSection(Section::Input),
+        spotlight: Some("editor"),
+    },
+    // 16. Editing Features
+    TourStep {
+        title: "Editing Features",
+        description: "EditBuffer with rope-backed storage.\nUndo/Redo and wrap modes.",
+        duration_ms: 4000,
+        action: TourAction::SetSection(Section::Editing),
+        spotlight: Some("editor"),
+    },
+    // 17. Terminal Capabilities
+    TourStep {
+        title: "Terminal Capabilities",
+        description: "Detected features shown with checkmarks.\nEnvironment and preset information.",
+        duration_ms: 3500,
+        action: TourAction::SetSection(Section::Capabilities),
+        spotlight: Some("editor"),
+    },
+    // 18. Animations & Easing
+    TourStep {
+        title: "Animations & Easing",
+        description: "Easing curves: linear, smoothstep, cubic.\nPulse animations at different frequencies.",
+        duration_ms: 4500,
+        action: TourAction::SetSection(Section::Animations),
+        spotlight: Some("editor"),
+    },
+    // 19. Finale
     TourStep {
         title: "Tour Complete!",
-        description: "You've seen the core features.\nPress Esc to explore freely.",
+        description: "You've seen all 12 sections.\nPress Esc to explore freely.",
         duration_ms: 5000,
         action: TourAction::None,
         spotlight: None,
@@ -5875,6 +5935,909 @@ fn draw_unicode_showcase(
             "Note: Proper rendering requires terminal with Unicode support",
             dim_style,
         );
+    }
+}
+
+/// Draw the Drawing section showcasing box styles and drawing primitives.
+///
+/// Features demonstrated:
+/// - All 5 BoxStyle variants (Single, Double, Rounded, Heavy, ASCII)
+/// - Titled boxes with different alignments
+/// - Partial sides (omitting certain edges)
+/// - Lines and fills
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    use opentui::buffer::{BoxOptions, BoxSides, BoxStyle, TitleAlign};
+
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Drawing Primitives Showcase", header_style);
+
+    // Divider line
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+
+    let mut row = y + 4;
+    let box_w = 12_u32;
+    let box_h = 4_u32;
+
+    // Section 1: Box Styles
+    buffer.draw_text(x + 2, row, "Box Styles:", label_style);
+    row += 2;
+
+    if row + box_h + 2 < y + rect.h {
+        let styles: [(BoxStyle, &str); 5] = [
+            (BoxStyle::single(Style::fg(theme.fg0)), "Single"),
+            (BoxStyle::double(Style::fg(theme.accent_primary)), "Double"),
+            (BoxStyle::rounded(Style::fg(theme.accent_secondary)), "Rounded"),
+            (BoxStyle::heavy(Style::fg(theme.accent_success)), "Heavy"),
+            (BoxStyle::ascii(Style::fg(theme.fg2)), "ASCII"),
+        ];
+
+        let mut col = x + 2;
+        for (style, name) in styles {
+            if col + box_w + 2 > x + rect.w {
+                break;
+            }
+            buffer.draw_box(col, row, box_w, box_h, style);
+            // Draw label inside
+            let label_x = col + (box_w.saturating_sub(name.len() as u32)) / 2;
+            buffer.draw_text(label_x, row + box_h / 2, name, Style::fg(theme.fg1));
+            col += box_w + 2;
+        }
+        row += box_h + 2;
+    }
+
+    // Section 2: Titled Boxes
+    if row + box_h + 3 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Titled Boxes:", label_style);
+        row += 2;
+
+        let titled_w = 16_u32;
+        let mut col = x + 2;
+
+        // Left-aligned title
+        if col + titled_w + 2 <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::single(Style::fg(theme.fg0)),
+                sides: BoxSides::default(),
+                fill: None,
+                title: Some("Left".to_string()),
+                title_align: TitleAlign::Left,
+            };
+            buffer.draw_box_with_options(col, row, titled_w, box_h, options);
+            col += titled_w + 2;
+        }
+
+        // Center-aligned title
+        if col + titled_w + 2 <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::rounded(Style::fg(theme.accent_primary)),
+                sides: BoxSides::default(),
+                fill: None,
+                title: Some("Center".to_string()),
+                title_align: TitleAlign::Center,
+            };
+            buffer.draw_box_with_options(col, row, titled_w, box_h, options);
+            col += titled_w + 2;
+        }
+
+        // Right-aligned title
+        if col + titled_w <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::double(Style::fg(theme.accent_secondary)),
+                sides: BoxSides::default(),
+                fill: None,
+                title: Some("Right".to_string()),
+                title_align: TitleAlign::Right,
+            };
+            buffer.draw_box_with_options(col, row, titled_w, box_h, options);
+        }
+        row += box_h + 2;
+    }
+
+    // Section 3: Partial Sides
+    if row + box_h + 3 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Partial Sides:", label_style);
+        row += 2;
+
+        let partial_w = 10_u32;
+        let mut col = x + 2;
+
+        // No top
+        if col + partial_w + 2 <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::single(Style::fg(theme.fg0)),
+                sides: BoxSides {
+                    top: false,
+                    right: true,
+                    bottom: true,
+                    left: true,
+                },
+                fill: None,
+                title: None,
+                title_align: TitleAlign::Left,
+            };
+            buffer.draw_box_with_options(col, row, partial_w, box_h, options);
+            buffer.draw_text(col + 1, row + 1, "No top", dim_style);
+            col += partial_w + 2;
+        }
+
+        // No left
+        if col + partial_w + 2 <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::single(Style::fg(theme.fg0)),
+                sides: BoxSides {
+                    top: true,
+                    right: true,
+                    bottom: true,
+                    left: false,
+                },
+                fill: None,
+                title: None,
+                title_align: TitleAlign::Left,
+            };
+            buffer.draw_box_with_options(col, row, partial_w, box_h, options);
+            buffer.draw_text(col + 1, row + 1, "No left", dim_style);
+            col += partial_w + 2;
+        }
+
+        // Top+Bottom only
+        if col + partial_w <= x + rect.w {
+            let options = BoxOptions {
+                style: BoxStyle::heavy(Style::fg(theme.accent_primary)),
+                sides: BoxSides {
+                    top: true,
+                    right: false,
+                    bottom: true,
+                    left: false,
+                },
+                fill: None,
+                title: None,
+                title_align: TitleAlign::Left,
+            };
+            buffer.draw_box_with_options(col, row, partial_w, box_h, options);
+            buffer.draw_text(col + 1, row + 1, "H lines", dim_style);
+        }
+        row += box_h + 2;
+    }
+
+    // Section 4: Filled Box
+    if row + box_h + 3 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Filled Box:", label_style);
+        row += 2;
+
+        let fill_color = theme.accent_primary.with_alpha(0.2);
+        let options = BoxOptions {
+            style: BoxStyle::rounded(Style::fg(theme.accent_primary)),
+            sides: BoxSides::default(),
+            fill: Some(fill_color),
+            title: Some("Filled".to_string()),
+            title_align: TitleAlign::Center,
+        };
+        buffer.draw_box_with_options(x + 2, row, 20, box_h, options);
+        buffer.draw_text(
+            x + 4,
+            row + box_h / 2,
+            "Alpha: 0.2",
+            Style::fg(theme.fg0),
+        );
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Draw the Colors section showcasing color systems and alpha blending.
+///
+/// Features demonstrated:
+/// - Gradient strips
+/// - Alpha blending with overlapping layers
+/// - Opacity stacking
+/// - Color interpolation
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn draw_colors_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Color System Showcase", header_style);
+
+    // Divider
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+
+    let mut row = y + 4;
+    let gradient_w = rect.w.saturating_sub(6).min(50);
+
+    // Section 1: Horizontal Gradients
+    buffer.draw_text(x + 2, row, "Horizontal Gradients:", label_style);
+    row += 2;
+
+    if row + 4 < y + rect.h {
+        // Primary to secondary
+        buffer.draw_text(x + 2, row, "Accent: ", dim_style);
+        let grad_rect = Rect::new((x + 10) as i32, row as i32, gradient_w, 1);
+        draw_gradient_bar(buffer, &grad_rect, theme.accent_primary, theme.accent_secondary);
+        row += 1;
+
+        // Success to error (warning spectrum)
+        buffer.draw_text(x + 2, row, "Status: ", dim_style);
+        let grad_rect = Rect::new((x + 10) as i32, row as i32, gradient_w, 1);
+        draw_gradient_bar(buffer, &grad_rect, theme.accent_success, theme.accent_error);
+        row += 1;
+
+        // Grayscale
+        buffer.draw_text(x + 2, row, "Gray:   ", dim_style);
+        let grad_rect = Rect::new((x + 10) as i32, row as i32, gradient_w, 1);
+        draw_gradient_bar(buffer, &grad_rect, theme.fg0, theme.bg0);
+        row += 2;
+    }
+
+    // Section 2: HSV Color Wheel (simplified as gradient)
+    if row + 3 < y + rect.h {
+        buffer.draw_text(x + 2, row, "HSV Hue Sweep:", label_style);
+        row += 2;
+
+        // Draw rainbow gradient using HSV conversion
+        for i in 0..gradient_w {
+            let hue = (i as f32 / gradient_w as f32) * 360.0;
+            let color = hsv_to_rgb(hue, 0.9, 0.9);
+            buffer.draw_text(x + 4 + i, row, "█", Style::fg(color));
+        }
+        row += 2;
+    }
+
+    // Section 3: Alpha Blending Demo
+    if row + 6 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Alpha Blending Layers:", label_style);
+        row += 2;
+
+        // Draw overlapping semi-transparent boxes
+        let box_w = 12_u32;
+        let box_h = 4_u32;
+        let overlap = 4_u32;
+
+        // First box (red, fully opaque base)
+        let base_color = Rgba::new(0.8, 0.2, 0.2, 1.0);
+        for by in row..row + box_h {
+            for bx in x + 4..x + 4 + box_w {
+                buffer.set(bx, by, Cell::clear(base_color));
+            }
+        }
+        buffer.draw_text(x + 5, row + 1, "Base", Style::fg(Rgba::WHITE));
+
+        // Second box (green, 70% opacity, overlapping)
+        let overlay_color = Rgba::new(0.2, 0.8, 0.2, 0.7);
+        for by in row + 1..row + 1 + box_h {
+            for bx in x + 4 + box_w - overlap..x + 4 + box_w - overlap + box_w {
+                if let Some(cell) = buffer.get(bx, by) {
+                    let mut new_cell = *cell;
+                    new_cell.bg = overlay_color.blend_over(cell.bg);
+                    buffer.set(bx, by, new_cell);
+                }
+            }
+        }
+        buffer.draw_text(
+            x + 4 + box_w - overlap + 1,
+            row + 2,
+            "70%",
+            Style::fg(Rgba::WHITE),
+        );
+
+        // Third box (blue, 50% opacity, overlapping more)
+        let top_color = Rgba::new(0.2, 0.2, 0.9, 0.5);
+        for by in row + 2..row + 2 + box_h {
+            for bx in x + 4 + 2 * (box_w - overlap)..x + 4 + 2 * (box_w - overlap) + box_w {
+                if let Some(cell) = buffer.get(bx, by) {
+                    let mut new_cell = *cell;
+                    new_cell.bg = top_color.blend_over(cell.bg);
+                    buffer.set(bx, by, new_cell);
+                }
+            }
+        }
+        buffer.draw_text(
+            x + 4 + 2 * (box_w - overlap) + 1,
+            row + 3,
+            "50%",
+            Style::fg(Rgba::WHITE),
+        );
+
+        row += box_h + 3;
+    }
+
+    // Section 4: Opacity Stack Demo
+    if row + 4 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Opacity Stack:", label_style);
+        row += 2;
+
+        // Demonstrate nested opacity with text
+        let opacities = [1.0_f32, 0.8, 0.6, 0.4, 0.2];
+        let mut col = x + 4;
+        for (i, &opacity) in opacities.iter().enumerate() {
+            let text = format!("{:.0}%", opacity * 100.0);
+            let color = theme.accent_primary.with_alpha(opacity);
+            buffer.draw_text(col, row, &text, Style::fg(color).with_bold());
+            col += 6;
+            if col > x + rect.w - 10 {
+                break;
+            }
+            if i < opacities.len() - 1 {
+                buffer.draw_text(col - 2, row, "→", dim_style);
+            }
+        }
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Draw the Input section showcasing input handling features.
+///
+/// Features demonstrated:
+/// - Cursor styles (Block, Underline, Bar)
+/// - Focus events
+/// - Bracketed paste indication
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn draw_input_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Input Handling Showcase", header_style);
+
+    // Divider
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+    let content_style = Style::fg(theme.fg0);
+
+    let mut row = y + 4;
+
+    // Section 1: Cursor Styles
+    buffer.draw_text(x + 2, row, "Cursor Styles:", label_style);
+    row += 2;
+
+    if row + 5 < y + rect.h {
+        // Block cursor
+        buffer.draw_text(x + 4, row, "Block:     ", dim_style);
+        buffer.draw_text(x + 15, row, "Text", content_style);
+        buffer.draw_text(x + 19, row, "█", Style::fg(theme.accent_primary));
+        buffer.draw_text(x + 20, row, "here", content_style);
+        row += 1;
+
+        // Underline cursor
+        buffer.draw_text(x + 4, row, "Underline: ", dim_style);
+        buffer.draw_text(x + 15, row, "Text", content_style);
+        buffer.draw_text(x + 19, row, "_", Style::fg(theme.accent_primary));
+        buffer.draw_text(x + 20, row, "here", content_style);
+        row += 1;
+
+        // Bar cursor
+        buffer.draw_text(x + 4, row, "Bar:       ", dim_style);
+        buffer.draw_text(x + 15, row, "Text", content_style);
+        buffer.draw_text(x + 19, row, "│", Style::fg(theme.accent_primary));
+        buffer.draw_text(x + 20, row, "here", content_style);
+        row += 2;
+    }
+
+    // Section 2: Focus State
+    if row + 4 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Focus State:", label_style);
+        row += 2;
+
+        let focus_status = if is_focused { "FOCUSED" } else { "UNFOCUSED" };
+        let focus_color = if is_focused {
+            theme.accent_success
+        } else {
+            theme.fg2
+        };
+        buffer.draw_text(x + 4, row, "Current: ", dim_style);
+        buffer.draw_text(
+            x + 13,
+            row,
+            focus_status,
+            Style::fg(focus_color).with_bold(),
+        );
+        row += 1;
+
+        buffer.draw_text(x + 4, row, "(Tab to cycle, click to focus)", dim_style);
+        row += 2;
+    }
+
+    // Section 3: Key Events (simulated display)
+    if row + 5 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Key Event Display:", label_style);
+        row += 2;
+
+        buffer.draw_text(x + 4, row, "Last key: ", dim_style);
+        buffer.draw_text(x + 14, row, "(press any key)", Style::fg(theme.fg2));
+        row += 1;
+
+        buffer.draw_text(x + 4, row, "Modifiers:", dim_style);
+        let mods = "Ctrl Shift Alt";
+        buffer.draw_text(x + 15, row, mods, Style::fg(theme.fg2));
+        row += 2;
+    }
+
+    // Section 4: Bracketed Paste
+    if row + 4 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Bracketed Paste:", label_style);
+        row += 2;
+
+        buffer.draw_text(x + 4, row, "Status: ", dim_style);
+        buffer.draw_text(
+            x + 12,
+            row,
+            "Enabled (if supported)",
+            Style::fg(theme.accent_success),
+        );
+        row += 1;
+
+        buffer.draw_text(
+            x + 4,
+            row,
+            "Paste into terminal to test",
+            Style::fg(theme.fg2),
+        );
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Draw the Editing section showcasing EditBuffer features.
+///
+/// Features demonstrated:
+/// - EditBuffer with text editing
+/// - Undo/Redo history
+/// - Wrap modes (None, Word, Char)
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn draw_editing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Editing Features Showcase", header_style);
+
+    // Divider
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+    let content_style = Style::fg(theme.fg0);
+
+    let mut row = y + 4;
+
+    // Section 1: EditBuffer Info
+    buffer.draw_text(x + 2, row, "EditBuffer Features:", label_style);
+    row += 2;
+
+    if row + 6 < y + rect.h {
+        let features = [
+            "• Rope-backed text storage (efficient for large files)",
+            "• O(log n) edits, random access, and iteration",
+            "• Grapheme-aware cursor movement",
+            "• Line-indexed for fast line operations",
+        ];
+        for feat in features {
+            if row >= y + rect.h - 2 {
+                break;
+            }
+            buffer.draw_text(x + 4, row, feat, content_style);
+            row += 1;
+        }
+        row += 1;
+    }
+
+    // Section 2: Undo/Redo
+    if row + 5 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Undo/Redo System:", label_style);
+        row += 2;
+
+        buffer.draw_text(x + 4, row, "Ctrl+Z → Undo", dim_style);
+        buffer.draw_text(x + 22, row, "Ctrl+Y → Redo", dim_style);
+        row += 1;
+
+        buffer.draw_text(x + 4, row, "History: ", dim_style);
+        buffer.draw_text(
+            x + 13,
+            row,
+            "[Edit1] → [Edit2] → [Edit3]",
+            content_style,
+        );
+        row += 1;
+        buffer.draw_text(x + 22, row, "↑ current", Style::fg(theme.accent_primary));
+        row += 2;
+    }
+
+    // Section 3: Wrap Modes
+    if row + 8 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Wrap Modes:", label_style);
+        row += 2;
+
+        let wrap_modes = [
+            ("None:", "Lines extend beyond visible area"),
+            ("Word:", "Break at word boundaries"),
+            ("Char:", "Break at any character"),
+        ];
+        for (mode, desc) in wrap_modes {
+            if row >= y + rect.h - 2 {
+                break;
+            }
+            buffer.draw_text(x + 4, row, mode, Style::fg(theme.accent_secondary));
+            buffer.draw_text(x + 10, row, desc, dim_style);
+            row += 1;
+        }
+        row += 1;
+    }
+
+    // Section 4: Sample Editor Area
+    if row + 6 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Sample Text Area:", label_style);
+        row += 1;
+
+        // Draw a mini editor box
+        let editor_w = rect.w.saturating_sub(6).min(40);
+        let editor_h = 4_u32;
+        let editor_x = x + 4;
+
+        // Border
+        buffer.draw_box(
+            editor_x,
+            row,
+            editor_w,
+            editor_h,
+            opentui::buffer::BoxStyle::single(Style::fg(theme.fg2)),
+        );
+
+        // Sample content
+        let sample_lines = [
+            "The quick brown fox jumps",
+            "over the lazy dog.",
+            "→ Type here to edit",
+        ];
+        for (i, line) in sample_lines.iter().enumerate() {
+            let line_y = row + 1 + i as u32;
+            if line_y < row + editor_h - 1 {
+                buffer.draw_text(editor_x + 1, line_y, line, content_style);
+            }
+        }
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Draw the Capabilities section showing terminal feature detection.
+///
+/// Features demonstrated:
+/// - Terminal capability detection results
+/// - Color support levels
+/// - Feature availability matrix
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn draw_capabilities_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Terminal Capabilities", header_style);
+
+    // Divider
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+
+    let mut row = y + 4;
+
+    // Section 1: Effective Capabilities
+    buffer.draw_text(x + 2, row, "Detected Capabilities:", label_style);
+    row += 2;
+
+    if row + 8 < y + rect.h {
+        let caps = &app.effective_caps;
+        let check = "✓";
+        let cross = "✗";
+
+        let features = [
+            ("TrueColor (24-bit)", caps.truecolor),
+            ("Mouse Tracking", caps.mouse),
+            ("Hyperlinks (OSC 8)", caps.hyperlinks),
+            ("Focus Events", caps.focus),
+            ("Sync Output", caps.sync_output),
+        ];
+
+        for (name, enabled) in features {
+            if row >= y + rect.h - 2 {
+                break;
+            }
+            let (symbol, color) = if enabled {
+                (check, theme.accent_success)
+            } else {
+                (cross, theme.accent_error)
+            };
+            buffer.draw_text(x + 4, row, symbol, Style::fg(color).with_bold());
+            buffer.draw_text(x + 6, row, name, Style::fg(theme.fg0));
+            row += 1;
+        }
+        row += 1;
+    }
+
+    // Section 2: Environment Variables
+    if row + 5 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Environment:", label_style);
+        row += 2;
+
+        // TERM variable (simulated)
+        buffer.draw_text(x + 4, row, "TERM: ", dim_style);
+        buffer.draw_text(
+            x + 10,
+            row,
+            std::env::var("TERM").unwrap_or_else(|_| "unknown".to_string()).as_str(),
+            Style::fg(theme.fg0),
+        );
+        row += 1;
+
+        // COLORTERM variable (simulated)
+        buffer.draw_text(x + 4, row, "COLORTERM: ", dim_style);
+        buffer.draw_text(
+            x + 15,
+            row,
+            std::env::var("COLORTERM").unwrap_or_else(|_| "unset".to_string()).as_str(),
+            Style::fg(theme.fg0),
+        );
+        row += 2;
+    }
+
+    // Section 3: Degraded Features Warning
+    if row + 4 < y + rect.h && app.effective_caps.is_degraded() {
+        buffer.draw_text(x + 2, row, "Degraded Features:", label_style);
+        row += 2;
+
+        for feature in &app.effective_caps.degraded {
+            if row >= y + rect.h - 2 {
+                break;
+            }
+            buffer.draw_text(x + 4, row, "⚠ ", Style::fg(theme.accent_warning));
+            buffer.draw_text(x + 6, row, feature, Style::fg(theme.accent_warning));
+            row += 1;
+        }
+    }
+
+    // Section 4: Preset Info
+    if row + 3 < y + rect.h {
+        row += 1;
+        buffer.draw_text(x + 2, row, "Active Preset:", label_style);
+        let preset_name = match app.cap_preset {
+            CapPreset::Auto => "Auto",
+            CapPreset::Ideal => "Ideal",
+            CapPreset::NoTruecolor => "No TrueColor",
+            CapPreset::NoHyperlinks => "No Hyperlinks",
+            CapPreset::NoMouse => "No Mouse",
+            CapPreset::Minimal => "Minimal",
+        };
+        buffer.draw_text(x + 17, row, preset_name, Style::fg(theme.fg0));
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
+    }
+}
+
+/// Draw the Animations section showcasing easing functions.
+///
+/// Features demonstrated:
+/// - Different easing curves visualized
+/// - Animated dots showing easing in action
+/// - Live timing display
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
+    if rect.is_empty() {
+        return;
+    }
+
+    let x = rect.x as u32;
+    let y = rect.y as u32;
+    let is_focused = app.focus == Focus::Editor;
+
+    // Background
+    draw_rect_bg(buffer, rect, theme.bg1);
+
+    // Header
+    let header_style = Style::fg(theme.accent_primary).with_bold();
+    buffer.draw_text(x + 2, y + 1, "Animation & Easing Showcase", header_style);
+
+    // Divider
+    let divider: String = "─".repeat(rect.w.saturating_sub(4) as usize);
+    buffer.draw_text(x + 2, y + 2, &divider, Style::fg(theme.fg2));
+
+    let label_style = Style::fg(theme.accent_secondary).with_bold();
+    let dim_style = Style::fg(theme.fg2);
+
+    let mut row = y + 4;
+    let track_w = rect.w.saturating_sub(20).min(40);
+
+    // Animation time (cycles every 2 seconds)
+    let cycle_time = 2.0_f32;
+    let t = (app.clock.t % cycle_time) / cycle_time;
+
+    // Section 1: Easing Function Comparisons
+    buffer.draw_text(x + 2, row, "Easing Functions:", label_style);
+    row += 2;
+
+    if row + 8 < y + rect.h {
+        let easings: [(&str, fn(f32) -> f32); 4] = [
+            ("Linear:   ", |t| t),
+            ("Smoothstep:", easing::smoothstep),
+            ("EaseInOut:", easing::ease_in_out_cubic),
+            ("EaseOut:  ", easing::ease_out_cubic),
+        ];
+
+        for (name, ease_fn) in easings {
+            if row >= y + rect.h - 4 {
+                break;
+            }
+
+            buffer.draw_text(x + 2, row, name, dim_style);
+
+            // Draw track background
+            let track_x = x + 12;
+            for i in 0..track_w {
+                buffer.draw_text(track_x + i, row, "─", Style::fg(theme.bg2));
+            }
+
+            // Draw moving dot
+            let eased = ease_fn(t);
+            let dot_pos = (eased * (track_w - 1) as f32) as u32;
+            buffer.draw_text(
+                track_x + dot_pos,
+                row,
+                "●",
+                Style::fg(theme.accent_primary).with_bold(),
+            );
+
+            // Show percentage
+            let pct = format!("{:3.0}%", eased * 100.0);
+            buffer.draw_text(track_x + track_w + 2, row, &pct, Style::fg(theme.fg1));
+
+            row += 2;
+        }
+    }
+
+    // Section 2: Pulse Animation
+    if row + 4 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Pulse Animation:", label_style);
+        row += 2;
+
+        // Pulsing circles at different frequencies
+        let frequencies = [1.0_f32, 2.0, 4.0];
+        let mut col = x + 4;
+        for freq in frequencies {
+            let pulse = easing::pulse(app.clock.t, freq * std::f32::consts::TAU);
+            let intensity = (pulse * 255.0) as u8;
+            let color = Rgba::new(
+                intensity as f32 / 255.0,
+                theme.accent_primary.g * pulse,
+                theme.accent_primary.b * pulse,
+                1.0,
+            );
+            let label = format!("{freq:.0}Hz");
+            buffer.draw_text(col, row, "●", Style::fg(color).with_bold());
+            buffer.draw_text(col + 2, row, &label, dim_style);
+            col += 8;
+            if col > x + rect.w - 10 {
+                break;
+            }
+        }
+        row += 2;
+    }
+
+    // Section 3: Animation Clock Info
+    if row + 4 < y + rect.h {
+        buffer.draw_text(x + 2, row, "Animation Clock:", label_style);
+        row += 2;
+
+        let time_info = format!(
+            "t = {:.2}s  dt = {:.3}s  paused = {}",
+            app.clock.t, app.clock.dt, app.clock.is_paused()
+        );
+        buffer.draw_text(x + 4, row, &time_info, Style::fg(theme.fg0));
+        row += 1;
+
+        let frame_info = format!("Frame: {}  Target FPS: {}", app.frame_count, app.target_fps);
+        buffer.draw_text(x + 4, row, &frame_info, dim_style);
+    }
+
+    // Focus indicator
+    if is_focused {
+        for row in y..y + rect.h {
+            buffer.draw_text(x.saturating_sub(1), row, "│", Style::fg(theme.focus_border));
+        }
     }
 }
 
