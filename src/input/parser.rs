@@ -1509,7 +1509,7 @@ mod tests {
         // Create a CSI sequence that exceeds MAX_CSI_LENGTH (256 bytes)
         // ESC [ followed by 300 digits (no terminator)
         let mut long_csi = vec![0x1b, b'['];
-        long_csi.extend(std::iter::repeat(b'0').take(300));
+        long_csi.extend(std::iter::repeat_n(b'0', 300));
 
         let result = parser.parse(&long_csi);
         assert_eq!(
@@ -1526,7 +1526,7 @@ mod tests {
         // Create a CSI sequence just under MAX_CSI_LENGTH (256 bytes)
         // ESC [ followed by ~250 digits + terminator
         let mut valid_csi = vec![0x1b, b'['];
-        valid_csi.extend(std::iter::repeat(b'9').take(250));
+        valid_csi.extend(std::iter::repeat_n(b'9', 250));
         valid_csi.push(b'~'); // Valid terminator
 
         let result = parser.parse(&valid_csi);
@@ -1544,7 +1544,7 @@ mod tests {
         // Create a DCS sequence that exceeds MAX_DCS_LENGTH (64KB)
         // ESC P followed by 70KB of data (no terminator)
         let mut long_dcs = vec![0x1b, b'P'];
-        long_dcs.extend(std::iter::repeat(b'X').take(70 * 1024));
+        long_dcs.extend(std::iter::repeat_n(b'X', 70 * 1024));
 
         let result = parser.parse(&long_dcs);
         assert_eq!(
@@ -1561,7 +1561,7 @@ mod tests {
         // Create a DCS sequence under MAX_DCS_LENGTH (64KB) with terminator
         // ESC P followed by 60KB of data + ESC \
         let mut valid_dcs = vec![0x1b, b'P'];
-        valid_dcs.extend(std::iter::repeat(b'X').take(60 * 1024));
+        valid_dcs.extend(std::iter::repeat_n(b'X', 60 * 1024));
         valid_dcs.extend_from_slice(b"\x1b\\"); // ST terminator
 
         let result = parser.parse(&valid_dcs);

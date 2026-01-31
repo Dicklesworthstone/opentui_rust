@@ -3223,24 +3223,24 @@ impl App {
                         let (name, _) = PaletteState::COMMANDS[cmd_idx];
                         // Map command index to action
                         let action = match cmd_idx {
-                            0 => Some(Action::ToggleHelp),  // "Toggle Help"
-                            1 => Some(Action::ToggleTour),  // "Toggle Tour"
-                            2 => Some(Action::CycleTheme),  // "Cycle Theme"
-                            3 => Some(Action::ForceRedraw), // "Force Redraw"
-                            4 => Some(Action::ToggleDebug), // "Toggle Debug"
-                            5 => Some(Action::NavigateSection(Section::Overview)),    // "Go to Overview"
-                            6 => Some(Action::NavigateSection(Section::Editor)),      // "Go to Editor"
-                            7 => Some(Action::NavigateSection(Section::Preview)),     // "Go to Preview"
-                            8 => Some(Action::NavigateSection(Section::Logs)),        // "Go to Logs"
-                            9 => Some(Action::NavigateSection(Section::Unicode)),     // "Go to Unicode"
+                            0 => Some(Action::ToggleHelp),                         // "Toggle Help"
+                            1 => Some(Action::ToggleTour),                         // "Toggle Tour"
+                            2 => Some(Action::CycleTheme),                         // "Cycle Theme"
+                            3 => Some(Action::ForceRedraw),                        // "Force Redraw"
+                            4 => Some(Action::ToggleDebug),                        // "Toggle Debug"
+                            5 => Some(Action::NavigateSection(Section::Overview)), // "Go to Overview"
+                            6 => Some(Action::NavigateSection(Section::Editor)),   // "Go to Editor"
+                            7 => Some(Action::NavigateSection(Section::Preview)), // "Go to Preview"
+                            8 => Some(Action::NavigateSection(Section::Logs)),    // "Go to Logs"
+                            9 => Some(Action::NavigateSection(Section::Unicode)), // "Go to Unicode"
                             10 => Some(Action::NavigateSection(Section::Performance)), // "Go to Performance"
-                            11 => Some(Action::NavigateSection(Section::Drawing)),    // "Go to Drawing"
-                            12 => Some(Action::NavigateSection(Section::Colors)),     // "Go to Colors"
-                            13 => Some(Action::NavigateSection(Section::Input)),      // "Go to Input"
-                            14 => Some(Action::NavigateSection(Section::Editing)),    // "Go to Editing"
+                            11 => Some(Action::NavigateSection(Section::Drawing)), // "Go to Drawing"
+                            12 => Some(Action::NavigateSection(Section::Colors)),  // "Go to Colors"
+                            13 => Some(Action::NavigateSection(Section::Input)),   // "Go to Input"
+                            14 => Some(Action::NavigateSection(Section::Editing)), // "Go to Editing"
                             15 => Some(Action::NavigateSection(Section::Capabilities)), // "Go to Capabilities"
                             16 => Some(Action::NavigateSection(Section::Animations)), // "Go to Animations"
-                            17 => Some(Action::Quit),        // "Quit"
+                            17 => Some(Action::Quit),                                 // "Quit"
                             _ => None,
                         };
                         action.map(|a| (name, a))
@@ -5957,7 +5957,11 @@ fn draw_unicode_showcase(
 /// - Titled boxes with different alignments
 /// - Partial sides (omitting certain edges)
 /// - Lines and fills
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)]
 fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
     use opentui::buffer::{BoxOptions, BoxSides, BoxStyle, TitleAlign};
 
@@ -5995,7 +5999,10 @@ fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme
         let styles: [(BoxStyle, &str); 5] = [
             (BoxStyle::single(Style::fg(theme.fg0)), "Single"),
             (BoxStyle::double(Style::fg(theme.accent_primary)), "Double"),
-            (BoxStyle::rounded(Style::fg(theme.accent_secondary)), "Rounded"),
+            (
+                BoxStyle::rounded(Style::fg(theme.accent_secondary)),
+                "Rounded",
+            ),
             (BoxStyle::heavy(Style::fg(theme.accent_success)), "Heavy"),
             (BoxStyle::ascii(Style::fg(theme.fg2)), "ASCII"),
         ];
@@ -6142,12 +6149,7 @@ fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme
             title_align: TitleAlign::Center,
         };
         buffer.draw_box_with_options(x + 2, row, 20, box_h, options);
-        buffer.draw_text(
-            x + 4,
-            row + box_h / 2,
-            "Alpha: 0.2",
-            Style::fg(theme.fg0),
-        );
+        buffer.draw_text(x + 4, row + box_h / 2, "Alpha: 0.2", Style::fg(theme.fg0));
     }
 
     // Focus indicator
@@ -6206,7 +6208,12 @@ fn draw_colors_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme,
         // Primary to secondary
         buffer.draw_text(x + 2, row, "Accent: ", dim_style);
         let grad_rect = Rect::new((x + 10) as i32, row as i32, gradient_w, 1);
-        draw_gradient_bar(buffer, &grad_rect, theme.accent_primary, theme.accent_secondary);
+        draw_gradient_bar(
+            buffer,
+            &grad_rect,
+            theme.accent_primary,
+            theme.accent_secondary,
+        );
         row += 1;
 
         // Success to error (warning spectrum)
@@ -6517,12 +6524,7 @@ fn draw_editing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme
         row += 1;
 
         buffer.draw_text(x + 4, row, "History: ", dim_style);
-        buffer.draw_text(
-            x + 13,
-            row,
-            "[Edit1] → [Edit2] → [Edit3]",
-            content_style,
-        );
+        buffer.draw_text(x + 13, row, "[Edit1] → [Edit2] → [Edit3]", content_style);
         row += 1;
         buffer.draw_text(x + 22, row, "↑ current", Style::fg(theme.accent_primary));
         row += 2;
@@ -6665,7 +6667,9 @@ fn draw_capabilities_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &
         buffer.draw_text(
             x + 10,
             row,
-            std::env::var("TERM").unwrap_or_else(|_| "unknown".to_string()).as_str(),
+            std::env::var("TERM")
+                .unwrap_or_else(|_| "unknown".to_string())
+                .as_str(),
             Style::fg(theme.fg0),
         );
         row += 1;
@@ -6675,7 +6679,9 @@ fn draw_capabilities_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &
         buffer.draw_text(
             x + 15,
             row,
-            std::env::var("COLORTERM").unwrap_or_else(|_| "unset".to_string()).as_str(),
+            std::env::var("COLORTERM")
+                .unwrap_or_else(|_| "unset".to_string())
+                .as_str(),
             Style::fg(theme.fg0),
         );
         row += 2;
@@ -6839,7 +6845,9 @@ fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Th
 
         let time_info = format!(
             "t = {:.2}s  dt = {:.3}s  paused = {}",
-            app.clock.t, app.clock.dt, app.clock.is_paused()
+            app.clock.t,
+            app.clock.dt,
+            app.clock.is_paused()
         );
         buffer.draw_text(x + 4, row, &time_info, Style::fg(theme.fg0));
         row += 1;
@@ -7027,10 +7035,9 @@ fn get_line_style(line: &str, language: content::Language, theme: &Theme) -> Sty
             }
             // Keywords
             let keywords = [
-                "def ", "class ", "if ", "else:", "elif ", "for ", "while ",
-                "import ", "from ", "return ", "async ", "await ", "with ",
-                "try:", "except ", "finally:", "raise ", "pass", "break",
-                "continue", "yield ", "lambda ", "None", "True", "False",
+                "def ", "class ", "if ", "else:", "elif ", "for ", "while ", "import ", "from ",
+                "return ", "async ", "await ", "with ", "try:", "except ", "finally:", "raise ",
+                "pass", "break", "continue", "yield ", "lambda ", "None", "True", "False",
             ];
             for kw in keywords {
                 if trimmed.starts_with(kw) || trimmed.contains(&format!(" {kw}")) {

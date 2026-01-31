@@ -859,7 +859,7 @@ mod tests {
     fn test_buffer_preserves_content_on_same_set() {
         let mut buf = OptimizedBuffer::new(10, 10);
         let cell = Cell::new('A', crate::style::Style::fg(Rgba::RED));
-        buf.set(5, 5, cell.clone());
+        buf.set(5, 5, cell);
         buf.set(5, 5, cell);
 
         let stored = buf.get(5, 5).unwrap();

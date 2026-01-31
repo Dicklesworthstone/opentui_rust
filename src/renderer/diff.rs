@@ -508,7 +508,7 @@ mod tests {
         let mut b = OptimizedBuffer::new(10, 10);
 
         let cell = Cell::new('X', Style::fg(Rgba::GREEN));
-        a.set(5, 5, cell.clone());
+        a.set(5, 5, cell);
         b.set(5, 5, cell);
 
         let diff = BufferDiff::compute(&a, &b);

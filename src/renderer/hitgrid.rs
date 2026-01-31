@@ -321,7 +321,7 @@ mod tests {
         // Register 100 small widgets
         for i in 0..10 {
             for j in 0..10 {
-                let id = (i * 10 + j) as u32;
+                let id = i * 10 + j;
                 grid.register(i * 10, j * 10, 8, 8, id);
             }
         }
@@ -442,7 +442,7 @@ mod tests {
         let mut grid = HitGrid::new(50, 50);
 
         for i in 0..5 {
-            grid.register(i * 10, i * 10, 5, 5, i as u32);
+            grid.register(i * 10, i * 10, 5, 5, i);
         }
 
         // Test each diagonal region
@@ -463,13 +463,13 @@ mod tests {
         let mut grid = HitGrid::new(100, 20);
 
         for i in 0..5 {
-            grid.register(i * 20, 5, 15, 10, i as u32);
+            grid.register(i * 20, 5, 15, 10, i);
         }
 
         // Test each widget
         for i in 0..5 {
             let x = i * 20 + 7;
-            assert_eq!(grid.test(x as u32, 10), Some(i as u32));
+            assert_eq!(grid.test(x, 10), Some(i));
         }
 
         // Test gaps
@@ -477,7 +477,7 @@ mod tests {
             let gap_x = i * 20 + 17; // In the gap
             if gap_x < 100 {
                 assert_eq!(
-                    grid.test(gap_x as u32, 10),
+                    grid.test(gap_x, 10),
                     None,
                     "Gap at x={gap_x} should be empty"
                 );
@@ -491,13 +491,13 @@ mod tests {
         let mut grid = HitGrid::new(20, 100);
 
         for i in 0..5 {
-            grid.register(5, i * 20, 10, 15, i as u32);
+            grid.register(5, i * 20, 10, 15, i);
         }
 
         // Test each widget
         for i in 0..5 {
             let y = i * 20 + 7;
-            assert_eq!(grid.test(10, y as u32), Some(i as u32));
+            assert_eq!(grid.test(10, y), Some(i));
         }
 
         // Test gaps
@@ -505,7 +505,7 @@ mod tests {
             let gap_y = i * 20 + 17; // In the gap
             if gap_y < 100 {
                 assert_eq!(
-                    grid.test(10, gap_y as u32),
+                    grid.test(10, gap_y),
                     None,
                     "Gap at y={gap_y} should be empty"
                 );
