@@ -2524,7 +2524,7 @@ pub enum Section {
     Colors,
     /// Input handling demonstration (cursor styles, focus events, paste).
     Input,
-    /// Editing demonstration (EditBuffer, undo/redo, wrap modes).
+    /// Editing demonstration (`EditBuffer`, undo/redo, wrap modes).
     Editing,
     /// Terminal capabilities detection.
     Capabilities,
@@ -5953,11 +5953,11 @@ fn draw_unicode_showcase(
 /// Draw the Drawing section showcasing box styles and drawing primitives.
 ///
 /// Features demonstrated:
-/// - All 5 BoxStyle variants (Single, Double, Rounded, Heavy, ASCII)
+/// - All 5 `BoxStyle` variants (Single, Double, Rounded, Heavy, ASCII)
 /// - Titled boxes with different alignments
 /// - Partial sides (omitting certain edges)
 /// - Lines and fills
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::too_many_lines)]
 fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
     use opentui::buffer::{BoxOptions, BoxSides, BoxStyle, TitleAlign};
 
@@ -6168,7 +6168,9 @@ fn draw_drawing_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::too_many_lines
 )]
 fn draw_colors_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
     if rect.is_empty() {
@@ -6451,10 +6453,10 @@ fn draw_input_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, 
     }
 }
 
-/// Draw the Editing section showcasing EditBuffer features.
+/// Draw the Editing section showcasing `EditBuffer` features.
 ///
 /// Features demonstrated:
-/// - EditBuffer with text editing
+/// - `EditBuffer` with text editing
 /// - Undo/Redo history
 /// - Wrap modes (None, Word, Char)
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -6726,7 +6728,8 @@ fn draw_capabilities_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::type_complexity
 )]
 fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Theme, app: &App) {
     if rect.is_empty() {
@@ -6813,7 +6816,7 @@ fn draw_animations_section(buffer: &mut OptimizedBuffer, rect: &Rect, theme: &Th
             let pulse = easing::pulse(app.clock.t, freq * std::f32::consts::TAU);
             let intensity = (pulse * 255.0) as u8;
             let color = Rgba::new(
-                intensity as f32 / 255.0,
+                f32::from(intensity) / 255.0,
                 theme.accent_primary.g * pulse,
                 theme.accent_primary.b * pulse,
                 1.0,
