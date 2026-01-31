@@ -818,6 +818,7 @@ impl EditBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write;
 
     #[test]
     fn test_edit_basic() {
@@ -1683,7 +1684,10 @@ mod tests {
     #[test]
     fn test_large_document_line_count() {
         // Create a document with 1000 lines
-        let lines: String = (0..1000).map(|i| format!("Line {i}\n")).collect();
+        let mut lines = String::new();
+        for i in 0..1000 {
+            writeln!(&mut lines, "Line {i}").expect("write to String should not fail");
+        }
         let mut edit = EditBuffer::with_text(&lines);
 
         assert_eq!(edit.buffer().len_lines(), 1001); // 1000 lines + trailing empty line from \n
