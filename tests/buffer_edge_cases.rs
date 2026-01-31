@@ -249,9 +249,9 @@ mod scissor_edge_cases {
         let mut buf = OptimizedBuffer::new(100, 100);
 
         // Push 50 nested scissors, each slightly smaller (avoiding overflow)
-        for i in 0..50 {
-            let offset = i as i32;
-            let size = 100 - (i as u32 * 2);
+        for i in 0..50u32 {
+            let offset = i32::try_from(i).expect("loop index fits in i32");
+            let size = 100 - (i * 2);
             buf.push_scissor(ClipRect::new(offset, offset, size, size));
         }
 
