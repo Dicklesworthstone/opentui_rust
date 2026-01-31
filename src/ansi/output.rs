@@ -224,6 +224,76 @@ impl<W: Write> AnsiWriter<W> {
         self.current_link = link_id;
     }
 
+    /// Begin an OSC 8 hyperlink region.
+    ///
+    /// The URL is escaped to prevent control-character injection.
+    pub fn begin_hyperlink(&mut self, url: &str) {
+        // Use id=0 for this convenience API; nested links should be managed via link IDs.
+        let _ = ansi::write_hyperlink_start(&mut self.buffer, 0, url);
+        self.current_link = Some(0);
+    }
+
+    /// End the current OSC 8 hyperlink region.
+    pub fn end_hyperlink(&mut self) {
+        self.write_str(ansi::HYPERLINK_END);
+        self.current_link = None;
+    }
+
+    /// Write `text` as a clickable OSC 8 hyperlink.
+    pub fn write_hyperlink(&mut self, url: &str, text: &str) {
+        self.begin_hyperlink(url);
+        self.write_str(text);
+        self.end_hyperlink();
+    }
+
+    /// Set the terminal scroll region to the given rows (0-indexed, inclusive).
+    pub fn set_scroll_region(&mut self, top: u32, bottom: u32) {
+        if top >= bottom {
+            return;
+        }
+        let _ = ansi::write_set_scroll_region(&mut self.buffer, top, bottom);
+    }
+
+    /// Reset the terminal scroll region to full-screen.
+    pub fn reset_scroll_region(&mut self) {
+        let _ = ansi::write_reset_scroll_region(&mut self.buffer);
+    }
+
+    /// Scroll the content within the scroll region up by `lines`.
+    pub fn scroll_up_in_region(&mut self, lines: u32) {
+        let _ = ansi::write_scroll_up(&mut self.buffer, lines);
+    }
+
+    /// Scroll the content within the scroll region down by `lines`.
+    pub fn scroll_down_in_region(&mut self, lines: u32) {
+        let _ = ansi::write_scroll_down(&mut self.buffer, lines);
+    }
+
+    /// Erase from the start of the current line to the cursor position (EL 1).
+    pub fn erase_line_to_cursor(&mut self) {
+        self.write_str(ansi::CLEAR_LINE_LEFT);
+    }
+
+    /// Erase the entire current line (EL 2).
+    pub fn erase_entire_line(&mut self) {
+        self.write_str(ansi::CLEAR_LINE);
+    }
+
+    /// Erase from the start of the screen to the cursor position (ED 1).
+    pub fn erase_screen_to_cursor(&mut self) {
+        self.write_str(ansi::CLEAR_SCREEN_ABOVE);
+    }
+
+    /// Erase the entire screen (ED 2).
+    pub fn erase_entire_screen(&mut self) {
+        self.write_str(ansi::CLEAR_SCREEN);
+    }
+
+    /// Erase the scrollback buffer (ED 3).
+    pub fn erase_scrollback(&mut self) {
+        self.write_str(ansi::ERASE_SCROLLBACK);
+    }
+
     /// Write a cell at the current cursor position.
     pub fn write_cell(&mut self, cell: &Cell) {
         self.write_cell_with_link(cell, None);
@@ -465,6 +535,89 @@ mod tests {
         let mut writer = AnsiWriter::new(Vec::new());
         writer.move_cursor(5, 10);
         assert!(writer.buffer().starts_with(b"\x1b["));
+    }
+
+    #[test]
+    fn test_write_hyperlink_sequence() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_hyperlink("https://example.com", "Click");
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("\x1b]8;id=0;https://example.com\x1b\\"));
+        assert!(output.contains("Click"));
+        assert!(output.contains(ansi::HYPERLINK_END));
+    }
+
+    #[test]
+    fn test_begin_end_hyperlink_sequence() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.begin_hyperlink("https://example.com");
+        writer.write_str("Click");
+        writer.end_hyperlink();
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("\x1b]8;id=0;https://example.com\x1b\\"));
+        assert!(output.contains("Click"));
+        assert!(output.contains(ansi::HYPERLINK_END));
+    }
+
+    #[test]
+    fn test_hyperlink_url_escapes_control_chars() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.write_hyperlink("https://example.com/\u{001B}[31m", "X");
+
+        let output = String::from_utf8_lossy(writer.buffer());
+        assert!(output.contains("https://example.com/%1B[31m"));
+    }
+
+    #[test]
+    fn test_set_scroll_region_converts_to_1_indexed() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.set_scroll_region(5, 20);
+        assert_eq!(writer.buffer(), b"\x1b[6;21r");
+    }
+
+    #[test]
+    fn test_set_scroll_region_invalid_is_noop() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.set_scroll_region(5, 5);
+        assert!(writer.buffer().is_empty());
+    }
+
+    #[test]
+    fn test_reset_scroll_region() {
+        let mut writer = AnsiWriter::new(Vec::new());
+        writer.reset_scroll_region();
+        assert_eq!(writer.buffer(), b"\x1b[r");
+    }
+
+    #[test]
+    fn test_scroll_up_down_in_region() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.scroll_up_in_region(0);
+        assert!(writer.buffer().is_empty());
+
+        writer.scroll_up_in_region(2);
+        writer.scroll_down_in_region(3);
+        assert_eq!(writer.buffer(), b"\x1b[2S\x1b[3T");
+    }
+
+    #[test]
+    fn test_erase_sequences() {
+        let mut writer = AnsiWriter::new(Vec::new());
+
+        writer.erase_line_to_cursor();
+        writer.erase_entire_line();
+        writer.erase_screen_to_cursor();
+        writer.erase_entire_screen();
+        writer.erase_scrollback();
+
+        assert_eq!(
+            writer.buffer(),
+            b"\x1b[1K\x1b[2K\x1b[1J\x1b[2J\x1b[3J",
+            "Should emit EL/ED erase sequences in order",
+        );
     }
 
     #[test]

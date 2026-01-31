@@ -6,6 +6,9 @@ pub const RESET: &str = "\x1b[0m";
 /// Clear entire screen.
 pub const CLEAR_SCREEN: &str = "\x1b[2J";
 
+/// Erase scrollback buffer (may not be supported by all terminals).
+pub const ERASE_SCROLLBACK: &str = "\x1b[3J";
+
 /// Clear from cursor to end of screen.
 pub const CLEAR_SCREEN_BELOW: &str = "\x1b[J";
 

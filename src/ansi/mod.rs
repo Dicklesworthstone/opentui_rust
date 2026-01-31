@@ -299,6 +299,45 @@ pub fn write_cursor_move(w: &mut impl Write, dx: i32, dy: i32) -> io::Result<()>
     Ok(())
 }
 
+/// Write DECSTBM (set scrolling region) sequence: `ESC [ <top> ; <bottom> r`.
+///
+/// The provided `top`/`bottom` rows are 0-indexed; the emitted ANSI sequence is
+/// 1-indexed as required by the terminal protocol.
+pub fn write_set_scroll_region(w: &mut impl Write, top: u32, bottom: u32) -> io::Result<()> {
+    w.write_all(b"\x1b[")?;
+    write_u32_decimal(w, top + 1)?;
+    w.write_all(b";")?;
+    write_u32_decimal(w, bottom + 1)?;
+    w.write_all(b"r")
+}
+
+/// Write DECSTBM reset sequence (full-screen scroll region): `ESC [ r`.
+pub fn write_reset_scroll_region(w: &mut impl Write) -> io::Result<()> {
+    w.write_all(b"\x1b[r")
+}
+
+/// Write SU (Scroll Up) sequence: `ESC [ <n> S`.
+pub fn write_scroll_up(w: &mut impl Write, lines: u32) -> io::Result<()> {
+    if lines == 0 {
+        return Ok(());
+    }
+
+    w.write_all(b"\x1b[")?;
+    write_u32_decimal(w, lines)?;
+    w.write_all(b"S")
+}
+
+/// Write SD (Scroll Down) sequence: `ESC [ <n> T`.
+pub fn write_scroll_down(w: &mut impl Write, lines: u32) -> io::Result<()> {
+    if lines == 0 {
+        return Ok(());
+    }
+
+    w.write_all(b"\x1b[")?;
+    write_u32_decimal(w, lines)?;
+    w.write_all(b"T")
+}
+
 /// Escape a URL for safe inclusion in OSC 8 hyperlink sequences.
 ///
 /// Control characters are percent-encoded to prevent escape sequence injection:
@@ -834,7 +873,7 @@ mod tests {
             .parse()
             .unwrap_or(0);
         assert!(
-            code >= 30 && code <= 97,
+            (30..=97).contains(&code),
             "16-color code should be in valid range"
         );
     }
@@ -964,9 +1003,9 @@ mod tests {
         // Multiple attributes should be combined with semicolons
         let seq = attributes(TextAttributes::BOLD | TextAttributes::ITALIC);
         assert!(seq.starts_with("\x1b["), "CSI prefix");
-        assert!(seq.contains("1"), "Has bold");
-        assert!(seq.contains("3"), "Has italic");
-        assert!(seq.contains(";"), "Semicolon separator");
+        assert!(seq.contains('1'), "Has bold");
+        assert!(seq.contains('3'), "Has italic");
+        assert!(seq.contains(';'), "Semicolon separator");
         assert!(seq.ends_with('m'), "SGR terminator");
     }
 
@@ -1119,7 +1158,7 @@ mod tests {
     fn test_large_coordinate_values() {
         // Test handling of large coordinate values
         let large = cursor_position(u32::MAX - 1, u32::MAX - 1);
-        assert!(large.contains("H"), "Still produces valid sequence");
+        assert!(large.contains('H'), "Still produces valid sequence");
 
         // Verify it contains the large numbers
         let expected_row = u32::MAX.to_string();
