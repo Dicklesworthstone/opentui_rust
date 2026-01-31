@@ -16,7 +16,7 @@ use opentui::terminal::Terminal;
 // Escape Sequence Injection Tests (bd-er8q)
 // =============================================================================
 
-/// Test that set_title() filters C0 control characters.
+/// Test that `set_title()` filters C0 control characters.
 #[test]
 fn security_title_filters_c0_controls() {
     let mut output = Vec::new();
@@ -39,7 +39,7 @@ fn security_title_filters_c0_controls() {
     );
 }
 
-/// Test that set_title() filters BEL (0x07) which could terminate OSC early.
+/// Test that `set_title()` filters BEL (0x07) which could terminate OSC early.
 #[test]
 fn security_title_filters_bel() {
     let mut output = Vec::new();
@@ -59,7 +59,7 @@ fn security_title_filters_bel() {
     );
 }
 
-/// Test that set_title() filters C1 control characters (U+0080-U+009F).
+/// Test that `set_title()` filters C1 control characters (U+0080-U+009F).
 /// These are critical because they can inject terminal commands:
 /// - U+009B (CSI) - equivalent to ESC [
 /// - U+009C (ST) - String Terminator
@@ -84,7 +84,7 @@ fn security_title_filters_c1_controls() {
     );
 }
 
-/// Test that set_title() filters OSC control (U+009D).
+/// Test that `set_title()` filters OSC control (U+009D).
 #[test]
 fn security_title_filters_osc_c1() {
     let mut output = Vec::new();
@@ -110,7 +110,7 @@ fn security_title_filters_osc_c1() {
     );
 }
 
-/// Test that set_title() preserves normal Unicode (non-control) characters.
+/// Test that `set_title()` preserves normal Unicode (non-control) characters.
 #[test]
 fn security_title_preserves_normal_unicode() {
     let mut output = Vec::new();
@@ -129,7 +129,7 @@ fn security_title_preserves_normal_unicode() {
 // OSC 8 Hyperlink Injection Tests (bd-27qz)
 // =============================================================================
 
-/// Test that escape_url_for_osc8() escapes ESC character.
+/// Test that `escape_url_for_osc8()` escapes ESC character.
 #[test]
 fn security_osc8_escapes_esc() {
     let malicious = "http://evil.com/\x1b]0;Pwned\x1b\\";
@@ -139,7 +139,7 @@ fn security_osc8_escapes_esc() {
     assert!(escaped.contains("%1B"), "ESC should become %1B");
 }
 
-/// Test that escape_url_for_osc8() escapes BEL character.
+/// Test that `escape_url_for_osc8()` escapes BEL character.
 #[test]
 fn security_osc8_escapes_bel() {
     let malicious = "http://evil.com/\x07";
@@ -149,7 +149,7 @@ fn security_osc8_escapes_bel() {
     assert!(escaped.contains("%07"), "BEL should become %07");
 }
 
-/// Test that escape_url_for_osc8() escapes C1 controls.
+/// Test that `escape_url_for_osc8()` escapes C1 controls.
 #[test]
 fn security_osc8_escapes_c1_controls() {
     // CSI (U+009B) - could inject terminal commands
@@ -177,7 +177,7 @@ fn security_osc8_escapes_c1_controls() {
     );
 }
 
-/// Test that escape_url_for_osc8() handles a realistic injection attempt.
+/// Test that `escape_url_for_osc8()` handles a realistic injection attempt.
 #[test]
 fn security_osc8_injection_attempt() {
     // Attacker tries to:
@@ -195,7 +195,7 @@ fn security_osc8_injection_attempt() {
     assert!(escaped.contains("%1B"), "ESC should be %1B");
 }
 
-/// Test that escape_url_for_osc8() preserves valid URL characters.
+/// Test that `escape_url_for_osc8()` preserves valid URL characters.
 #[test]
 fn security_osc8_preserves_valid_urls() {
     let valid_url = "https://example.com/path?query=value&other=123#anchor";
@@ -203,7 +203,7 @@ fn security_osc8_preserves_valid_urls() {
     assert_eq!(escaped, valid_url, "Valid URL should not be modified");
 }
 
-/// Test that escape_url_for_osc8() preserves Unicode in URLs.
+/// Test that `escape_url_for_osc8()` preserves Unicode in URLs.
 #[test]
 fn security_osc8_preserves_unicode() {
     let unicode_url = "https://example.com/路径/файл?q=日本語";

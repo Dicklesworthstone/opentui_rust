@@ -551,7 +551,7 @@ fn test_alternating_width_characters() {
 
     buffer.draw_text(0, 0, text, Style::NONE);
 
-    let total_width: usize = graphemes(text).map(|g| display_width(g)).sum();
+    let total_width: usize = graphemes(text).map(display_width).sum();
     assert_eq!(total_width, 13);
 
     // Verify positions

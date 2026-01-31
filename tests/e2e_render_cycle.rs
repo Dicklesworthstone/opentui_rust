@@ -198,8 +198,10 @@ fn test_e2e_subsequent_frames_diff_only() {
     );
 
     // Verify static content row has no changes
-    let row0_changes: Vec<_> = diff.changed_cells.iter().filter(|(_, y)| *y == 0).collect();
-    assert!(row0_changes.is_empty(), "Static row should have no changes");
+    assert!(
+        !diff.changed_cells.iter().any(|(_, y)| *y == 0),
+        "Static row should have no changes"
+    );
 
     harness.finish(true);
     eprintln!("[TEST] PASS: E2E subsequent frames diff-only works");
@@ -284,9 +286,8 @@ fn test_e2e_clear_and_draw() {
     assert!(diff.change_count > 0, "Clear + draw should produce changes");
 
     // Verify first cell is different
-    let first_row_changes: Vec<_> = diff.changed_cells.iter().filter(|(_, y)| *y == 0).collect();
     assert!(
-        !first_row_changes.is_empty(),
+        diff.changed_cells.iter().any(|(_, y)| *y == 0),
         "Row 0 should have changes after clear + draw"
     );
 
