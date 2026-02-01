@@ -309,14 +309,19 @@ fn test_cell_blend_opaque_over_transparent() {
 
 #[test]
 fn test_cell_blend_empty_preserves_background() {
-    let bg = Cell::new('A', Style::bold());
-    let fg = Cell::clear(Rgba::TRANSPARENT);
+    let bg = Cell::new(
+        'A',
+        Style::builder().fg(Rgba::RED).bg(Rgba::BLUE).bold().build(),
+    );
+    let fg = Cell::transparent();
 
     let blended = fg.blend_over(&bg);
 
     // Empty foreground should preserve background content
     assert!(matches!(blended.content, CellContent::Char('A')));
     assert!(blended.attributes.contains(TextAttributes::BOLD));
+    assert_eq!(blended.fg, Rgba::RED);
+    assert_eq!(blended.bg, Rgba::BLUE);
 }
 
 #[test]

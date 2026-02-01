@@ -661,7 +661,12 @@ mod tests {
                 assert_eq!(expected, 100);
                 assert_eq!(actual, 50);
             }
-            _ => panic!("expected SizeMismatch error"),
+            other => {
+                assert!(
+                    matches!(other, Err(Error::SizeMismatch { .. })),
+                    "expected SizeMismatch error"
+                );
+            }
         }
     }
 

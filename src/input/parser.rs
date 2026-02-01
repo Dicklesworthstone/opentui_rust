@@ -1638,11 +1638,14 @@ mod tests {
     fn test_parse_resize_event() {
         let mut parser = InputParser::new();
         let (event, _) = parser.parse(b"\x1b[8;50;120t").unwrap();
-        if let Event::Resize(resize) = event {
-            assert_eq!(resize.width, 120);
-            assert_eq!(resize.height, 50);
-        } else {
-            panic!("Expected Resize event");
+        match event {
+            Event::Resize(resize) => {
+                assert_eq!(resize.width, 120);
+                assert_eq!(resize.height, 50);
+            }
+            other => {
+                assert!(matches!(other, Event::Resize(_)), "Expected Resize event");
+            }
         }
     }
 
@@ -1704,11 +1707,14 @@ mod tests {
         let mut parser = InputParser::new();
         // Zero dimensions should be parsed as valid (terminal might report this)
         let (event, _) = parser.parse(b"\x1b[8;0;0t").unwrap();
-        if let Event::Resize(resize) = event {
-            assert_eq!(resize.width, 0);
-            assert_eq!(resize.height, 0);
-        } else {
-            panic!("Expected Resize event");
+        match event {
+            Event::Resize(resize) => {
+                assert_eq!(resize.width, 0);
+                assert_eq!(resize.height, 0);
+            }
+            other => {
+                assert!(matches!(other, Event::Resize(_)), "Expected Resize event");
+            }
         }
     }
 
@@ -1717,11 +1723,14 @@ mod tests {
         let mut parser = InputParser::new();
         // Large valid dimensions should work
         let (event, _) = parser.parse(b"\x1b[8;1000;2000t").unwrap();
-        if let Event::Resize(resize) = event {
-            assert_eq!(resize.width, 2000);
-            assert_eq!(resize.height, 1000);
-        } else {
-            panic!("Expected Resize event");
+        match event {
+            Event::Resize(resize) => {
+                assert_eq!(resize.width, 2000);
+                assert_eq!(resize.height, 1000);
+            }
+            other => {
+                assert!(matches!(other, Event::Resize(_)), "Expected Resize event");
+            }
         }
     }
 
@@ -2147,7 +2156,12 @@ mod tests {
             Err(ParseError::UnrecognizedSequence(_)) => {
                 // Also acceptable - invalid coordinates rejected
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => {
+                assert!(
+                    matches!(e, ParseError::UnrecognizedSequence(_)),
+                    "Unexpected error: {e:?}"
+                );
+            }
         }
     }
 
@@ -2326,7 +2340,12 @@ mod tests {
             Err(ParseError::UnrecognizedSequence(_)) => {
                 // Also acceptable if extra buttons not supported
             }
-            Err(e) => panic!("Unexpected error for button 4: {:?}", e),
+            Err(e) => {
+                assert!(
+                    matches!(e, ParseError::UnrecognizedSequence(_)),
+                    "Unexpected error for button 4: {e:?}"
+                );
+            }
         }
     }
 

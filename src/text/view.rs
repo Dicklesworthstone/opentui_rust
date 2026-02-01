@@ -2124,7 +2124,10 @@ mod tests {
             // Verify content is preserved in pool
             assert_eq!(pool.get(id), Some("👨‍👩‍👧"));
         } else {
-            panic!("Expected Grapheme content");
+            assert!(
+                matches!(cell.content, CellContent::Grapheme(_)),
+                "Expected Grapheme content"
+            );
         }
     }
 }

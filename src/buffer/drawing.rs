@@ -776,8 +776,11 @@ mod tests {
                 assert_eq!(id1, id2);
                 assert_eq!(pool.refcount(id1), 2);
             }
-            _ => {
-                panic!("Expected grapheme content for pooled multi-codepoint cells");
+            other => {
+                assert!(
+                    matches!(other, (CellContent::Grapheme(_), CellContent::Grapheme(_))),
+                    "Expected grapheme content for pooled multi-codepoint cells"
+                );
             }
         }
     }

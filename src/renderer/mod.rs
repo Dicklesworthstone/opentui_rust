@@ -61,6 +61,7 @@ use crate::color::Rgba;
 use crate::link::LinkPool;
 use crate::terminal::{CursorStyle, Terminal};
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::io::{self, Stdout, Write};
 use std::time::{Duration, Instant};
 
@@ -128,7 +129,10 @@ pub struct Renderer {
     back_buffer: OptimizedBuffer,
 
     terminal: Terminal<Stdout>,
-    hit_grid: HitGrid,
+    /// Hit areas for the last presented frame (used by `hit_test`).
+    front_hit_grid: HitGrid,
+    /// Hit areas being built for the next frame (populated by `register_hit_area`).
+    back_hit_grid: HitGrid,
     layer_hit_grids: BTreeMap<u16, HitGrid>,
     hit_scissor: ScissorStack,
     link_pool: LinkPool,
@@ -177,7 +181,8 @@ impl Renderer {
             front_buffer: OptimizedBuffer::new(width, height),
             back_buffer: OptimizedBuffer::new(width, height),
             terminal,
-            hit_grid: HitGrid::new(width, height),
+            front_hit_grid: HitGrid::new(width, height),
+            back_hit_grid: HitGrid::new(width, height),
             layer_hit_grids: BTreeMap::new(),
             hit_scissor: ScissorStack::new(),
             link_pool: LinkPool::new(),
@@ -319,12 +324,18 @@ impl Renderer {
         let width = self.width;
         let height = self.height;
 
-        let layer = self
-            .layers
-            .entry(layer_id)
-            .or_insert_with(|| OptimizedBuffer::new(width, height));
+        let layer = match self.layers.entry(layer_id) {
+            Entry::Vacant(entry) => {
+                let mut buf = OptimizedBuffer::new(width, height);
+                // Layer buffers must start fully transparent (no tint/no-op cells).
+                buf.clear_transparent_with_pool(&mut self.grapheme_pool);
+                entry.insert(buf)
+            }
+            Entry::Occupied(entry) => entry.into_mut(),
+        };
         if layer.size() != (width, height) {
             layer.resize_with_pool(&mut self.grapheme_pool, width, height);
+            layer.clear_transparent_with_pool(&mut self.grapheme_pool);
         }
 
         render_fn(layer);
@@ -352,7 +363,7 @@ impl Renderer {
         }
 
         for grid in self.layer_hit_grids.values() {
-            self.hit_grid.overlay(grid);
+            self.back_hit_grid.overlay(grid);
         }
 
         self.layers_dirty = false;
@@ -363,7 +374,7 @@ impl Renderer {
     pub fn clear(&mut self) {
         self.back_buffer
             .clear_with_pool(&mut self.grapheme_pool, self.background);
-        self.hit_grid.clear();
+        self.back_hit_grid.clear();
         self.clear_overlay_layers();
     }
 
@@ -392,9 +403,10 @@ impl Renderer {
 
         // Swap buffers
         std::mem::swap(&mut self.front_buffer, &mut self.back_buffer);
+        std::mem::swap(&mut self.front_hit_grid, &mut self.back_hit_grid);
         self.back_buffer
             .clear_with_pool(&mut self.grapheme_pool, self.background);
-        self.hit_grid.clear();
+        self.back_hit_grid.clear();
         self.clear_overlay_layers();
 
         Ok(())
@@ -501,7 +513,8 @@ impl Renderer {
             .resize_with_pool(&mut self.grapheme_pool, width, height);
         self.back_buffer
             .resize_with_pool(&mut self.grapheme_pool, width, height);
-        self.hit_grid = HitGrid::new(width, height);
+        self.front_hit_grid = HitGrid::new(width, height);
+        self.back_hit_grid = HitGrid::new(width, height);
         self.resize_overlay_layers(width, height);
         self.hit_scissor.clear();
         // Clear cached diff (it will grow as needed on next present)
@@ -537,7 +550,7 @@ impl Renderer {
         if let Some(intersect) = self.hit_scissor.current().intersect(&rect) {
             if !intersect.is_empty() {
                 let hit_grid = if self.active_hit_layer == 0 {
-                    &mut self.hit_grid
+                    &mut self.back_hit_grid
                 } else {
                     let width = self.width;
                     let height = self.height;
@@ -566,7 +579,7 @@ impl Renderer {
     /// Test which hit area contains a point.
     #[must_use]
     pub fn hit_test(&self, x: u32, y: u32) -> Option<u32> {
-        self.hit_grid.test(x, y)
+        self.front_hit_grid.test(x, y)
     }
 
     /// Push a hit-scissor rectangle (for hit testing).
@@ -609,7 +622,7 @@ impl Renderer {
         };
 
         let buffer_bytes = self.front_buffer.byte_size() + self.back_buffer.byte_size();
-        let hitgrid_bytes = self.hit_grid.byte_size();
+        let hitgrid_bytes = self.front_hit_grid.byte_size() + self.back_hit_grid.byte_size();
         self.stats.buffer_bytes = buffer_bytes;
         self.stats.hitgrid_bytes = hitgrid_bytes;
         self.stats.total_bytes = buffer_bytes + hitgrid_bytes;
@@ -627,7 +640,7 @@ impl Renderer {
 
     fn clear_overlay_layers(&mut self) {
         for layer in self.layers.values_mut() {
-            layer.clear_with_pool(&mut self.grapheme_pool, Rgba::TRANSPARENT);
+            layer.clear_transparent_with_pool(&mut self.grapheme_pool);
         }
         for grid in self.layer_hit_grids.values_mut() {
             grid.clear();
@@ -639,6 +652,7 @@ impl Renderer {
     fn resize_overlay_layers(&mut self, width: u32, height: u32) {
         for layer in self.layers.values_mut() {
             layer.resize_with_pool(&mut self.grapheme_pool, width, height);
+            layer.clear_transparent_with_pool(&mut self.grapheme_pool);
         }
         for grid in self.layer_hit_grids.values_mut() {
             grid.resize(width, height);
@@ -1050,6 +1064,18 @@ mod tests {
         .expect("test renderer creation should succeed with disabled options")
     }
 
+    /// Commit pending hit registrations so they are visible via `hit_test()`.
+    ///
+    /// Renderer hit testing is based on the last *presented* frame. During a frame,
+    /// hit registrations are accumulated separately and promoted after present.
+    fn commit_hits_for_test(r: &mut Renderer) {
+        if r.layers_dirty {
+            r.merge_layers();
+        }
+        std::mem::swap(&mut r.front_hit_grid, &mut r.back_hit_grid);
+        r.back_hit_grid.clear();
+    }
+
     // --- new() / new_with_options() ---
 
     #[test]
@@ -1185,6 +1211,7 @@ mod tests {
     fn test_resize_clears_hit_grid() {
         let mut r = test_renderer(80, 24);
         r.register_hit_area(10, 5, 20, 3, 42);
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(15, 6), Some(42));
 
         r.resize(80, 24).unwrap();
@@ -1357,6 +1384,7 @@ mod tests {
     fn test_renderer_register_and_hit_test() {
         let mut r = test_renderer(80, 24);
         r.register_hit_area(10, 5, 20, 3, 42);
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(15, 6), Some(42));
         assert_eq!(r.hit_test(5, 3), None);
     }
@@ -1368,6 +1396,7 @@ mod tests {
         r.push_hit_scissor(ClipRect::new(10, 10, 20, 20));
         // Register a full-screen hit area
         r.register_hit_area(0, 0, 80, 24, 1);
+        commit_hits_for_test(&mut r);
         // Inside scissor should hit
         assert_eq!(r.hit_test(15, 15), Some(1));
         // Outside scissor should miss
@@ -1381,6 +1410,7 @@ mod tests {
         r.push_hit_scissor(ClipRect::new(10, 10, 5, 5));
         r.clear_hit_scissors();
         r.register_hit_area(0, 0, 80, 24, 1);
+        commit_hits_for_test(&mut r);
         // After clearing scissors, full area should be accessible
         assert_eq!(r.hit_test(5, 5), Some(1));
     }
@@ -1477,9 +1507,11 @@ mod tests {
     fn test_renderer_clear_resets_hit_grid() {
         let mut r = test_renderer(80, 24);
         r.register_hit_area(0, 0, 80, 24, 1);
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(5, 5), Some(1));
 
         r.clear();
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(5, 5), None);
     }
 
@@ -1493,6 +1525,7 @@ mod tests {
         r.register_hit_area(0, 0, 10, 5, 1);
         r.register_hit_area(20, 0, 10, 5, 2);
         r.register_hit_area(40, 0, 10, 5, 3);
+        commit_hits_for_test(&mut r);
 
         assert_eq!(r.hit_test(5, 2), Some(1));
         assert_eq!(r.hit_test(25, 2), Some(2));
@@ -1505,6 +1538,7 @@ mod tests {
         let mut r = test_renderer(80, 24);
         r.register_hit_area(0, 0, 30, 10, 100);
         r.register_hit_area(20, 0, 30, 10, 200);
+        commit_hits_for_test(&mut r);
 
         // Overlap region: later registration wins
         assert_eq!(r.hit_test(5, 5), Some(100)); // Only in first
@@ -1516,6 +1550,7 @@ mod tests {
     fn test_renderer_hit_test_boundary_conditions() {
         let mut r = test_renderer(80, 24);
         r.register_hit_area(10, 5, 20, 10, 1);
+        commit_hits_for_test(&mut r);
 
         // Exact boundaries
         assert_eq!(r.hit_test(10, 5), Some(1)); // Top-left
@@ -1535,6 +1570,7 @@ mod tests {
         let mut r = test_renderer(20, 20);
         // Register area that extends beyond buffer
         r.register_hit_area(15, 15, 20, 20, 1);
+        commit_hits_for_test(&mut r);
 
         // Inside buffer + area
         assert_eq!(r.hit_test(18, 18), Some(1));
@@ -1553,6 +1589,7 @@ mod tests {
 
         // Register hit area that spans beyond both scissors
         r.register_hit_area(0, 0, 80, 24, 1);
+        commit_hits_for_test(&mut r);
 
         // Only the innermost scissor intersection should register
         assert_eq!(r.hit_test(15, 12), Some(1)); // Inside inner
@@ -1570,6 +1607,7 @@ mod tests {
         // Push restrictive scissor
         r.push_hit_scissor(ClipRect::new(10, 10, 10, 10));
         r.register_hit_area(0, 0, 80, 24, 1);
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(15, 15), Some(1));
         assert_eq!(r.hit_test(5, 5), None); // Clipped
 
@@ -1578,6 +1616,7 @@ mod tests {
 
         // After pop, full area should be available for new registrations
         r.register_hit_area(0, 0, 80, 24, 2);
+        commit_hits_for_test(&mut r);
         assert_eq!(r.hit_test(5, 5), Some(2));
     }
 
@@ -1589,8 +1628,11 @@ mod tests {
             .draw_text(0, 0, "Hello", crate::style::Style::NONE);
         r.present().unwrap();
 
-        // Hit grid is cleared after present (same as clear())
-        // So hit areas need to be re-registered each frame
+        // Hit testing is based on the last presented frame.
+        assert_eq!(r.hit_test(15, 6), Some(42));
+
+        // Next present without re-registration should clear the hit grid for the new frame.
+        r.present().unwrap();
         assert_eq!(r.hit_test(15, 6), None);
     }
 
@@ -1653,6 +1695,30 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_layers_does_not_tint_base_fg_when_layer_is_transparent() {
+        let mut r = test_renderer(1, 1);
+        r.buffer().set(
+            0,
+            0,
+            Cell::new(
+                'A',
+                crate::style::Style::builder()
+                    .fg(Rgba::RED)
+                    .bg(Rgba::BLACK)
+                    .build(),
+            ),
+        );
+
+        // Create an overlay layer but do not draw into it.
+        r.render_to_layer(1, |_| {});
+        r.merge_layers();
+
+        let cell = r.buffer().get(0, 0).unwrap();
+        assert_eq!(cell.fg, Rgba::RED);
+        assert_eq!(cell.bg, Rgba::BLACK);
+    }
+
+    #[test]
     fn test_merge_layers_composites_hit_grids_by_layer_id() {
         let mut r = test_renderer(10, 10);
 
@@ -1667,6 +1733,7 @@ mod tests {
         r.register_hit_area(1, 0, 1, 1, 333);
 
         r.merge_layers();
+        commit_hits_for_test(&mut r);
 
         // Overlay wins where it has a hit id.
         assert_eq!(r.hit_test(0, 0), Some(111));

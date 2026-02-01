@@ -297,7 +297,12 @@ mod tests {
                 assert!(primary, "Should be DA1 (primary)");
                 assert_eq!(params, vec![1, 2]);
             }
-            _ => panic!("Expected DeviceAttributes"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::DeviceAttributes { .. }),
+                    "Expected DeviceAttributes"
+                );
+            }
         }
     }
 
@@ -321,7 +326,12 @@ mod tests {
                 assert!(!primary, "Should be DA2 (secondary)");
                 assert_eq!(params, vec![1, 4000, 20]);
             }
-            _ => panic!("Expected DeviceAttributes"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::DeviceAttributes { .. }),
+                    "Expected DeviceAttributes"
+                );
+            }
         }
     }
 
@@ -336,7 +346,12 @@ mod tests {
                 assert!(name.contains("kitty"), "Should detect kitty");
                 assert!(version.contains("0.26.5") || name.contains("0.26.5"));
             }
-            _ => panic!("Expected XtVersion"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::XtVersion { .. }),
+                    "Expected XtVersion"
+                );
+            }
         }
     }
 
@@ -351,7 +366,12 @@ mod tests {
                 assert_eq!(name, "alacritty");
                 assert_eq!(version, "0.12.0");
             }
-            _ => panic!("Expected XtVersion"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::XtVersion { .. }),
+                    "Expected XtVersion"
+                );
+            }
         }
     }
 
@@ -366,7 +386,12 @@ mod tests {
                 assert_eq!(width, 1440);
                 assert_eq!(height, 900);
             }
-            _ => panic!("Expected PixelSize"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::PixelSize { .. }),
+                    "Expected PixelSize"
+                );
+            }
         }
     }
 
@@ -380,7 +405,12 @@ mod tests {
             TerminalResponse::KittyKeyboard { flags } => {
                 assert_eq!(flags, 1);
             }
-            _ => panic!("Expected KittyKeyboard"),
+            other => {
+                assert!(
+                    matches!(other, TerminalResponse::KittyKeyboard { .. }),
+                    "Expected KittyKeyboard"
+                );
+            }
         }
     }
 

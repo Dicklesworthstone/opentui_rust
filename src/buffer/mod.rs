@@ -373,6 +373,24 @@ impl OptimizedBuffer {
         }
     }
 
+    /// Clear the buffer to a fully transparent state, updating grapheme pool counts.
+    ///
+    /// Unlike `clear_with_pool(..., Rgba::TRANSPARENT)`, this does not tint the
+    /// underlying foreground when composited over another buffer.
+    pub fn clear_transparent_with_pool(&mut self, pool: &mut GraphemePool) {
+        self.drain_orphaned_graphemes(pool);
+
+        let clear_cell = Cell::transparent();
+        for cell in &mut self.cells {
+            if let CellContent::Grapheme(id) = cell.content {
+                if id.pool_id() != 0 {
+                    pool.decref(id);
+                }
+            }
+            *cell = clear_cell;
+        }
+    }
+
     /// Fill a rectangular region with background color.
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, bg: Rgba) {
         if w == 0 || h == 0 || self.width == 0 || self.height == 0 {

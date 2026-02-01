@@ -280,6 +280,24 @@ impl Cell {
         }
     }
 
+    /// Create a fully transparent cell.
+    ///
+    /// This is a true no-op for compositing: blending this cell over another cell
+    /// leaves the background cell unchanged.
+    ///
+    /// Prefer this over `Cell::clear(Rgba::TRANSPARENT)` when you need a layer or
+    /// buffer to start out fully transparent without unintentionally tinting the
+    /// underlying foreground.
+    #[must_use]
+    pub fn transparent() -> Self {
+        Self {
+            content: CellContent::Empty,
+            fg: Rgba::TRANSPARENT,
+            bg: Rgba::TRANSPARENT,
+            attributes: TextAttributes::empty(),
+        }
+    }
+
     /// Create a cleared/empty cell with the specified background.
     #[must_use]
     pub fn clear(bg: Rgba) -> Self {
@@ -568,13 +586,19 @@ mod tests {
 
     #[test]
     fn test_blend_over_empty_preserves_background_attrs_and_link() {
-        let bg = Cell::new('A', Style::bold().with_link(7));
-        let fg = Cell::clear(Rgba::TRANSPARENT);
+        let bg = Cell::new(
+            'A',
+            Style::builder()
+                .fg(Rgba::RED)
+                .bg(Rgba::BLACK)
+                .bold()
+                .link(7)
+                .build(),
+        );
+        let fg = Cell::transparent();
         let blended = fg.blend_over(&bg);
 
-        assert_eq!(blended.content, CellContent::Char('A'));
-        assert_eq!(blended.attributes, bg.attributes);
-        assert_eq!(blended.attributes.link_id(), Some(7));
+        assert_eq!(blended, bg);
     }
 
     #[test]
@@ -893,10 +917,12 @@ mod tests {
     fn test_cell_blend_over_transparent() {
         let bg = Cell::new('A', Style::bg(Rgba::RED));
         // Note: blend_over preserves background content only for CellContent::Empty,
-        // not for space characters. Use Cell::clear() to get Empty content.
-        let fg = Cell::clear(Rgba::TRANSPARENT);
+        // not for space characters. Use Cell::transparent() to get Empty content.
+        let fg = Cell::transparent();
         let blended = fg.blend_over(&bg);
         // Foreground is Empty so should preserve background content
         assert_eq!(blended.content, CellContent::Char('A'));
+        assert_eq!(blended.fg, bg.fg);
+        assert_eq!(blended.bg, bg.bg);
     }
 }

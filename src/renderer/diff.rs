@@ -867,7 +867,12 @@ mod tests {
                 assert_eq!(old_size, (10, 10));
                 assert_eq!(new_size, (20, 20));
             }
-            _ => panic!("expected BufferSizeMismatch error"),
+            other => {
+                assert!(
+                    matches!(other, Err(crate::error::Error::BufferSizeMismatch { .. })),
+                    "expected BufferSizeMismatch error"
+                );
+            }
         }
     }
 
