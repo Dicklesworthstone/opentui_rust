@@ -60,6 +60,7 @@ use crate::buffer::{ClipRect, OptimizedBuffer, ScissorStack};
 use crate::color::Rgba;
 use crate::link::LinkPool;
 use crate::terminal::{CursorStyle, Terminal};
+use std::collections::BTreeMap;
 use std::io::{self, Stdout, Write};
 use std::time::{Duration, Instant};
 
@@ -128,12 +129,17 @@ pub struct Renderer {
 
     terminal: Terminal<Stdout>,
     hit_grid: HitGrid,
+    layer_hit_grids: BTreeMap<u16, HitGrid>,
     hit_scissor: ScissorStack,
     link_pool: LinkPool,
     grapheme_pool: crate::grapheme_pool::GraphemePool,
     scratch_buffer: Vec<u8>,
     /// Reusable diff to avoid per-frame allocation.
     cached_diff: BufferDiff,
+
+    layers: BTreeMap<u16, OptimizedBuffer>,
+    active_hit_layer: u16,
+    layers_dirty: bool,
 
     background: Rgba,
     force_redraw: bool,
@@ -172,11 +178,15 @@ impl Renderer {
             back_buffer: OptimizedBuffer::new(width, height),
             terminal,
             hit_grid: HitGrid::new(width, height),
+            layer_hit_grids: BTreeMap::new(),
             hit_scissor: ScissorStack::new(),
             link_pool: LinkPool::new(),
             grapheme_pool: crate::grapheme_pool::GraphemePool::new(),
             scratch_buffer: Vec::with_capacity(total_cells.saturating_mul(20)),
             cached_diff: BufferDiff::with_capacity(total_cells / 8),
+            layers: BTreeMap::new(),
+            active_hit_layer: 0,
+            layers_dirty: false,
             background: Rgba::BLACK,
             force_redraw: true,
             stats: RenderStats::default(),
@@ -287,15 +297,81 @@ impl Renderer {
         self.background = color;
     }
 
+    /// Render into an offscreen layer buffer.
+    ///
+    /// Layer `0` is the base layer (the regular back buffer). Higher layer IDs are
+    /// composited on top, in ascending order.
+    ///
+    /// The active layer is also used for hit registration via [`Self::register_hit_area`]:
+    /// after calling `render_to_layer(layer_id, ...)`, subsequent hit registrations will
+    /// target that layer until another `render_to_layer` call or a frame reset.
+    pub fn render_to_layer<F>(&mut self, layer_id: u16, render_fn: F)
+    where
+        F: FnOnce(&mut OptimizedBuffer),
+    {
+        self.active_hit_layer = layer_id;
+
+        if layer_id == 0 {
+            render_fn(&mut self.back_buffer);
+            return;
+        }
+
+        let width = self.width;
+        let height = self.height;
+
+        let layer = self
+            .layers
+            .entry(layer_id)
+            .or_insert_with(|| OptimizedBuffer::new(width, height));
+        if layer.size() != (width, height) {
+            layer.resize_with_pool(&mut self.grapheme_pool, width, height);
+        }
+
+        render_fn(layer);
+        self.layers_dirty = true;
+    }
+
+    /// Return the number of currently allocated overlay layers.
+    #[must_use]
+    pub fn get_layer_count(&self) -> usize {
+        self.layers.len()
+    }
+
+    /// Composite all active layers into the base back buffer.
+    ///
+    /// Higher layer IDs are composited on top of lower ones, using proper alpha blending.
+    pub fn merge_layers(&mut self) {
+        if !self.layers_dirty {
+            self.active_hit_layer = 0;
+            return;
+        }
+
+        for layer in self.layers.values() {
+            self.back_buffer
+                .draw_buffer_with_pool(&mut self.grapheme_pool, 0, 0, layer);
+        }
+
+        for grid in self.layer_hit_grids.values() {
+            self.hit_grid.overlay(grid);
+        }
+
+        self.layers_dirty = false;
+        self.active_hit_layer = 0;
+    }
+
     /// Clear the back buffer.
     pub fn clear(&mut self) {
         self.back_buffer
             .clear_with_pool(&mut self.grapheme_pool, self.background);
         self.hit_grid.clear();
+        self.clear_overlay_layers();
     }
 
     /// Present the back buffer to screen (swap buffers).
     pub fn present(&mut self) -> io::Result<()> {
+        if self.layers_dirty {
+            self.merge_layers();
+        }
         if self.show_debug_overlay {
             self.draw_debug_overlay();
         }
@@ -319,6 +395,7 @@ impl Renderer {
         self.back_buffer
             .clear_with_pool(&mut self.grapheme_pool, self.background);
         self.hit_grid.clear();
+        self.clear_overlay_layers();
 
         Ok(())
     }
@@ -425,6 +502,7 @@ impl Renderer {
         self.back_buffer
             .resize_with_pool(&mut self.grapheme_pool, width, height);
         self.hit_grid = HitGrid::new(width, height);
+        self.resize_overlay_layers(width, height);
         self.hit_scissor.clear();
         // Clear cached diff (it will grow as needed on next present)
         self.cached_diff.clear();
@@ -458,7 +536,23 @@ impl Renderer {
         let rect = ClipRect::new(x as i32, y as i32, width, height);
         if let Some(intersect) = self.hit_scissor.current().intersect(&rect) {
             if !intersect.is_empty() {
-                self.hit_grid.register(
+                let hit_grid = if self.active_hit_layer == 0 {
+                    &mut self.hit_grid
+                } else {
+                    let width = self.width;
+                    let height = self.height;
+                    let grid = self
+                        .layer_hit_grids
+                        .entry(self.active_hit_layer)
+                        .or_insert_with(|| HitGrid::new(width, height));
+                    if grid.size() != (width, height) {
+                        grid.resize(width, height);
+                    }
+                    self.layers_dirty = true;
+                    grid
+                };
+
+                hit_grid.register(
                     intersect.x.max(0) as u32,
                     intersect.y.max(0) as u32,
                     intersect.width,
@@ -529,6 +623,28 @@ impl Renderer {
         );
         self.back_buffer
             .draw_text(0, 0, &text, crate::style::Style::dim());
+    }
+
+    fn clear_overlay_layers(&mut self) {
+        for layer in self.layers.values_mut() {
+            layer.clear_with_pool(&mut self.grapheme_pool, Rgba::TRANSPARENT);
+        }
+        for grid in self.layer_hit_grids.values_mut() {
+            grid.clear();
+        }
+        self.active_hit_layer = 0;
+        self.layers_dirty = false;
+    }
+
+    fn resize_overlay_layers(&mut self, width: u32, height: u32) {
+        for layer in self.layers.values_mut() {
+            layer.resize_with_pool(&mut self.grapheme_pool, width, height);
+        }
+        for grid in self.layer_hit_grids.values_mut() {
+            grid.resize(width, height);
+        }
+        self.active_hit_layer = 0;
+        self.layers_dirty = false;
     }
 }
 
@@ -1485,6 +1601,93 @@ mod tests {
         assert_eq!(r.hit_test(0, 0), None);
         assert_eq!(r.hit_test(40, 12), None);
         assert_eq!(r.hit_test(79, 23), None);
+    }
+
+    // ============================================
+    // Layered Rendering Tests (bd-1scf, bd-6i8r, bd-flgw)
+    // ============================================
+
+    #[test]
+    fn test_get_layer_count_tracks_allocated_layers() {
+        let mut r = test_renderer(10, 10);
+        assert_eq!(r.get_layer_count(), 0);
+
+        r.render_to_layer(1, |_| {});
+        assert_eq!(r.get_layer_count(), 1);
+
+        r.render_to_layer(5, |_| {});
+        assert_eq!(r.get_layer_count(), 2);
+
+        // Re-using an existing layer should not increase the count.
+        r.render_to_layer(1, |_| {});
+        assert_eq!(r.get_layer_count(), 2);
+    }
+
+    #[test]
+    fn test_merge_layers_composites_higher_layers_on_top() {
+        let mut r = test_renderer(3, 1);
+
+        r.buffer()
+            .set(0, 0, Cell::new('A', crate::style::Style::NONE));
+        r.buffer()
+            .set(1, 0, Cell::new('X', crate::style::Style::NONE));
+
+        r.render_to_layer(1, |buf| {
+            buf.set(0, 0, Cell::new('B', crate::style::Style::NONE));
+        });
+        r.render_to_layer(2, |buf| {
+            buf.set(0, 0, Cell::new('C', crate::style::Style::NONE));
+        });
+
+        r.merge_layers();
+
+        let top = r.buffer().get(0, 0).unwrap();
+        assert!(matches!(top.content, crate::cell::CellContent::Char('C')));
+
+        // Unaffected cells remain from the base layer.
+        let base_only = r.buffer().get(1, 0).unwrap();
+        assert!(matches!(
+            base_only.content,
+            crate::cell::CellContent::Char('X')
+        ));
+    }
+
+    #[test]
+    fn test_merge_layers_composites_hit_grids_by_layer_id() {
+        let mut r = test_renderer(10, 10);
+
+        // Register a hit in an overlay layer first...
+        r.render_to_layer(1, |_| {});
+        r.register_hit_area(0, 0, 1, 1, 111);
+
+        // ...then register a base hit after. Base registration order should not
+        // override a higher layer when the grids are merged.
+        r.render_to_layer(0, |_| {});
+        r.register_hit_area(0, 0, 1, 1, 222);
+        r.register_hit_area(1, 0, 1, 1, 333);
+
+        r.merge_layers();
+
+        // Overlay wins where it has a hit id.
+        assert_eq!(r.hit_test(0, 0), Some(111));
+        // Click-through works where the overlay has no hit id.
+        assert_eq!(r.hit_test(1, 0), Some(333));
+    }
+
+    #[test]
+    fn test_present_merges_layers_automatically() {
+        let mut r = test_renderer(2, 1);
+        r.buffer()
+            .set(0, 0, Cell::new('A', crate::style::Style::NONE));
+
+        r.render_to_layer(1, |buf| {
+            buf.set(0, 0, Cell::new('B', crate::style::Style::NONE));
+        });
+
+        r.present().unwrap();
+
+        let cell = r.front_buffer().get(0, 0).unwrap();
+        assert!(matches!(cell.content, crate::cell::CellContent::Char('B')));
     }
 
     // ============================================

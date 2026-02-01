@@ -53,6 +53,23 @@ impl HitGrid {
         }
     }
 
+    /// Overlay another hit grid onto this grid.
+    ///
+    /// For each cell, if `overlay` contains an ID, it overwrites this grid's cell.
+    ///
+    /// This is useful for layer compositing where higher layers should override hit
+    /// IDs, but empty cells should allow "click-through" to lower layers.
+    pub fn overlay(&mut self, overlay: &Self) {
+        if self.width != overlay.width || self.height != overlay.height {
+            return;
+        }
+        for (dst, src) in self.cells.iter_mut().zip(&overlay.cells) {
+            if src.is_some() {
+                *dst = *src;
+            }
+        }
+    }
+
     /// Test which ID is at a position.
     #[must_use]
     pub fn test(&self, x: u32, y: u32) -> Option<u32> {
