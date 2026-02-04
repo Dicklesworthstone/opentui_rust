@@ -8,6 +8,7 @@
 #![allow(clippy::uninlined_format_args)] // Allow {:?} style for clarity
 
 use opentui::{Cell, OptimizedBuffer, Rgba, Style};
+use opentui_rust as opentui;
 use std::time::{Duration, Instant};
 
 /// Performance budget configuration.

@@ -679,7 +679,7 @@ impl<'a> TextBufferView<'a> {
     /// # Example
     ///
     /// ```ignore
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// let mut output = OptimizedBuffer::new(80, 24);

@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```
-//! use opentui::EditBuffer;
+//! use opentui_rust::EditBuffer;
 //!
 //! let mut buf = EditBuffer::with_text("Hello World");
 //!

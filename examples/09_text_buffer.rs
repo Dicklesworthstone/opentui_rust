@@ -8,6 +8,7 @@
 
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{Renderer, Rgba, Style, TextBuffer, TextBufferView};
+use opentui_rust as opentui;
 use std::io::{self, Read};
 
 fn text_len_u32(text: &str) -> u32 {

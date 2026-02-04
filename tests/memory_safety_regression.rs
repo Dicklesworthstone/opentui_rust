@@ -11,6 +11,7 @@ use opentui::cell::GraphemeId;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::renderer::HitGrid;
+use opentui_rust as opentui;
 
 // ============================================
 // Buffer Index Overflow Protection

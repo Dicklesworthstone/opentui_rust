@@ -11,6 +11,7 @@
 use opentui::ansi::escape_url_for_osc8;
 use opentui::input::{InputParser, ParseError};
 use opentui::terminal::Terminal;
+use opentui_rust as opentui;
 
 // =============================================================================
 // Escape Sequence Injection Tests (bd-er8q)

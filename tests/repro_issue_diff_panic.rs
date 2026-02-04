@@ -2,6 +2,7 @@
 mod tests {
     use opentui::buffer::OptimizedBuffer;
     use opentui::renderer::BufferDiff;
+    use opentui_rust as opentui;
 
     #[test]
     #[should_panic(expected = "buffer size mismatch")]

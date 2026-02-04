@@ -5,6 +5,7 @@ mod tests {
     use opentui::buffer::{BoxOptions, BoxStyle, OptimizedBuffer};
     use opentui::cell::CellContent;
     use opentui::grapheme_pool::GraphemePool;
+    use opentui_rust as opentui;
 
     #[test]
     fn test_box_title_emoji_placeholder_problem() {

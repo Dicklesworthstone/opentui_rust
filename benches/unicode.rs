@@ -8,6 +8,7 @@ use opentui::unicode::{
     display_width_with_method, grapheme_info, graphemes, is_ascii_only,
 };
 use opentui::{OptimizedBuffer, Style};
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 fn width_ascii(c: &mut Criterion) {

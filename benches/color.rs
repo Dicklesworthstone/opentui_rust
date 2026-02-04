@@ -4,6 +4,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use opentui::Rgba;
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 fn color_creation(c: &mut Criterion) {

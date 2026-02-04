@@ -11,7 +11,7 @@
 //! # Examples
 //!
 //! ```
-//! use opentui::Rgba;
+//! use opentui_rust::Rgba;
 //!
 //! // Create colors in various ways
 //! let red = Rgba::RED;
@@ -36,7 +36,7 @@ use std::fmt;
 /// # Examples
 ///
 /// ```
-/// use opentui::Rgba;
+/// use opentui_rust::Rgba;
 ///
 /// // Use predefined constants
 /// let bg = Rgba::BLACK;

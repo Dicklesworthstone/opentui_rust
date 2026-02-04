@@ -8,6 +8,7 @@ use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::renderer::BufferDiff;
 use opentui::style::Style;
+use opentui_rust as opentui;
 use proptest::prelude::*;
 
 // ============================================================================

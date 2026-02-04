@@ -6,6 +6,7 @@ use opentui::unicode::{
     WidthMethod, display_width, display_width_char, grapheme_indices, grapheme_info, graphemes,
     is_ascii_only,
 };
+use opentui_rust as opentui;
 use proptest::prelude::*;
 
 // ============================================================================

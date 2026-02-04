@@ -214,7 +214,7 @@ The examples demonstrate OpenTUI's key components:
 ## Creating Your Own Application
 
 ```rust
-use opentui::{
+use opentui_rust::{
     InputParser, Renderer, RendererOptions, Rgba, Style,
     terminal::terminal_size,
     input::{Event, KeyCode, ParseError},

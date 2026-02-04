@@ -13,6 +13,7 @@ mod common;
 use common::harness::E2EHarness;
 use common::input_sim::{InputSequence, sequence_to_ansi};
 use opentui::input::{InputParser, KeyCode, KeyModifiers, MouseButton};
+use opentui_rust as opentui;
 
 // ============================================================================
 // Text Editing Workflow Tests

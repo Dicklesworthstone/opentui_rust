@@ -38,6 +38,7 @@
 #![allow(clippy::struct_field_names)] // Field names match JSON baseline format
 
 use opentui::{Cell, OptimizedBuffer, Rgba, Style};
+use opentui_rust as opentui;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;

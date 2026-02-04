@@ -15,6 +15,7 @@ use opentui::grapheme_pool::GraphemePool;
 use opentui::renderer::BufferDiff;
 use opentui::style::TextAttributes;
 use opentui::{Rgba, Style};
+use opentui_rust as opentui;
 use std::io::Write;
 
 /// Test basic render cycle: init -> draw -> present -> modify -> present -> cleanup.

@@ -22,6 +22,7 @@
 use opentui::color::Rgba;
 use opentui::style::TextAttributes;
 use opentui::terminal::{Capabilities, ColorSupport, Terminal};
+use opentui_rust as opentui;
 use std::io::{self, Write};
 
 /// A mock terminal that captures output to an in-memory buffer.

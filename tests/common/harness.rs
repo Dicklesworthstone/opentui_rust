@@ -15,6 +15,7 @@
 
 use opentui::input::{Event, InputParser, ParseError};
 use opentui::{OptimizedBuffer, Style};
+use opentui_rust as opentui;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as FmtWrite;
 use std::fs::{self, File};

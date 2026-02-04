@@ -16,7 +16,7 @@
 //! # Usage
 //!
 //! ```
-//! use opentui::grapheme_pool::GraphemePool;
+//! use opentui_rust::grapheme_pool::GraphemePool;
 //!
 //! let mut pool = GraphemePool::new();
 //!
@@ -594,7 +594,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// assert_eq!(pool.get_fragmentation_ratio(), 0.0); // Empty pool
@@ -624,7 +624,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// let _id1 = pool.alloc("alpha");
@@ -666,7 +666,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     ///
@@ -706,7 +706,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     ///
@@ -750,7 +750,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// let id1 = pool.alloc("alpha");
@@ -785,7 +785,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// let id1 = pool.alloc("alpha");
@@ -837,7 +837,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     ///
@@ -874,7 +874,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     /// let empty_usage = pool.get_memory_usage();
@@ -991,7 +991,7 @@ impl GraphemePool {
     /// # Example
     ///
     /// ```
-    /// use opentui::grapheme_pool::GraphemePool;
+    /// use opentui_rust::grapheme_pool::GraphemePool;
     ///
     /// let mut pool = GraphemePool::new();
     ///
@@ -1018,7 +1018,7 @@ impl GraphemePool {
     /// let new_id3 = result.remap(id3.pool_id()).unwrap_or(id3.pool_id());
     ///
     /// // Verify the remapped IDs work
-    /// use opentui::cell::GraphemeId;
+    /// use opentui_rust::cell::GraphemeId;
     /// let remapped1 = GraphemeId::new(new_id1, id1.width() as u8);
     /// let remapped3 = GraphemeId::new(new_id3, id3.width() as u8);
     ///

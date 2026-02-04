@@ -36,6 +36,7 @@ use opentui::{
     EditBuffer, EditorView, InputParser, OptimizedBuffer, Renderer, RendererOptions, Rgba, Style,
     WrapMode,
 };
+use opentui_rust as opentui;
 use std::io::{self, Read};
 use std::time::Duration;
 

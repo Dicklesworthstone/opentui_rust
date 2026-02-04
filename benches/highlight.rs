@@ -7,6 +7,7 @@ use opentui::highlight::languages::rust::RustTokenizer;
 use opentui::highlight::tokenizer::{LineState, Tokenizer};
 use opentui::highlight::{HighlightedBuffer, Theme};
 use opentui::text::TextBuffer;
+use opentui_rust as opentui;
 use std::hint::black_box;
 use std::sync::Arc;
 

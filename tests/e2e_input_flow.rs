@@ -14,6 +14,7 @@ use common::input_sim::{
 use opentui::input::{
     Event, InputParser, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use opentui_rust as opentui;
 
 // ============================================================================
 // Keyboard Input Flow Tests

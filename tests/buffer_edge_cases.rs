@@ -7,6 +7,7 @@ use opentui::buffer::{ClipRect, OptimizedBuffer};
 use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::style::Style;
+use opentui_rust as opentui;
 
 // ============================================================================
 // Boundary Conditions

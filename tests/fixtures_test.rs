@@ -7,6 +7,7 @@
 mod fixtures;
 
 use fixtures::*;
+use opentui_rust as opentui;
 
 #[test]
 fn test_mock_terminal_basic() {

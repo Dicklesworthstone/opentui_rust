@@ -10,6 +10,7 @@ use opentui::buffer::OptimizedBuffer;
 use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::style::{Style, TextAttributes};
+use opentui_rust as opentui;
 
 /// Sample ANSI escape sequences for testing.
 pub mod ansi_sequences {

@@ -8,6 +8,7 @@
 use opentui::cell::{Cell, CellContent, GraphemeId};
 use opentui::color::Rgba;
 use opentui::style::{Style, TextAttributes};
+use opentui_rust as opentui;
 
 // =============================================================================
 // Cell Creation Tests

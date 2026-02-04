@@ -4,6 +4,7 @@
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use opentui::{EditBuffer, TextBuffer};
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 fn text_buffer_creation(c: &mut Criterion) {

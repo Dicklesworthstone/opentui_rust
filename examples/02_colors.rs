@@ -8,6 +8,7 @@
 
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{Cell, OptimizedBuffer, Renderer, Rgba, Style};
+use opentui_rust as opentui;
 use std::io::{self, Read};
 
 fn center_x(width: u32, text: &str) -> u32 {

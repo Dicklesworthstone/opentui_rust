@@ -10,6 +10,7 @@ use opentui::buffer::OptimizedBuffer;
 use opentui::cell::{Cell, CellContent};
 use opentui::color::Rgba;
 use opentui::style::Style;
+use opentui_rust as opentui;
 use std::fmt::Write;
 
 /// Result of a buffer comparison.

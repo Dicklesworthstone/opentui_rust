@@ -11,6 +11,7 @@ use opentui::buffer::{BoxStyle, ClipRect};
 use opentui::input::{Event, InputParser, KeyCode, KeyModifiers};
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{OptimizedBuffer, Renderer, Rgba, Style};
+use opentui_rust as opentui;
 use std::io::{self, Read};
 use std::sync::mpsc;
 

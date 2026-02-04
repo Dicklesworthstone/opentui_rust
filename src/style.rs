@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```
-//! use opentui::{Style, TextAttributes, Rgba};
+//! use opentui_rust::{Style, TextAttributes, Rgba};
 //!
 //! // Quick style creation
 //! let title_style = Style::fg(Rgba::WHITE).with_bold();

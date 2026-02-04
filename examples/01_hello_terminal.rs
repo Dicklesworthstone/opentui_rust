@@ -9,6 +9,7 @@
 
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{Renderer, Rgba, Style};
+use opentui_rust as opentui;
 use std::io::{self, Read};
 
 fn main() -> io::Result<()> {

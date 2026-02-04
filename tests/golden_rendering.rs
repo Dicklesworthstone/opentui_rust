@@ -21,6 +21,7 @@ use opentui::cell::Cell;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::style::Style;
+use opentui_rust as opentui;
 
 // Color constants that aren't in the standard library
 const CYAN: Rgba = Rgba::rgb(0.0, 1.0, 1.0);

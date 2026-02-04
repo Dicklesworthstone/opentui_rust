@@ -17,7 +17,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! use opentui::{Renderer, Style, Rgba};
+//! use opentui_rust::{Renderer, Style, Rgba};
 //!
 //! fn main() -> std::io::Result<()> {
 //!     // Create renderer (enters alt screen, hides cursor)
@@ -267,7 +267,7 @@ impl Renderer {
     /// # Example
     ///
     /// ```no_run
-    /// use opentui::Renderer;
+    /// use opentui_rust::Renderer;
     ///
     /// let renderer = Renderer::new(80, 24)?;
     /// let caps = renderer.capabilities();

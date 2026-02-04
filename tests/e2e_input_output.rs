@@ -5,6 +5,7 @@ mod common;
 use common::harness::E2EHarness;
 use opentui::input::{Event, KeyCode, MouseEventKind};
 use opentui::{EditBuffer, EditorView, Style};
+use opentui_rust as opentui;
 
 #[test]
 fn test_e2e_key_input_and_render() {

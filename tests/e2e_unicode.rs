@@ -13,6 +13,7 @@ use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::style::Style;
 use opentui::unicode::{display_width, display_width_char, graphemes};
+use opentui_rust as opentui;
 
 // ============================================================================
 // Test Helpers

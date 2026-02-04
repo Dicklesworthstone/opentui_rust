@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-purple.svg)](https://doc.rust-lang.org/edition-guide/)
-[![codecov](https://codecov.io/gh/anomalyco/opentui/graph/badge.svg)](https://codecov.io/gh/anomalyco/opentui)
+[![codecov](https://codecov.io/gh/Dicklesworthstone/opentui_rust/graph/badge.svg)](https://codecov.io/gh/Dicklesworthstone/opentui_rust)
 
 *A Rust port of [anomalyco/opentui](https://github.com/anomalyco/opentui) (TypeScript), with native Rust performance and extended features.*
 
@@ -19,7 +19,7 @@
 
 ```bash
 # Add to your project
-cargo add opentui
+cargo add opentui_rust
 ```
 
 ---
@@ -59,7 +59,7 @@ OpenTUI is a **rendering engine**, not a framework. It gives you:
 ## Quick Example
 
 ```rust
-use opentui::{Renderer, OptimizedBuffer, Style, Rgba, Cell};
+use opentui_rust::{Renderer, OptimizedBuffer, Style, Rgba, Cell};
 
 fn main() -> std::io::Result<()> {
     // Create renderer (enters alt screen, hides cursor)
@@ -93,7 +93,7 @@ buffer.set_blended(10, 5, Cell::new('X', Style::fg(overlay)));
 ### Scissor Clipping
 
 ```rust
-use opentui::buffer::ClipRect;
+use opentui_rust::buffer::ClipRect;
 
 // Only draw within this rectangle
 buffer.push_scissor(ClipRect::new(10, 10, 20, 10));
@@ -177,14 +177,14 @@ Based on OpenTUI's Zig core (~15,900 LOC), which powers production terminal appl
 ### From crates.io
 
 ```bash
-cargo add opentui
+cargo add opentui_rust
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/anomalyco/opentui
-cd opentui
+git clone https://github.com/Dicklesworthstone/opentui_rust
+cd opentui_rust
 cargo build --release
 ```
 
@@ -192,7 +192,7 @@ cargo build --release
 
 ```toml
 [dependencies]
-opentui = "0.1"
+opentui_rust = "0.1"
 ```
 
 ---
@@ -202,7 +202,7 @@ opentui = "0.1"
 ### 1. Create a Renderer
 
 ```rust
-use opentui::Renderer;
+use opentui_rust::Renderer;
 use std::io;
 
 fn main() -> io::Result<()> {
@@ -219,7 +219,7 @@ fn main() -> io::Result<()> {
 ### 2. Draw to the Buffer
 
 ```rust
-use opentui::{Style, Rgba};
+use opentui_rust::{Style, Rgba};
 
 let buffer = renderer.buffer();
 
@@ -231,7 +231,7 @@ buffer.draw_text(5, 2, "Title", Style::bold().fg(Rgba::WHITE));
 buffer.draw_text(5, 4, "Normal text", Style::fg(Rgba::from_hex("#888888").unwrap()));
 
 // Draw a box
-buffer.draw_box(2, 1, 40, 10, opentui::buffer::BoxStyle::single());
+buffer.draw_box(2, 1, 40, 10, opentui_rust::buffer::BoxStyle::single());
 ```
 
 ### 3. Present Frame
@@ -422,7 +422,7 @@ For the best visual experience, use a terminal that supports:
 Use the threaded renderer when you want terminal I/O off the main thread:
 
 ```rust
-use opentui::renderer::ThreadedRenderer;
+use opentui_rust::renderer::ThreadedRenderer;
 
 let mut renderer = ThreadedRenderer::new(80, 24)?;
 renderer.buffer().draw_text(1, 1, "Threaded!", Style::fg(Rgba::GREEN));
@@ -523,7 +523,7 @@ color.to_rgb_u8()               // Convert to (u8, u8, u8)
 ### Module Breakdown
 
 ```
-opentui/
+opentui_rust/
 ├── lib.rs          # Public API exports
 ├── color.rs        # RGBA type, blending, conversions
 ├── style.rs        # TextAttributes, Style builder

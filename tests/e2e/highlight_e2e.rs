@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use opentui::highlight::languages::rust::RustTokenizer;
 use opentui::highlight::{Token, TokenKind, TokenizerRegistry};
 use opentui::{Cell, HighlightedBuffer, OptimizedBuffer, Rgba, TextBuffer, TextBufferView, Theme};
+use opentui_rust as opentui;
 use tracing::{Level, debug, info, span};
 
 const SAMPLE_RS: &str = include_str!("fixtures/sample.rs");

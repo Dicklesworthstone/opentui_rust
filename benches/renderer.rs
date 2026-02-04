@@ -7,6 +7,7 @@ use opentui::ansi::AnsiWriter;
 use opentui::buffer::BoxStyle;
 use opentui::renderer::BufferDiff;
 use opentui::{Cell, OptimizedBuffer, Rgba, Style};
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 fn diff_identical_buffers(c: &mut Criterion) {

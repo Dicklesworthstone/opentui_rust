@@ -31,6 +31,7 @@ use opentui::{
     Event, InputParser, KeyCode, KeyModifiers, OptimizedBuffer, Rgba, Style, TextBuffer,
     TextBufferView, WrapMode,
 };
+use opentui_rust as opentui;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]

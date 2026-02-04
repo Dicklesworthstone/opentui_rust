@@ -1,13 +1,13 @@
 [package]
-name = "opentui"
+name = "opentui_rust"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance terminal UI rendering engine with alpha blending and diffed buffers"
 license = "MIT"
-repository = "https://github.com/anomalyco/opentui"
-homepage = "https://github.com/anomalyco/opentui"
-documentation = "https://docs.rs/opentui"
+repository = "https://github.com/Dicklesworthstone/opentui_rust"
+homepage = "https://github.com/Dicklesworthstone/opentui_rust"
+documentation = "https://docs.rs/opentui_rust"
 readme = "README.md"
 keywords = ["tui", "terminal", "ui", "cli"]
 categories = ["command-line-interface", "rendering"]

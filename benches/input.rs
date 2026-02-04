@@ -4,6 +4,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use opentui::input::InputParser;
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 /// Benchmark key event parsing for various input sequences.

@@ -23,7 +23,7 @@
 //! ## Basic Text Buffer
 //!
 //! ```
-//! use opentui::TextBuffer;
+//! use opentui_rust::TextBuffer;
 //!
 //! let buffer = TextBuffer::with_text("Hello, world!");
 //! assert_eq!(buffer.len_chars(), 13);
@@ -33,7 +33,7 @@
 //! ## Editable Buffer with Undo
 //!
 //! ```
-//! use opentui::EditBuffer;
+//! use opentui_rust::EditBuffer;
 //!
 //! let mut editor = EditBuffer::new();
 //! editor.insert("Hello");

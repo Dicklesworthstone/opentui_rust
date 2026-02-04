@@ -4,6 +4,7 @@ mod tests {
     use opentui::cell::CellContent;
     use opentui::grapheme_pool::GraphemePool;
     use opentui::style::Style;
+    use opentui_rust as opentui;
 
     #[test]
     fn test_draw_text_consistency() {

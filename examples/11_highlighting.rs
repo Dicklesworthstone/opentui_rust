@@ -14,6 +14,7 @@ use opentui::highlight::{Theme, TokenizerRegistry};
 use opentui::input::{Event, KeyCode, KeyModifiers, ParseError};
 use opentui::terminal::terminal_size;
 use opentui::{EditBuffer, EditorView, InputParser, Renderer, RendererOptions, Style, WrapMode};
+use opentui_rust as opentui;
 
 const SAMPLE_CODE: &str = r#"
 /// A tiny demo type with a lifetime.

@@ -13,7 +13,7 @@
 //! # Examples
 //!
 //! ```
-//! use opentui::{Cell, Style, Rgba};
+//! use opentui_rust::{Cell, Style, Rgba};
 //!
 //! // Create a simple character cell
 //! let cell = Cell::new('A', Style::fg(Rgba::GREEN));

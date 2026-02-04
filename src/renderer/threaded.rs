@@ -21,8 +21,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use opentui::renderer::ThreadedRenderer;
-//! use opentui::{Style, Rgba};
+//! use opentui_rust::renderer::ThreadedRenderer;
+//! use opentui_rust::{Style, Rgba};
 //!
 //! let mut renderer = ThreadedRenderer::new(80, 24)?;
 //!

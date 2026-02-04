@@ -10,6 +10,7 @@
 
 use opentui::terminal::{enable_raw_mode, terminal_size};
 use opentui::{OptimizedBuffer, Renderer, Rgba, Style};
+use opentui_rust as opentui;
 use std::io::{self, Read};
 
 fn text_len_u32(text: &str) -> u32 {

@@ -6,6 +6,7 @@
 #![allow(clippy::float_cmp)] // Exact float comparison is intentional in tests
 
 use opentui::color::Rgba;
+use opentui_rust as opentui;
 use proptest::prelude::*;
 
 // ============================================================================

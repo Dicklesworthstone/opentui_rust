@@ -12,8 +12,8 @@
 //! # Examples
 //!
 //! ```
-//! use opentui::{OptimizedBuffer, Style, Rgba, Cell};
-//! use opentui::buffer::ClipRect;
+//! use opentui_rust::{OptimizedBuffer, Style, Rgba, Cell};
+//! use opentui_rust::buffer::ClipRect;
 //!
 //! let mut buf = OptimizedBuffer::new(80, 24);
 //!

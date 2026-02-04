@@ -2,6 +2,7 @@
 
 use opentui::buffer::BoxStyle;
 use opentui::{OptimizedBuffer, Rgba, Style};
+use opentui_rust as opentui;
 
 fn main() {
     // Create a buffer

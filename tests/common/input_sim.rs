@@ -11,6 +11,7 @@
 use opentui::input::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use opentui_rust as opentui;
 
 /// Timing mode for input simulation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

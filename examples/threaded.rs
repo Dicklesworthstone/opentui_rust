@@ -7,6 +7,7 @@
 
 use opentui::renderer::ThreadedRenderer;
 use opentui::{Rgba, Style};
+use opentui_rust as opentui;
 use std::io;
 use std::thread;
 use std::time::Duration;

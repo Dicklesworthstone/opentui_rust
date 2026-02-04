@@ -9,6 +9,7 @@
 use opentui::input::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PasteEvent,
 };
+use opentui_rust as opentui;
 use std::collections::VecDeque;
 
 /// A mock input provider that delivers scripted input events.

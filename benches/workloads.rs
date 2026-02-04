@@ -16,6 +16,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use opentui::buffer::{BoxStyle, ClipRect};
 use opentui::renderer::BufferDiff;
 use opentui::{Cell, OptimizedBuffer, Rgba, Style};
+use opentui_rust as opentui;
 use std::hint::black_box;
 
 /// Simulate rendering a code editor frame.

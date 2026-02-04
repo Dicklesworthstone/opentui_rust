@@ -95,7 +95,7 @@ pub fn grapheme_info(s: &str, tab_width: u32, method: WidthMethod) -> Vec<Graphe
 /// # Example
 ///
 /// ```
-/// use opentui::unicode::split_graphemes_with_widths;
+/// use opentui_rust::unicode::split_graphemes_with_widths;
 ///
 /// let pairs = split_graphemes_with_widths("A世界");
 /// assert_eq!(pairs.len(), 3);
@@ -134,7 +134,7 @@ pub fn split_graphemes_with_widths(text: &str) -> Vec<(&str, usize)> {
 /// # Example
 ///
 /// ```
-/// use opentui::unicode::find_grapheme_boundary;
+/// use opentui_rust::unicode::find_grapheme_boundary;
 ///
 /// // ASCII: each byte is a boundary
 /// assert_eq!(find_grapheme_boundary("hello", 2), 2);

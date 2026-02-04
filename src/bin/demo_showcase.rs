@@ -26,6 +26,7 @@ use opentui::renderer::{HitGrid, ThreadedRenderer};
 #[allow(unused_imports)]
 use opentui::terminal::{Capabilities, CursorStyle};
 use opentui::terminal::{MouseButton, MouseEventKind, enable_raw_mode, terminal_size};
+use opentui_rust as opentui;
 // TODO: EditBuffer, EditorView, WrapMode will be used for editor integration
 #[allow(unused_imports)]
 use opentui::text::{EditBuffer, EditorView, WrapMode};
@@ -7746,7 +7747,7 @@ renderer.present()?;
 
 ## Links
 
-- [GitHub Repository](https://github.com/anomalyco/opentui)
+- [GitHub Repository](https://github.com/Dicklesworthstone/opentui_rust)
 - [Unicode TR11](https://unicode.org/reports/tr11/)
 "#;
 
@@ -7988,7 +7989,7 @@ codegen-units = 1
             LogLevel::Info,
             "docs",
             "See OpenTUI repository for more info",
-            Some("https://github.com/anomalyco/opentui"),
+            Some("https://github.com/Dicklesworthstone/opentui_rust"),
         ),
         LogEntry::new_static(
             "22:05:18",
@@ -8315,10 +8316,10 @@ codegen-units = 1
     /// Hyperlink URLs for OSC 8 integration.
     pub mod links {
         /// Main repository URL.
-        pub const REPO: &str = "https://github.com/anomalyco/opentui";
+        pub const REPO: &str = "https://github.com/Dicklesworthstone/opentui_rust";
 
         /// Source code directory.
-        pub const SOURCE: &str = "https://github.com/anomalyco/opentui/tree/main/src";
+        pub const SOURCE: &str = "https://github.com/Dicklesworthstone/opentui_rust/tree/main/src";
 
         /// Unicode Technical Report 11 (East Asian Width).
         pub const UNICODE_TR11: &str = "https://unicode.org/reports/tr11/";
