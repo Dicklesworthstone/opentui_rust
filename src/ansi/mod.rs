@@ -1,4 +1,8 @@
-//! ANSI escape sequence generation.
+//! ANSI escape sequence generation and buffering.
+//!
+//! This is the low-level output layer used by the renderer to translate cells
+//! into terminal control sequences. Most applications never touch this module
+//! directly; instead, they draw into buffers and let the renderer emit ANSI.
 
 pub mod output;
 pub mod sequences;

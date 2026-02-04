@@ -1,7 +1,41 @@
-//! `OpenTUI` - High-performance terminal UI library
+//! `OpenTUI` - High-performance terminal UI rendering engine
 //!
-//! A Rust port of the `OpenTUI` Zig core, providing efficient cell-based
-//! rendering with alpha blending, scissoring, and styled text support.
+//! OpenTUI is a Rust port of the OpenTUI Zig core. It is a rendering engine,
+//! not a framework: you get precise control over buffers, cells, colors, and
+//! text without a prescribed widget tree or event loop.
+//!
+//! # How This Crate Fits In
+//!
+//! This repository is a single-crate system. The `opentui` crate is the core
+//! engine that applications build on. You provide your own application loop
+//! and input handling; OpenTUI provides the rendering, text, and terminal
+//! primitives that make that loop fast and correct.
+//!
+//! # Architecture At A Glance
+//!
+//! - `renderer`: Double-buffered rendering, diff detection, hit testing
+//! - `buffer`: Cell grids, scissor clipping, opacity stacking, compositing
+//! - `cell` / `style` / `color`: The core visual primitives (Cell, Style, Rgba)
+//! - `ansi`: ANSI escape emission with state tracking for minimal output
+//! - `terminal`: Raw mode and capability detection (mouse, sync output, color)
+//! - `text`: Rope-backed text buffers, editing, wrapping, and views
+//! - `unicode`: Grapheme iteration and display-width calculation
+//! - `input`: Parser that turns raw terminal bytes into structured events
+//! - `highlight`: Tokenization and theming for syntax-highlighted buffers
+//! - `grapheme_pool` / `link`: Interned graphemes and OSC 8 hyperlink storage
+//! - `event` / `error`: Lightweight callbacks and error types
+//!
+//! # Data Flow
+//!
+//! ```text
+//! App draws into OptimizedBuffer
+//!     -> Renderer diffs back vs front buffers
+//!     -> AnsiWriter emits minimal ANSI sequences
+//!     -> Terminal writes to stdout (optionally with sync output)
+//! ```
+//!
+//! This flow is intentionally simple: the rendering engine owns output timing
+//! and correctness, while your application owns structure and behavior.
 
 // Crate-level lint configuration
 #![warn(unsafe_code)] // Unsafe code needs justification (required for termios FFI)

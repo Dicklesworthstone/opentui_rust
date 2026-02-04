@@ -1,4 +1,8 @@
 //! Terminal abstraction and capability detection.
+//!
+//! This module is responsible for toggling terminal state (raw mode, alt screen,
+//! mouse tracking) and discovering capabilities (color depth, sync output).
+//! It sits below the renderer and above the OS/TTY boundary.
 
 mod capabilities;
 mod cursor;
