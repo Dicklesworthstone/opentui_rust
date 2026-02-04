@@ -175,7 +175,7 @@ pub fn assert_buffers_equal(expected: &OptimizedBuffer, actual: &OptimizedBuffer
 pub fn assert_cell_char(buffer: &OptimizedBuffer, x: u32, y: u32, expected: char) {
     let cell = buffer
         .get(x, y)
-        .unwrap_or_else(|| panic!("No cell at ({}, {})", x, y));
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", x, y));
 
     match cell.content {
         CellContent::Char(c) => {
@@ -186,7 +186,7 @@ pub fn assert_cell_char(buffer: &OptimizedBuffer, x: u32, y: u32, expected: char
             );
         }
         other => {
-            panic!(
+            unreachable!(
                 "Cell ({}, {}) expected Char('{}'), got {:?}",
                 x, y, expected, other
             );
@@ -198,41 +198,49 @@ pub fn assert_cell_char(buffer: &OptimizedBuffer, x: u32, y: u32, expected: char
 pub fn assert_cell_empty(buffer: &OptimizedBuffer, x: u32, y: u32) {
     let cell = buffer
         .get(x, y)
-        .unwrap_or_else(|| panic!("No cell at ({}, {})", x, y));
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", x, y));
 
-    if !matches!(cell.content, CellContent::Empty) {
-        panic!("Cell ({}, {}) expected Empty, got {:?}", x, y, cell.content);
-    }
+    assert!(
+        matches!(cell.content, CellContent::Empty),
+        "Cell ({}, {}) expected Empty, got {:?}",
+        x,
+        y,
+        cell.content
+    );
 }
 
 /// Assert that a cell has the expected foreground color.
 pub fn assert_cell_fg(buffer: &OptimizedBuffer, x: u32, y: u32, expected: Rgba) {
     let cell = buffer
         .get(x, y)
-        .unwrap_or_else(|| panic!("No cell at ({}, {})", x, y));
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", x, y));
 
     let actual = cell.fg;
-    if !colors_equal(actual, expected) {
-        panic!(
-            "Cell ({}, {}) fg expected {:?}, got {:?}",
-            x, y, expected, actual
-        );
-    }
+    assert!(
+        colors_equal(actual, expected),
+        "Cell ({}, {}) fg expected {:?}, got {:?}",
+        x,
+        y,
+        expected,
+        actual
+    );
 }
 
 /// Assert that a cell has the expected background color.
 pub fn assert_cell_bg(buffer: &OptimizedBuffer, x: u32, y: u32, expected: Rgba) {
     let cell = buffer
         .get(x, y)
-        .unwrap_or_else(|| panic!("No cell at ({}, {})", x, y));
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", x, y));
 
     let actual = cell.bg;
-    if !colors_equal(actual, expected) {
-        panic!(
-            "Cell ({}, {}) bg expected {:?}, got {:?}",
-            x, y, expected, actual
-        );
-    }
+    assert!(
+        colors_equal(actual, expected),
+        "Cell ({}, {}) bg expected {:?}, got {:?}",
+        x,
+        y,
+        expected,
+        actual
+    );
 }
 
 /// Compare two colors with epsilon tolerance for floating point.
@@ -259,23 +267,22 @@ pub fn assert_row_text(buffer: &OptimizedBuffer, y: u32, expected: &str) {
 
 /// Assert that an ANSI sequence is present in the output.
 pub fn assert_sequence_present(output: &[u8], sequence: &[u8]) {
-    if !output.windows(sequence.len()).any(|w| w == sequence) {
-        let output_hex: String = output.iter().map(|b| format!("{:02x} ", b)).collect();
-        let seq_hex: String = sequence.iter().map(|b| format!("{:02x} ", b)).collect();
-        panic!(
-            "Expected sequence not found:\n  sequence: {}\n  output: {}",
-            seq_hex.trim(),
-            output_hex.trim()
-        );
-    }
+    let found = output.windows(sequence.len()).any(|w| w == sequence);
+    let output_hex: String = output.iter().map(|b| format!("{:02x} ", b)).collect();
+    let seq_hex: String = sequence.iter().map(|b| format!("{:02x} ", b)).collect();
+    assert!(
+        found,
+        "Expected sequence not found:\n  sequence: {}\n  output: {}",
+        seq_hex.trim(),
+        output_hex.trim()
+    );
 }
 
 /// Assert that an ANSI sequence is NOT present in the output.
 pub fn assert_sequence_absent(output: &[u8], sequence: &[u8]) {
-    if output.windows(sequence.len()).any(|w| w == sequence) {
-        let seq_hex: String = sequence.iter().map(|b| format!("{:02x} ", b)).collect();
-        panic!("Unexpected sequence found: {}", seq_hex.trim());
-    }
+    let found = output.windows(sequence.len()).any(|w| w == sequence);
+    let seq_hex: String = sequence.iter().map(|b| format!("{:02x} ", b)).collect();
+    assert!(!found, "Unexpected sequence found: {}", seq_hex.trim());
 }
 
 /// Create a test buffer with a simple pattern for visual comparison.

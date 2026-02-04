@@ -654,7 +654,7 @@ mod tests {
         if let InputEvent::Paste(content) = &seq.events()[0].event {
             assert_eq!(content, "test content");
         } else {
-            panic!("Expected paste event");
+            unreachable!("Expected paste event");
         }
     }
 

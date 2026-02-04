@@ -669,10 +669,10 @@ mod tests {
         let data = b"\x1b[48;5;196m";
         let sequences = AnsiSequenceParser::parse_all(data);
         assert_eq!(sequences.len(), 1);
-        match &sequences[0] {
-            AnsiSequence::SetBgColor(_) => {}
-            _ => panic!("Expected SetBgColor"),
-        }
+        assert!(
+            matches!(sequences[0], AnsiSequence::SetBgColor(_)),
+            "Expected SetBgColor"
+        );
     }
 
     #[test]

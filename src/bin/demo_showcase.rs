@@ -8353,7 +8353,7 @@ mod tests {
     fn test_default_config() {
         let result = Config::from_args(args(&["demo_showcase"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert_eq!(config.fps_cap, 60);
         assert!(config.enable_mouse);
@@ -8371,7 +8371,7 @@ mod tests {
     fn test_fps_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--fps", "30"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert_eq!(config.fps_cap, 30);
     }
@@ -8380,7 +8380,7 @@ mod tests {
     fn test_no_mouse_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--no-mouse"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert!(!config.enable_mouse);
     }
@@ -8389,7 +8389,7 @@ mod tests {
     fn test_headless_smoke_flag() {
         let result = Config::from_args(args(&["demo_showcase", "--headless-smoke"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert!(config.headless_smoke);
     }
@@ -8398,7 +8398,7 @@ mod tests {
     fn test_headless_size() {
         let result = Config::from_args(args(&["demo_showcase", "--headless-size", "120x40"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert_eq!(config.headless_size, (120, 40));
     }
@@ -8408,7 +8408,7 @@ mod tests {
         for check in ["layout", "config", "palette", "hitgrid", "logs"] {
             let result = Config::from_args(args(&["demo_showcase", "--headless-check", check]));
             let ParseResult::Config(config) = result else {
-                panic!("Expected Config for check: {check}")
+                unreachable!("Expected Config for check: {check}");
             };
             assert_eq!(config.headless_check, Some(check.to_string()));
         }
@@ -8424,7 +8424,7 @@ mod tests {
     fn test_max_frames() {
         let result = Config::from_args(args(&["demo_showcase", "--max-frames", "100"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert_eq!(config.max_frames, Some(100));
     }
@@ -8448,7 +8448,7 @@ mod tests {
     fn test_cap_preset() {
         let result = Config::from_args(args(&["demo_showcase", "--cap-preset", "no_mouse"]));
         let ParseResult::Config(config) = result else {
-            panic!("Expected Config")
+            unreachable!("Expected Config");
         };
         assert_eq!(config.cap_preset, CapPreset::NoMouse);
     }
@@ -10091,7 +10091,7 @@ mod tests {
         // Default config
         let result = Config::from_args(args(&["demo_showcase"]));
         let ParseResult::Config(cfg) = result else {
-            panic!("Expected Config for default args");
+            unreachable!("Expected Config for default args");
         };
         assert_eq!(cfg.fps_cap, 60);
         assert!(cfg.enable_mouse);
@@ -10099,21 +10099,21 @@ mod tests {
         // --fps 30
         let result = Config::from_args(args(&["demo_showcase", "--fps", "30"]));
         let ParseResult::Config(cfg) = result else {
-            panic!("Expected Config for --fps 30");
+            unreachable!("Expected Config for --fps 30");
         };
         assert_eq!(cfg.fps_cap, 30);
 
         // --no-mouse
         let result = Config::from_args(args(&["demo_showcase", "--no-mouse"]));
         let ParseResult::Config(cfg) = result else {
-            panic!("Expected Config for --no-mouse");
+            unreachable!("Expected Config for --no-mouse");
         };
         assert!(!cfg.enable_mouse);
 
         // --seed 42
         let result = Config::from_args(args(&["demo_showcase", "--seed", "42"]));
         let ParseResult::Config(cfg) = result else {
-            panic!("Expected Config for --seed 42");
+            unreachable!("Expected Config for --seed 42");
         };
         assert_eq!(cfg.seed, 42);
     }

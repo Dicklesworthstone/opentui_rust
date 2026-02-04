@@ -31,7 +31,7 @@ mod tests {
             );
             assert_eq!(id.width(), 2, "Expected width 2");
         } else {
-            panic!("Expected grapheme content, got {:?}", cell.content);
+            unreachable!("Expected grapheme content, got {:?}", cell.content);
         }
     }
 

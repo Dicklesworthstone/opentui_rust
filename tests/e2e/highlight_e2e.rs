@@ -170,7 +170,7 @@ fn e2e_fixture_highlighting_smoke() {
     for (ext, source) in fixtures {
         let tokenizer = registry
             .for_extension_shared(ext)
-            .unwrap_or_else(|| panic!("Missing tokenizer for {ext}"));
+            .unwrap_or_else(|| unreachable!("Missing tokenizer for {ext}"));
         let mut highlighted = HighlightedBuffer::new(TextBuffer::with_text(source));
         highlighted.set_tokenizer(Some(tokenizer));
         highlighted.set_theme(Theme::dark());

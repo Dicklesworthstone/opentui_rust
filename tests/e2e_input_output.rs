@@ -26,7 +26,7 @@ fn test_e2e_key_input_and_render() {
         assert_eq!(key.code, KeyCode::Right, "Should be right arrow key");
         view.edit_buffer_mut().move_right();
     } else {
-        panic!("Expected Key event, got {:?}", events[0]);
+        unreachable!("Expected Key event, got {:?}", events[0]);
     }
 
     // Render editor to buffer
@@ -68,7 +68,7 @@ fn test_e2e_mouse_click_and_selection() {
         assert_eq!(mouse.x, 5, "X coordinate should be 5 (6-1)");
         assert_eq!(mouse.y, 0, "Y coordinate should be 0 (1-1)");
     } else {
-        panic!("Expected Mouse event, got {:?}", events.first());
+        unreachable!("Expected Mouse event, got {:?}", events.first());
     }
 
     // Render text to buffer

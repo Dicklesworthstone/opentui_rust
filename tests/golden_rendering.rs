@@ -74,7 +74,7 @@ fn assert_golden(name: &str, output: &[u8], width: u32, height: u32) {
             eprintln!("Created new golden file: {}", path.display());
         }
         GoldenResult::Mismatch { diff_summary, .. } => {
-            panic!("Golden file mismatch for '{name}':\n{diff_summary}");
+            unreachable!("Golden file mismatch for '{name}':\n{diff_summary}");
         }
     }
 }

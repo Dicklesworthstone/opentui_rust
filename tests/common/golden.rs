@@ -222,9 +222,7 @@ pub fn compare_golden(name: &str, actual: &[u8], metadata: &GoldenMetadata) -> G
             }
             GoldenResult::NotFound { path }
         }
-        Err(e) => {
-            panic!("Failed to load golden file {name}: {e}");
-        }
+        Err(e) => unreachable!("Failed to load golden file {name}: {e}"),
     }
 }
 
@@ -379,7 +377,7 @@ macro_rules! assert_golden {
                 eprintln!("Created new golden file: {}", path.display());
             }
             GoldenResult::Mismatch { diff_summary, .. } => {
-                panic!("Golden file mismatch for '{}':\n{}", $name, diff_summary);
+                unreachable!("Golden file mismatch for '{}':\n{}", $name, diff_summary);
             }
         }
     }};
