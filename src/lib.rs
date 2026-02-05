@@ -98,7 +98,7 @@ pub use ansi::ColorMode;
 // Re-export commonly used types
 pub use buffer::OptimizedBuffer;
 pub use highlight::{HighlightedBuffer, Theme, ThemeRegistry, Token, TokenKind, TokenizerRegistry};
-pub use renderer::{RenderStats, Renderer, RendererOptions};
+pub use renderer::{Rect, RenderStats, Renderer, RendererOptions};
 pub use terminal::{
     Capabilities, ColorSupport, RawModeGuard, Terminal, enable_raw_mode, is_tty, terminal_size,
 };

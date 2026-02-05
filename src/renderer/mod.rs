@@ -103,6 +103,80 @@ pub struct RenderStats {
     pub total_bytes: usize,
 }
 
+/// Rectangle with unsigned coordinates for dirty-region tracking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Rect {
+    /// Create a new rectangle.
+    #[must_use]
+    pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// Check if this rectangle is empty (zero area).
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
+    fn max_x(&self) -> u32 {
+        self.x.saturating_add(self.width)
+    }
+
+    fn max_y(&self) -> u32 {
+        self.y.saturating_add(self.height)
+    }
+
+    fn merge(&self, other: &Self) -> Self {
+        let x1 = self.x.min(other.x);
+        let y1 = self.y.min(other.y);
+        let x2 = self.max_x().max(other.max_x());
+        let y2 = self.max_y().max(other.max_y());
+        Self::new(x1, y1, x2.saturating_sub(x1), y2.saturating_sub(y1))
+    }
+
+    fn intersects_or_touches(&self, other: &Self) -> bool {
+        let x2 = self.max_x();
+        let y2 = self.max_y();
+        let ox2 = other.max_x();
+        let oy2 = other.max_y();
+        self.x <= ox2 && other.x <= x2 && self.y <= oy2 && other.y <= y2
+    }
+
+    fn clamp_to(&self, width: u32, height: u32) -> Option<Self> {
+        if self.is_empty() {
+            return None;
+        }
+        if self.x >= width || self.y >= height {
+            return None;
+        }
+        let max_x = self.max_x().min(width);
+        let max_y = self.max_y().min(height);
+        let clamped = Self::new(
+            self.x,
+            self.y,
+            max_x.saturating_sub(self.x),
+            max_y.saturating_sub(self.y),
+        );
+        if clamped.is_empty() {
+            None
+        } else {
+            Some(clamped)
+        }
+    }
+}
+
 /// CLI renderer with double buffering.
 ///
 /// The renderer is the main entry point for terminal rendering. It manages:
@@ -140,6 +214,7 @@ pub struct Renderer {
     scratch_buffer: Vec<u8>,
     /// Reusable diff to avoid per-frame allocation.
     cached_diff: BufferDiff,
+    manual_dirty_regions: Vec<Rect>,
 
     layers: BTreeMap<u16, OptimizedBuffer>,
     active_hit_layer: u16,
@@ -189,6 +264,7 @@ impl Renderer {
             grapheme_pool: crate::grapheme_pool::GraphemePool::new(),
             scratch_buffer: Vec::with_capacity(total_cells.saturating_mul(20)),
             cached_diff: BufferDiff::with_capacity(total_cells / 8),
+            manual_dirty_regions: Vec::new(),
             layers: BTreeMap::new(),
             active_hit_layer: 0,
             layers_dirty: false,
@@ -302,6 +378,34 @@ impl Renderer {
         self.background = color;
     }
 
+    /// Mark a rectangular region as dirty for the next present.
+    ///
+    /// This is useful when you know only a portion of the screen needs to be
+    /// refreshed (for example, when updating a small widget).
+    pub fn mark_region_dirty(&mut self, rect: Rect) {
+        let Some(mut rect) = rect.clamp_to(self.width, self.height) else {
+            return;
+        };
+
+        let mut i = 0;
+        while i < self.manual_dirty_regions.len() {
+            if rect.intersects_or_touches(&self.manual_dirty_regions[i]) {
+                rect = rect.merge(&self.manual_dirty_regions[i]);
+                self.manual_dirty_regions.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+
+        self.manual_dirty_regions.push(rect);
+    }
+
+    /// Get the currently tracked dirty regions.
+    #[must_use]
+    pub fn get_dirty_regions(&self) -> &[Rect] {
+        &self.manual_dirty_regions
+    }
+
     /// Render into an offscreen layer buffer.
     ///
     /// Layer `0` is the base layer (the regular back buffer). Higher layer IDs are
@@ -391,6 +495,7 @@ impl Renderer {
         // Use cached diff to avoid per-frame allocation
         self.cached_diff
             .compute_into(&self.front_buffer, &self.back_buffer);
+        self.append_manual_dirty_regions();
 
         if self.force_redraw || self.cached_diff.should_full_redraw(total_cells) {
             self.present_force()?;
@@ -408,6 +513,7 @@ impl Renderer {
             .clear_with_pool(&mut self.grapheme_pool, self.background);
         self.back_hit_grid.clear();
         self.clear_overlay_layers();
+        self.manual_dirty_regions.clear();
 
         Ok(())
     }
@@ -470,23 +576,28 @@ impl Renderer {
         writer.write_str("\x1b[H");
 
         for region in &self.cached_diff.dirty_regions {
-            for i in 0..region.width {
-                let x = region.x + i;
-                let y = region.y;
-                let back_cell = self.back_buffer.get(x, y);
-                if let Some(cell) = back_cell {
-                    // Skip continuation cells - they don't produce output
-                    if cell.is_continuation() {
-                        continue;
+            if region.width == 0 || region.height == 0 {
+                continue;
+            }
+            for row in 0..region.height {
+                let y = region.y + row;
+                for col in 0..region.width {
+                    let x = region.x + col;
+                    let back_cell = self.back_buffer.get(x, y);
+                    if let Some(cell) = back_cell {
+                        // Skip continuation cells - they don't produce output
+                        if cell.is_continuation() {
+                            continue;
+                        }
+                        // Always move cursor to exact position before writing
+                        // This ensures correct positioning even when continuation cells are skipped
+                        writer.move_cursor(y, x);
+                        let url = cell
+                            .attributes
+                            .link_id()
+                            .and_then(|id| self.link_pool.get(id));
+                        writer.write_cell_with_pool_and_link(cell, &self.grapheme_pool, url);
                     }
-                    // Always move cursor to exact position before writing
-                    // This ensures correct positioning even when continuation cells are skipped
-                    writer.move_cursor(y, x);
-                    let url = cell
-                        .attributes
-                        .link_id()
-                        .and_then(|id| self.link_pool.get(id));
-                    writer.write_cell_with_pool_and_link(cell, &self.grapheme_pool, url);
                 }
             }
         }
@@ -519,6 +630,7 @@ impl Renderer {
         self.hit_scissor.clear();
         // Clear cached diff (it will grow as needed on next present)
         self.cached_diff.clear();
+        self.manual_dirty_regions.clear();
         self.force_redraw = true;
         self.terminal.clear()
     }
@@ -659,6 +771,23 @@ impl Renderer {
         }
         self.active_hit_layer = 0;
         self.layers_dirty = false;
+    }
+
+    fn append_manual_dirty_regions(&mut self) {
+        if self.manual_dirty_regions.is_empty() {
+            return;
+        }
+        self.cached_diff
+            .dirty_regions
+            .reserve(self.manual_dirty_regions.len());
+        for rect in &self.manual_dirty_regions {
+            self.cached_diff.dirty_regions.push(diff::DirtyRegion::new(
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+            ));
+        }
     }
 }
 
@@ -979,6 +1108,46 @@ mod tests {
         assert_eq!(region.y, 10);
         assert_eq!(region.width, 1);
         assert_eq!(region.height, 1);
+    }
+
+    // ============================================
+    // Manual Dirty Region Tracking Tests (bd-1nfd)
+    // ============================================
+
+    #[test]
+    fn test_mark_region_dirty_clamps_and_stores() {
+        let mut r = test_renderer(10, 10);
+        r.mark_region_dirty(Rect::new(2, 3, 4, 5));
+
+        let regions = r.get_dirty_regions();
+        assert_eq!(regions.len(), 1);
+        assert!(regions.contains(&Rect::new(2, 3, 4, 5)));
+
+        // Clamp to buffer bounds
+        r.mark_region_dirty(Rect::new(8, 8, 10, 10));
+        let regions = r.get_dirty_regions();
+        assert_eq!(regions.len(), 2);
+        assert!(regions.contains(&Rect::new(8, 8, 2, 2)));
+    }
+
+    #[test]
+    fn test_mark_region_dirty_merges_overlaps() {
+        let mut r = test_renderer(20, 20);
+        r.mark_region_dirty(Rect::new(2, 2, 4, 4));
+        r.mark_region_dirty(Rect::new(4, 4, 4, 4));
+
+        let regions = r.get_dirty_regions();
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0], Rect::new(2, 2, 6, 6));
+    }
+
+    #[test]
+    fn test_dirty_regions_cleared_after_present() {
+        let mut r = test_renderer(5, 5);
+        r.mark_region_dirty(Rect::new(1, 1, 2, 2));
+        assert!(!r.get_dirty_regions().is_empty());
+        r.present().unwrap();
+        assert!(r.get_dirty_regions().is_empty());
     }
 
     // ============================================
