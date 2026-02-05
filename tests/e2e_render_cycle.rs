@@ -10,9 +10,9 @@ mod common;
 use common::harness::E2EHarness;
 use common::mock_terminal::MockTerminal;
 use opentui::ansi::AnsiWriter;
-use opentui::buffer::OptimizedBuffer;
+use opentui::buffer::{BoxStyle, OptimizedBuffer};
 use opentui::grapheme_pool::GraphemePool;
-use opentui::renderer::BufferDiff;
+use opentui::renderer::{BufferDiff, Renderer, RendererOptions};
 use opentui::style::TextAttributes;
 use opentui::{Rgba, Style};
 use opentui_rust as opentui;
@@ -57,7 +57,11 @@ fn test_e2e_basic_render_cycle() {
     );
 
     // Verify "Hello, OpenTUI!" is in the changed region (15 characters at row 0)
-    let row0_changes = diff1.changed_cells.iter().filter(|(_, y)| *y == 0).count();
+    let row0_changes = diff1
+        .changed_cells
+        .iter()
+        .filter(|(_, y)| matches!(*y, 0))
+        .count();
     assert!(
         row0_changes >= 15,
         "Row 0 should have at least 15 changed cells for 'Hello, OpenTUI!'"
@@ -91,14 +95,14 @@ fn test_e2e_basic_render_cycle() {
     );
 
     // Verify row 0 has no changes (content unchanged)
-    let row0_changes2 = diff2.changed_cells.iter().any(|(_, y)| *y == 0);
+    let row0_changes2 = diff2.changed_cells.iter().any(|(_, y)| matches!(*y, 0));
     assert!(
         !row0_changes2,
         "Row 0 should have no changes (content unchanged)"
     );
 
     // Verify row 1 has changes
-    let row1_changes = diff2.changed_cells.iter().any(|(_, y)| *y == 1);
+    let row1_changes = diff2.changed_cells.iter().any(|(_, y)| matches!(*y, 1));
     assert!(
         row1_changes,
         "Row 1 should have changes (Frame 1 -> Frame 2)"
@@ -107,6 +111,133 @@ fn test_e2e_basic_render_cycle() {
     harness.dump_buffer("final_state");
     harness.finish(true);
     eprintln!("[TEST] PASS: E2E basic render cycle works");
+}
+
+/// Test layered gradient UI with hit testing across layers.
+#[test]
+#[allow(clippy::too_many_lines)] // E2E test logs each step; clarity over brevity.
+#[allow(clippy::cast_precision_loss)] // f32 lerp requires casts; dimensions are small in tests.
+fn test_e2e_layered_gradient_hit_test() {
+    let width = 40;
+    let height = 12;
+    let mut harness = E2EHarness::new("render_cycle", "layered_gradient_hit_test", width, height);
+
+    harness
+        .log()
+        .info("init", "Starting layered gradient + hit-test test");
+
+    let mut renderer = Renderer::new_with_options(
+        width,
+        height,
+        RendererOptions {
+            use_alt_screen: false,
+            hide_cursor: false,
+            enable_mouse: false,
+            query_capabilities: false,
+        },
+    )
+    .expect("Renderer creation should succeed with options disabled");
+
+    let top = Rgba::from_hex("#1a1a2e").unwrap_or(Rgba::BLACK);
+    let bottom = Rgba::from_hex("#16213e").unwrap_or(Rgba::BLACK);
+
+    harness
+        .log()
+        .info("render", "Layer 0: vertical gradient background");
+
+    renderer.render_to_layer(0, |buf| {
+        let denom = height.saturating_sub(1).max(1) as f32;
+        for y in 0..height {
+            let t = y as f32 / denom;
+            let color = top.lerp(bottom, t);
+            buf.fill_rect(0, y, width, 1, color);
+        }
+    });
+    renderer.register_hit_area(0, 0, width, height, 0);
+
+    let panel_x = 6;
+    let panel_y = 3;
+    let panel_w = 28;
+    let panel_h = 6;
+    let panel_base = Rgba::from_hex("#0f3460")
+        .unwrap_or(Rgba::BLACK)
+        .with_alpha(0.85);
+
+    harness
+        .log()
+        .info("render", "Layer 1: translucent panel + border");
+
+    renderer.render_to_layer(1, |buf| {
+        buf.fill_rect(panel_x, panel_y, panel_w, panel_h, panel_base);
+        buf.draw_box(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            BoxStyle::double(Style::fg(Rgba::WHITE)),
+        );
+        buf.draw_text(panel_x + 2, panel_y + 2, "Panel", Style::fg(Rgba::WHITE));
+    });
+    renderer.register_hit_area(panel_x, panel_y, panel_w, panel_h, 1);
+
+    let stats_before = renderer.stats().clone();
+    harness
+        .log()
+        .info("present", "Merging layers and presenting frame");
+    renderer.present().expect("present should succeed");
+
+    let stats_after = renderer.stats().clone();
+    harness.log().info(
+        "stats",
+        format!(
+            "frames {} -> {}, last_frame_cells={}",
+            stats_before.frames, stats_after.frames, stats_after.last_frame_cells
+        ),
+    );
+
+    let bg_hit = renderer.hit_test(1, 1);
+    let panel_hit = renderer.hit_test(panel_x + 1, panel_y + 1);
+    harness.log().info(
+        "hit_test",
+        format!("bg_hit={:?}, panel_hit={:?}", bg_hit, panel_hit),
+    );
+
+    assert_eq!(bg_hit, Some(0), "Background hit should resolve to layer 0");
+    assert_eq!(panel_hit, Some(1), "Panel hit should resolve to layer 1");
+
+    let front = renderer.front_buffer();
+    let sample_x = panel_x + 1;
+    let sample_y = panel_y + 1;
+    let sample_cell = front
+        .get(sample_x, sample_y)
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", sample_x, sample_y));
+    let denom = height.saturating_sub(1).max(1) as f32;
+    let base_color = top.lerp(bottom, sample_y as f32 / denom);
+    let expected = panel_base.blend_over(base_color);
+
+    let color_close = |a: Rgba, b: Rgba| {
+        const EPS: f32 = 0.01;
+        (a.r - b.r).abs() < EPS
+            && (a.g - b.g).abs() < EPS
+            && (a.b - b.b).abs() < EPS
+            && (a.a - b.a).abs() < EPS
+    };
+
+    harness.log().info(
+        "color",
+        format!(
+            "base={:?} overlay={:?} expected={:?} actual={:?}",
+            base_color, panel_base, expected, sample_cell.bg
+        ),
+    );
+
+    assert!(
+        color_close(sample_cell.bg, expected),
+        "Blended panel bg should match expected composite"
+    );
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E layered gradient + hit-test works");
 }
 
 /// Test that first frame outputs full buffer content.
@@ -188,7 +319,7 @@ fn test_e2e_subsequent_frames_diff_only() {
 
     // Verify static content row has no changes
     assert!(
-        !diff.changed_cells.iter().any(|(_, y)| *y == 0),
+        !diff.changed_cells.iter().any(|(_, y)| matches!(*y, 0)),
         "Static row should have no changes"
     );
 
@@ -276,7 +407,7 @@ fn test_e2e_clear_and_draw() {
 
     // Verify first cell is different
     assert!(
-        diff.changed_cells.iter().any(|(_, y)| *y == 0),
+        diff.changed_cells.iter().any(|(_, y)| matches!(*y, 0)),
         "Row 0 should have changes after clear + draw"
     );
 
