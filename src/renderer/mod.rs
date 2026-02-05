@@ -56,7 +56,7 @@ pub use hitgrid::HitGrid;
 pub use threaded::{ThreadedRenderStats, ThreadedRenderer};
 
 use crate::ansi::AnsiWriter;
-use crate::buffer::{ClipRect, OptimizedBuffer, ScissorStack};
+use crate::buffer::{BoxOptions, BoxStyle, ClipRect, OptimizedBuffer, ScissorStack, TitleAlign};
 use crate::color::Rgba;
 use crate::link::LinkPool;
 use crate::terminal::{CursorStyle, Terminal};
@@ -225,6 +225,7 @@ pub struct Renderer {
     stats: RenderStats,
     last_present_at: Instant,
     show_debug_overlay: bool,
+    debug_overlay_position: (u32, u32),
 }
 
 impl Renderer {
@@ -273,6 +274,7 @@ impl Renderer {
             stats: RenderStats::default(),
             last_present_at: Instant::now(),
             show_debug_overlay: false,
+            debug_overlay_position: (0, 0),
         })
     }
 
@@ -312,6 +314,17 @@ impl Renderer {
     /// Enable or disable the debug overlay.
     pub fn set_debug_overlay(&mut self, enabled: bool) {
         self.show_debug_overlay = enabled;
+    }
+
+    /// Check if the debug overlay is enabled.
+    #[must_use]
+    pub fn is_debug_overlay_enabled(&self) -> bool {
+        self.show_debug_overlay
+    }
+
+    /// Set the debug overlay position (top-left corner).
+    pub fn set_debug_overlay_position(&mut self, x: u32, y: u32) {
+        self.debug_overlay_position = (x, y);
     }
 
     /// Access the link pool for hyperlink registration.
@@ -742,12 +755,65 @@ impl Renderer {
 
     fn draw_debug_overlay(&mut self) {
         let stats = &self.stats;
-        let text = format!(
-            "fps:{:.1} frame:{:?} cells:{} mem:{}B",
-            stats.fps, stats.last_frame_time, stats.last_frame_cells, stats.total_bytes
-        );
+        let total_cells = (self.width as usize).saturating_mul(self.height as usize);
+        let dirty_regions = self.cached_diff.dirty_regions.len();
+        let layers = self.layers.len();
+        let pool_stats = self.grapheme_pool.stats();
+        let pool_mem = self.grapheme_pool.get_memory_usage();
+        let mem_total = stats.total_bytes.saturating_add(pool_mem);
+
+        let lines = [
+            format!(
+                "FPS: {:.1} ({:.1}ms)",
+                stats.fps,
+                stats.last_frame_time.as_secs_f32() * 1000.0
+            ),
+            format!("Cells: {} / {}", stats.last_frame_cells, total_cells),
+            format!("Dirty: {dirty_regions} regions"),
+            format!("Layers: {layers}"),
+            format!(
+                "Pool: {}/{} active",
+                pool_stats.active_slots, pool_stats.total_slots
+            ),
+            format!("Mem: {mem_total} B"),
+        ];
+
+        let title = "Debug";
+        let max_line_width = lines
+            .iter()
+            .map(|line| crate::unicode::display_width(line))
+            .max()
+            .unwrap_or(0);
+        let min_width = crate::unicode::display_width(title).saturating_add(4);
+        let inner_width = max_line_width.max(min_width);
+        let box_w = (inner_width + 2) as u32;
+        let box_h = (lines.len() + 2) as u32;
+
+        if box_w < 2 || box_h < 2 || self.width < 2 || self.height < 2 {
+            return;
+        }
+
+        let (mut x, mut y) = self.debug_overlay_position;
+        let max_x = self.width.saturating_sub(box_w);
+        let max_y = self.height.saturating_sub(box_h);
+        x = x.min(max_x);
+        y = y.min(max_y);
+
+        let border_style = crate::style::Style::fg(Rgba::WHITE).with_bold();
+        let mut options = BoxOptions::new(BoxStyle::rounded(border_style));
+        options.fill = Some(Rgba::BLACK.with_alpha(0.6));
+        options.title = Some(title.to_string());
+        options.title_align = TitleAlign::Left;
+
         self.back_buffer
-            .draw_text(0, 0, &text, crate::style::Style::dim());
+            .draw_box_with_options(x, y, box_w, box_h, options);
+
+        let text_style = crate::style::Style::fg(Rgba::WHITE);
+        for (idx, line) in lines.iter().enumerate() {
+            let row = y.saturating_add(1 + idx as u32);
+            self.back_buffer
+                .draw_text(x.saturating_add(1), row, line, text_style);
+        }
     }
 
     fn clear_overlay_layers(&mut self) {
@@ -1498,10 +1564,25 @@ mod tests {
     #[test]
     fn test_set_debug_overlay_toggle() {
         let mut r = test_renderer(80, 24);
+        assert!(!r.is_debug_overlay_enabled());
         r.set_debug_overlay(true);
+        assert!(r.is_debug_overlay_enabled());
         r.set_debug_overlay(false);
+        assert!(!r.is_debug_overlay_enabled());
         r.set_debug_overlay(true);
+        assert!(r.is_debug_overlay_enabled());
         // Should not panic
+    }
+
+    #[test]
+    fn test_debug_overlay_position_draws_box() {
+        let mut r = test_renderer(40, 20);
+        r.set_debug_overlay(true);
+        r.set_debug_overlay_position(2, 3);
+        r.draw_debug_overlay();
+
+        let cell = r.buffer().get(2, 3).unwrap();
+        assert!(matches!(cell.content, crate::cell::CellContent::Char('╭')));
     }
 
     // --- Capabilities access ---
