@@ -14,7 +14,7 @@ use opentui::buffer::{BoxStyle, OptimizedBuffer};
 use opentui::grapheme_pool::GraphemePool;
 use opentui::renderer::{BufferDiff, Renderer, RendererOptions};
 use opentui::style::TextAttributes;
-use opentui::{Rgba, Style};
+use opentui::{Cell, Rgba, Style};
 use opentui_rust as opentui;
 use std::io::Write;
 
@@ -238,6 +238,81 @@ fn test_e2e_layered_gradient_hit_test() {
 
     harness.finish(true);
     eprintln!("[TEST] PASS: E2E layered gradient + hit-test works");
+}
+
+/// Test pattern-style background with alpha overlay blending.
+#[test]
+fn test_e2e_pattern_blend_overlay() {
+    let width = 20;
+    let height = 8;
+    let mut harness = E2EHarness::new("render_cycle", "pattern_blend_overlay", width, height);
+
+    harness
+        .log()
+        .info("init", "Starting pattern blend overlay test");
+
+    let mut buffer = OptimizedBuffer::new(width, height);
+    let dark = Rgba::from_hex("#2d2d2d").unwrap_or(Rgba::BLACK);
+    let light = Rgba::from_hex("#3a3a3a").unwrap_or(Rgba::BLACK);
+
+    // Checkerboard pattern
+    for y in 0..height {
+        for x in 0..width {
+            let bg = if matches!((x + y) % 2, 0) {
+                dark
+            } else {
+                light
+            };
+            buffer.set(x, y, Cell::clear(bg));
+        }
+    }
+
+    // Semi-transparent overlay rectangle
+    let overlay = Rgba::from_hex("#ff6b6b")
+        .unwrap_or(Rgba::WHITE)
+        .with_alpha(0.5);
+    let overlay_x = 4;
+    let overlay_y = 2;
+    let overlay_w = 10;
+    let overlay_h = 3;
+    buffer.fill_rect(overlay_x, overlay_y, overlay_w, overlay_h, overlay);
+
+    // Verify a blended sample cell in overlay region
+    let sample_x = overlay_x + 1;
+    let sample_y = overlay_y + 1;
+    let base_bg = if matches!((sample_x + sample_y) % 2, 0) {
+        dark
+    } else {
+        light
+    };
+    let expected = overlay.blend_over(base_bg);
+    let sample = buffer
+        .get(sample_x, sample_y)
+        .unwrap_or_else(|| unreachable!("No cell at ({}, {})", sample_x, sample_y));
+
+    let color_close = |a: Rgba, b: Rgba| {
+        const EPS: f32 = 0.01;
+        (a.r - b.r).abs() < EPS
+            && (a.g - b.g).abs() < EPS
+            && (a.b - b.b).abs() < EPS
+            && (a.a - b.a).abs() < EPS
+    };
+
+    harness.log().info(
+        "blend",
+        format!(
+            "base={:?} overlay={:?} expected={:?} actual={:?}",
+            base_bg, overlay, expected, sample.bg
+        ),
+    );
+
+    assert!(
+        color_close(sample.bg, expected),
+        "Overlay blend should match expected composite"
+    );
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E pattern blend overlay works");
 }
 
 /// Test that first frame outputs full buffer content.

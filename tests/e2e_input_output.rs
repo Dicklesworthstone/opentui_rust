@@ -3,7 +3,9 @@
 mod common;
 
 use common::harness::E2EHarness;
+use common::mock_terminal::MockTerminal;
 use opentui::input::{Event, KeyCode, MouseEventKind};
+use opentui::terminal::Terminal;
 use opentui::{EditBuffer, EditorView, Style};
 use opentui_rust as opentui;
 
@@ -133,6 +135,66 @@ fn test_e2e_bracketed_paste() {
 
     harness.finish(true);
     eprintln!("[TEST] PASS: E2E bracketed paste works");
+}
+
+#[test]
+fn test_e2e_terminal_response_handling() {
+    let mut harness = E2EHarness::new("input_output", "terminal_response", 80, 24);
+    harness
+        .log()
+        .info("init", "Starting terminal response handling test");
+
+    let mock = MockTerminal::new(80, 24);
+    let mut terminal = Terminal::new(mock);
+
+    terminal
+        .query_capabilities()
+        .expect("query_capabilities should write to mock terminal");
+
+    // DA1 response with sixel support (param 4)
+    let da1 = b"\x1b[?1;4c";
+    assert!(
+        terminal.parse_response(da1).is_some(),
+        "DA1 response should parse"
+    );
+    assert!(terminal.capabilities().sixel, "DA1 should enable sixel");
+    harness.log().info("caps", "DA1 set sixel=true");
+
+    // Pixel size response enables explicit width + pixel mode
+    let pixel = b"\x1b[4;24;80t";
+    assert!(
+        terminal.parse_response(pixel).is_some(),
+        "Pixel size response should parse"
+    );
+    assert!(
+        terminal.capabilities().explicit_width,
+        "Pixel size should enable explicit width"
+    );
+    assert!(
+        terminal.capabilities().sgr_pixels,
+        "Pixel size should enable SGR pixel mode"
+    );
+    harness
+        .log()
+        .info("caps", "Pixel size set explicit_width + sgr_pixels");
+
+    // XTVERSION response for kitty enables sync + kitty flags
+    let xtversion = b"\x1bP>|kitty 0.30\x1b\\";
+    assert!(
+        terminal.parse_response(xtversion).is_some(),
+        "XTVERSION response should parse"
+    );
+    assert!(
+        terminal.capabilities().kitty_keyboard,
+        "Kitty version should enable kitty keyboard"
+    );
+    assert!(
+        terminal.capabilities().sync_output,
+        "Kitty version should enable synchronized output"
+    );
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E terminal response handling works");
 }
 
 #[test]
@@ -682,7 +744,7 @@ fn test_e2e_threaded_renderer_lifecycle_components() {
     // Verify the rendered content
     let cell = returned_buffer.get(0, 0).expect("Cell should exist");
     assert!(
-        cell.content.as_char() == Some('R'),
+        matches!(cell.content.as_char(), Some('R')),
         "Cell should contain 'R' from 'Rendered!'"
     );
     harness

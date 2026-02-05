@@ -7,12 +7,13 @@
 
 mod common;
 
-use opentui::OptimizedBuffer;
+use common::harness::E2EHarness;
 use opentui::buffer::ClipRect;
 use opentui::color::Rgba;
 use opentui::grapheme_pool::GraphemePool;
 use opentui::style::Style;
-use opentui::unicode::{display_width, display_width_char, graphemes};
+use opentui::unicode::{display_width, display_width_char, graphemes, reorder_for_display};
+use opentui::{EditBuffer, EditorView, OptimizedBuffer};
 use opentui_rust as opentui;
 
 // ============================================================================
@@ -24,7 +25,7 @@ fn verify_text_render(buffer: &OptimizedBuffer, x: u32, y: u32, text: &str, _sty
     let mut col = x;
     for grapheme in graphemes(text) {
         let width = u32::try_from(display_width(grapheme)).expect("width fits u32");
-        if width == 0 {
+        if matches!(width, 0) {
             continue;
         }
 
@@ -672,6 +673,140 @@ fn test_rtl_characters() {
 
     // Verify rendering doesn't panic and characters are placed
     // (Actual bidi reordering depends on terminal, not our renderer)
+}
+
+#[test]
+fn test_e2e_bidi_reorder_and_render() {
+    let mut harness = E2EHarness::new("unicode", "bidi_reorder", 20, 2);
+    harness
+        .log()
+        .info("init", "Starting BiDi reorder + render test");
+
+    let logical = "abc אבג";
+    let visual = reorder_for_display(logical);
+    assert_eq!(visual, "abc גבא", "BiDi reorder should flip RTL run");
+
+    let mut buffer = OptimizedBuffer::new(20, 2);
+    buffer.clear(Rgba::BLACK);
+    buffer.draw_text(0, 0, &visual, Style::NONE);
+
+    for (idx, ch) in visual.chars().enumerate() {
+        let idx_u32 = u32::try_from(idx).expect("index fits u32");
+        let cell = buffer
+            .get(idx_u32, 0)
+            .unwrap_or_else(|| unreachable!("No cell at ({}, 0)", idx));
+        assert_eq!(
+            cell.content.as_char(),
+            Some(ch),
+            "Visual order char mismatch at index {idx}"
+        );
+    }
+
+    let mirrored = reorder_for_display("\u{05D0}(ב)ג.");
+    assert_eq!(
+        mirrored, ".ג(ב)א",
+        "BiDi mirroring should flip parentheses in RTL run"
+    );
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E BiDi reorder + render works");
+}
+
+#[test]
+fn test_e2e_bidi_editor_selection_render() {
+    let mut harness = E2EHarness::new("unicode", "bidi_editor_selection", 40, 3);
+    harness
+        .log()
+        .info("init", "Starting BiDi editor selection render test");
+
+    let text = "Hello שלום World";
+    let rtl = "שלום";
+    let byte_start = text.find(rtl).expect("RTL substring should exist");
+    let rtl_start = text[..byte_start].chars().count();
+    let rtl_end = rtl_start + rtl.chars().count();
+
+    let edit_buffer = EditBuffer::with_text(text);
+    let mut view = EditorView::new(edit_buffer);
+    let selection_bg = Rgba::from_rgb_u8(60, 60, 120);
+    view.set_selection_style(Style::builder().bg(selection_bg).build());
+    view.set_selection(rtl_start, rtl_end);
+
+    let mut buffer = OptimizedBuffer::new(40, 3);
+    buffer.clear(Rgba::BLACK);
+    view.render_to(&mut buffer, 0, 0, 40, 3);
+
+    for (i, ch) in rtl.chars().enumerate() {
+        let col = u32::try_from(rtl_start + i).expect("selection index fits u32");
+        let cell = buffer
+            .get(col, 0)
+            .unwrap_or_else(|| unreachable!("No cell at ({col}, 0)"));
+        let color_close = |a: Rgba, b: Rgba| {
+            const EPS: f32 = 0.01;
+            (a.r - b.r).abs() < EPS
+                && (a.g - b.g).abs() < EPS
+                && (a.b - b.b).abs() < EPS
+                && (a.a - b.a).abs() < EPS
+        };
+        let is_expected_char = cell.content.as_char().is_some_and(|c| c.eq(&ch));
+        assert!(
+            is_expected_char && color_close(cell.bg, selection_bg),
+            "Selected RTL cell should have selection background"
+        );
+    }
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E BiDi editor selection render works");
+}
+
+#[test]
+fn test_e2e_grapheme_pool_stress_and_compaction() {
+    let mut harness = E2EHarness::new("unicode", "grapheme_pool_stress", 40, 4);
+    harness
+        .log()
+        .info("init", "Starting grapheme pool stress + compaction test");
+
+    let mut pool = GraphemePool::new();
+    let mut buffer = OptimizedBuffer::new(40, 4);
+    let emoji = "👨‍👩‍👧‍👦 Family 🎉 Party 🚀 Rocket";
+
+    for _ in 0..200 {
+        buffer.draw_text_with_pool(&mut pool, 0, 0, emoji, Style::NONE);
+        buffer.clear_with_pool(&mut pool, Rgba::BLACK);
+    }
+
+    let stats = pool.stats();
+    harness
+        .log()
+        .info("stats", format!("Pool stats after clears: {stats:?}"));
+    assert!(
+        stats.active_slots <= 2,
+        "Pool should not leak active slots after clear: {stats:?}"
+    );
+
+    let mut ids = Vec::with_capacity(1200);
+    for i in 0..1200 {
+        let id = pool.alloc(&format!("g{i}"));
+        ids.push(id);
+    }
+
+    for (i, id) in ids.iter().enumerate() {
+        if !matches!(i % 3, 0) {
+            pool.decref(*id);
+        }
+    }
+
+    assert!(pool.should_compact(), "Pool should recommend compaction");
+    let result = pool.compact();
+    harness
+        .log()
+        .info("compact", format!("Compaction result: {result:?}"));
+    assert!(
+        result.slots_freed > 0,
+        "Compaction should free slots: {result:?}"
+    );
+
+    harness.finish(true);
+    eprintln!("[TEST] PASS: E2E grapheme pool stress + compaction works");
 }
 
 #[test]
