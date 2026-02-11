@@ -16,9 +16,6 @@ def main():
     for i in range(data["count"]):
         print(i)
 
-    text = '''multi
-line
-string'''
 
     # comment
     if data["items"]:
