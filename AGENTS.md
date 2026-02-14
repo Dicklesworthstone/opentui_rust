@@ -4,7 +4,7 @@
 
 ---
 
-## RULE 0 - THE FUNDAMENTAL OVERRIDE PEROGATIVE
+## RULE 0 - THE FUNDAMENTAL OVERRIDE PREROGATIVE
 
 If I tell you to do something, even if it goes against what follows below, YOU MUST LISTEN TO ME. I AM IN CHARGE, NOT YOU.
 
@@ -28,6 +28,23 @@ If I tell you to do something, even if it goes against what follows below, YOU M
 
 ---
 
+## Git Branch: ONLY Use `main`, NEVER `master`
+
+**The default branch is `main`. The `master` branch exists only for legacy URL compatibility.**
+
+- **All work happens on `main`** — commits, PRs, feature branches all merge to `main`
+- **Never reference `master` in code or docs** — if you see `master` anywhere, it's a bug that needs fixing
+- **The `master` branch must stay synchronized with `main`** — after pushing to `main`, also push to `master`:
+  ```bash
+  git push origin main:master
+  ```
+
+**If you see `master` referenced anywhere:**
+1. Update it to `main`
+2. Ensure `master` is synchronized: `git push origin main:master`
+
+---
+
 ## Toolchain: Rust & Cargo
 
 We only use **Cargo** in this project, NEVER any other package manager.
@@ -35,7 +52,7 @@ We only use **Cargo** in this project, NEVER any other package manager.
 - **Edition:** Rust 2024 (nightly required — see `rust-toolchain.toml`)
 - **MSRV:** 1.85
 - **Dependency versions:** Explicit versions for stability
-- **Configuration:** Cargo.toml only
+- **Configuration:** Cargo.toml only (single-crate project, no workspace)
 - **Unsafe code:** Warn level (`#![warn(unsafe_code)]`) — required for libc/termios FFI in `src/terminal/raw.rs`
 
 ### Key Dependencies
@@ -45,13 +62,27 @@ We only use **Cargo** in this project, NEVER any other package manager.
 | `ropey` | Rope data structure for efficient text editing |
 | `unicode-segmentation` | Grapheme cluster iteration |
 | `unicode-width` | Display width calculation |
+| `unicode-normalization` | NFC text canonicalization |
+| `unicode-bidi` | Bidirectional text algorithm |
 | `bitflags` | TextAttributes bitflags (bold, italic, etc.) |
 | `libc` | Terminal raw mode via termios FFI |
 | `criterion` | Benchmarking (dev-dependency) |
+| `proptest` | Property-based testing (dev-dependency) |
+| `insta` | Snapshot testing (dev-dependency) |
+| `portable-pty` + `vt100` | PTY-based E2E testing (dev-dependency) |
+
+### Feature Flags
+
+```toml
+[features]
+default = []
+# Enable PTY-based E2E tests (require real terminal, slower)
+pty-tests = []
+```
 
 ### Release Profile
 
-The release build should optimize for both speed and size:
+The release build optimizes for both speed and size:
 
 ```toml
 [profile.release]
@@ -61,94 +92,6 @@ codegen-units = 1   # Single codegen unit for better optimization
 panic = "abort"     # Smaller binary, no unwinding overhead
 strip = true        # Remove debug symbols
 ```
-
----
-
-## Project Semantics (OpenTUI)
-
-This is a **Rust port of the OpenTUI Zig core** (~15,900 LOC). It's a high-performance terminal UI **rendering engine** (not a framework). Keep these design principles intact:
-
-### Core Principles
-
-1. **Rendering engine, not framework:** Provides primitives (buffers, cells, colors, text) without forcing application structure. No widget trees, no layout systems, no event loops.
-
-2. **Correctness over convenience:**
-   - **Real alpha blending** using Porter-Duff "over" compositing
-   - **Proper grapheme handling** via unicode-segmentation
-   - **Accurate character widths** via unicode-width
-   - **Immutable rope** for text that doesn't corrupt on edits
-
-3. **Performance by default:**
-   - **Diff rendering:** Only changed cells generate ANSI output
-   - **Synchronized output:** Uses `\x1b[?2026h` to eliminate flicker
-   - **Zero allocations** on hot paths (cell updates, blending)
-   - **SIMD-friendly** memory layout (contiguous cell arrays)
-
-4. **Terminal respect:**
-   - Automatic cleanup on drop (restores cursor, exits alt screen)
-   - Proper mouse protocol handling (SGR and X11)
-   - True color support with graceful fallback
-
-### Architecture Overview
-
-```
-Application
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        OpenTUI                               │
-├─────────────────────────────────────────────────────────────┤
-│  Renderer ──▶ Buffer ◀── Text                               │
-│  • Double buf    • Cells       • Rope                       │
-│  • Diff detect   • Scissor     • Segments                   │
-│  • Hit grid      • Opacity     • Edit/Undo                  │
-│       │              │              │                        │
-│       ▼              ▼              ▼                        │
-│  Terminal       Cell          Unicode                        │
-│  • ANSI codes   • Char/Graph  • Graphemes                   │
-│  • Mouse        • Style       • Width calc                  │
-│  • Cursor       • Blending    • Segmentation                │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-stdout (ANSI TTY)
-```
-
-### Module Structure
-
-| Directory | Purpose |
-|-----------|---------|
-| `src/lib.rs` | Public API exports and crate-level lints |
-| `src/color.rs` | RGBA type, Porter-Duff blending, HSV/hex conversions |
-| `src/style.rs` | TextAttributes bitflags, Style builder |
-| `src/cell.rs` | Cell type, CellContent enum (char/grapheme/empty/continuation) |
-| `src/ansi/` | ANSI escape sequence generation and buffered output |
-| `src/buffer/` | OptimizedBuffer with scissor stack, opacity stack, drawing ops |
-| `src/text/` | Rope-backed TextBuffer, EditBuffer with cursor/undo, views |
-| `src/renderer/` | Double-buffered rendering with diff detection, hit grid |
-| `src/terminal/` | Raw mode via termios FFI, capabilities detection, cursor/mouse |
-| `src/unicode/` | Grapheme iteration, display width calculation |
-| `src/input/` | Input parsing (keyboard, mouse, escape sequences) |
-| `src/highlight/` | Syntax highlighting infrastructure |
-| `src/link.rs` | Hyperlink pool (OSC 8) |
-| `src/event.rs` | Event emission and logging callbacks |
-| `src/error.rs` | Error types and Result alias |
-
-### Critical Algorithms
-
-1. **Alpha Blending (Porter-Duff "over"):**
-   ```rust
-   // src/color.rs - blend_over method
-   result.r = src.r * src.a + dst.r * dst.a * (1.0 - src.a)
-   result.a = src.a + dst.a * (1.0 - src.a)
-   // Then divide RGB by result.a to un-premultiply
-   ```
-
-2. **Diff Rendering:** Compare front and back buffers cell-by-cell; only emit ANSI sequences for changed cells.
-
-3. **Scissor Clipping:** Maintain a stack of clip rectangles; all drawing operations check `is_within_scissor()` before modifying cells.
-
-4. **SGR vs X11 Mouse Protocol:** Parser must distinguish between CSI < ... M (SGR) and CSI M <btn><x><y> (X11) formats.
 
 ---
 
@@ -202,26 +145,20 @@ cargo fmt --check
 
 If you see errors, **carefully understand and resolve each issue**. Read sufficient context to fix them the RIGHT way.
 
-### Clippy Configuration
-
-This project enables `pedantic` and `nursery` lints. The following allows are configured at module level where justified:
-
-| Lint | Where Allowed | Reason |
-|------|---------------|--------|
-| `unsafe_code` | `src/terminal/raw.rs` | FFI with libc for termios |
-| `too_many_arguments` | parser functions | Complex parsing state |
-| `match_same_arms` | match expressions | Explicit disambiguation |
-| `option_if_let_else` | text editing | Clarity over conciseness |
-
-When adding new allow directives, include a comment explaining why.
-
 ---
 
 ## Testing
 
-### Unit Tests
+### Testing Policy
 
-The test suite includes 115+ tests covering all functionality:
+This single-crate project includes inline `#[cfg(test)]` unit tests alongside the implementation. Tests must cover:
+- Happy path
+- Edge cases (empty input, max values, boundary conditions)
+- Error conditions
+
+Integration and E2E tests live in the `tests/` directory.
+
+### Unit Tests
 
 ```bash
 # Run all tests
@@ -238,12 +175,15 @@ cargo test unicode
 cargo test text
 cargo test renderer
 cargo test input
+
+# Run with all features enabled (includes PTY tests)
+cargo test --all-features
 ```
 
 ### Test Categories
 
-| Module | Focus Areas |
-|--------|-------------|
+| Module / Test File | Focus Areas |
+|--------------------|-------------|
 | `color` | RGBA blending, hex/HSV conversion, clamping |
 | `cell` | Content types, style application |
 | `buffer` | Scissor clipping, opacity, drawing ops |
@@ -251,53 +191,199 @@ cargo test input
 | `text` | Rope operations, cursor movement, undo/redo |
 | `renderer` | Diff detection |
 | `input` | Keyboard/mouse parsing, escape sequences |
+| `tests/conformance.rs` | Cross-module conformance tests |
+| `tests/e2e_*.rs` | End-to-end workflow, input flow, rendering, unicode, performance |
+| `tests/proptest_*.rs` | Property-based tests (color ops, buffer diff, text/unicode) |
+| `tests/golden_rendering.rs` | Golden file snapshot tests for rendering output |
+| `tests/pty_e2e.rs` | PTY-based terminal E2E tests (requires `pty-tests` feature) |
+| `tests/security_regression.rs` | Security regression tests |
+| `tests/memory_safety_regression.rs` | Memory safety regression tests |
 
 ### Performance Testing
 
 ```bash
 # Run benchmarks
 cargo bench --bench buffer
+cargo bench --bench color
+cargo bench --bench text
+cargo bench --bench renderer
+cargo bench --bench unicode
+cargo bench --bench highlight
+cargo bench --bench input
+cargo bench --bench workloads
 
 # View HTML report
 open target/criterion/report/index.html
 ```
 
 Key benchmarks:
-- `buffer_clear` - Full buffer clear operations
-- `buffer_draw_text` - Text rendering performance
-- `buffer_blend` - Alpha blending throughput
+- `buffer` - Clear, draw text, alpha blending throughput
+- `color` - Color blending and conversion operations
+- `text` - Rope operations, cursor movement
+- `renderer` - Diff detection and ANSI output generation
+- `unicode` - Grapheme iteration, width calculation
+- `workloads` - Composite real-world workload scenarios
 
 ---
 
-## CI/CD Pipeline
+## Third-Party Library Usage
 
-### Jobs Overview
+If you aren't 100% sure how to use a third-party library, **SEARCH ONLINE** to find the latest documentation and current best practices.
 
-| Job | Trigger | Purpose | Blocking |
-|-----|---------|---------|----------|
-| `check` | PR, push | Format, clippy, tests | Yes |
-| `coverage` | PR, push | Coverage thresholds | Yes |
-| `benchmarks` | push to main | Performance regression | Warn only |
-
-### Check Job
-
-Runs format, clippy, and unit tests:
-- `cargo fmt --check` - Code formatting
-- `cargo clippy --all-targets -- -D warnings` - Lints (pedantic + nursery enabled)
-- `cargo test` - Full test suite
-
-### Coverage Targets
-
-| Module | Target |
-|--------|--------|
-| Overall | ≥ 70% |
-| `src/color.rs` | ≥ 90% |
-| `src/buffer/` | ≥ 80% |
-| `src/text/` | ≥ 75% |
+Key libraries to know:
+- **ropey:** Rope data structure for text editing
+- **unicode-segmentation:** `.graphemes(true)` for cluster iteration
+- **unicode-width:** `.width()` for display width
 
 ---
 
-## Performance Requirements
+## OpenTUI — This Project
+
+**This is the project you're working on.** OpenTUI is a high-performance terminal UI **rendering engine** (not a framework), ported from the OpenTUI Zig core (~15,900 LOC). It provides primitives (buffers, cells, colors, text) without forcing application structure.
+
+### What It Does
+
+Provides a correct, performant foundation for terminal UIs: real alpha blending via Porter-Duff compositing, proper grapheme handling, diff-based rendering with synchronized output, and rope-backed text editing with undo/redo.
+
+### Core Design Principles
+
+1. **Rendering engine, not framework:** Provides primitives (buffers, cells, colors, text) without forcing application structure. No widget trees, no layout systems, no event loops.
+
+2. **Correctness over convenience:**
+   - **Real alpha blending** using Porter-Duff "over" compositing
+   - **Proper grapheme handling** via unicode-segmentation
+   - **Accurate character widths** via unicode-width
+   - **Immutable rope** for text that doesn't corrupt on edits
+
+3. **Performance by default:**
+   - **Diff rendering:** Only changed cells generate ANSI output
+   - **Synchronized output:** Uses `\x1b[?2026h` to eliminate flicker
+   - **Zero allocations** on hot paths (cell updates, blending)
+   - **SIMD-friendly** memory layout (contiguous cell arrays)
+
+4. **Terminal respect:**
+   - Automatic cleanup on drop (restores cursor, exits alt screen)
+   - Proper mouse protocol handling (SGR and X11)
+   - True color support with graceful fallback
+
+### Architecture Overview
+
+```
+Application
+    |
+    v
++-----------------------------------------------------------------+
+|                        OpenTUI                                    |
++-----------------------------------------------------------------+
+|  Renderer --> Buffer <-- Text                                     |
+|  * Double buf    * Cells       * Rope                             |
+|  * Diff detect   * Scissor     * Segments                         |
+|  * Hit grid      * Opacity     * Edit/Undo                        |
+|       |              |              |                              |
+|       v              v              v                              |
+|  Terminal       Cell          Unicode                              |
+|  * ANSI codes   * Char/Graph  * Graphemes                         |
+|  * Mouse        * Style       * Width calc                        |
+|  * Cursor       * Blending    * Segmentation                      |
++-----------------------------------------------------------------+
+    |
+    v
+stdout (ANSI TTY)
+```
+
+### Project Structure
+
+```
+opentui_rust/
+├── Cargo.toml                  # Single-crate project
+├── src/
+│   ├── lib.rs                  # Public API exports and crate-level lints
+│   ├── color.rs                # RGBA type, Porter-Duff blending, HSV/hex conversions
+│   ├── style.rs                # TextAttributes bitflags, Style builder
+│   ├── cell.rs                 # Cell type, CellContent enum (char/grapheme/empty/continuation)
+│   ├── grapheme_pool.rs        # Interned grapheme cluster pool
+│   ├── link.rs                 # Hyperlink pool (OSC 8)
+│   ├── event.rs                # Event emission and logging callbacks
+│   ├── error.rs                # Error types and Result alias
+│   ├── ansi/                   # ANSI escape sequence generation and buffered output
+│   ├── buffer/                 # OptimizedBuffer with scissor stack, opacity stack, drawing ops
+│   ├── text/                   # Rope-backed TextBuffer, EditBuffer with cursor/undo, views
+│   ├── renderer/               # Double-buffered rendering with diff detection, hit grid
+│   ├── terminal/               # Raw mode via termios FFI, capabilities detection, cursor/mouse
+│   ├── unicode/                # Grapheme iteration, display width calculation
+│   ├── input/                  # Input parsing (keyboard, mouse, escape sequences)
+│   ├── highlight/              # Syntax highlighting infrastructure
+│   └── bin/
+│       └── demo_showcase.rs    # Interactive demo binary
+├── tests/                      # Integration, E2E, property, golden, and regression tests
+├── benches/                    # Criterion benchmarks (buffer, color, text, renderer, unicode, etc.)
+└── examples/                   # Usage examples (hello, editor, colors, drawing, etc.)
+```
+
+### Key Files by Module
+
+| Module | Key Files | Purpose |
+|--------|-----------|---------|
+| `color` | `src/color.rs` | RGBA type, Porter-Duff alpha blending, HSV/hex/named color conversions, clamping |
+| `style` | `src/style.rs` | `TextAttributes` bitflags (bold, italic, underline, etc.), `Style` builder |
+| `cell` | `src/cell.rs` | `Cell` type, `CellContent` enum (Char/Grapheme/Empty/Continuation), style merging |
+| `grapheme_pool` | `src/grapheme_pool.rs` | Interned grapheme cluster storage for multi-codepoint characters |
+| `ansi` | `src/ansi/` | ANSI escape sequence generation, SGR formatting, buffered terminal output |
+| `buffer` | `src/buffer/` | `OptimizedBuffer` with scissor stack, opacity stack, cell drawing operations |
+| `text` | `src/text/` | Rope-backed `TextBuffer`, `EditBuffer` with cursor navigation, undo/redo |
+| `renderer` | `src/renderer/` | Double-buffered rendering, cell-by-cell diff detection, hit testing grid |
+| `terminal` | `src/terminal/` | Raw mode via termios FFI, capability detection, cursor/mouse control |
+| `unicode` | `src/unicode/` | Grapheme cluster iteration, display width calculation |
+| `input` | `src/input/` | Input event parsing (keyboard, mouse SGR/X11, escape sequences) |
+| `highlight` | `src/highlight/` | Syntax highlighting infrastructure and token classification |
+| `link` | `src/link.rs` | Hyperlink pool for OSC 8 terminal hyperlinks |
+
+### Critical Algorithms
+
+1. **Alpha Blending (Porter-Duff "over"):**
+   ```rust
+   // src/color.rs - blend_over method
+   result.r = src.r * src.a + dst.r * dst.a * (1.0 - src.a)
+   result.a = src.a + dst.a * (1.0 - src.a)
+   // Then divide RGB by result.a to un-premultiply
+   ```
+
+2. **Diff Rendering:** Compare front and back buffers cell-by-cell; only emit ANSI sequences for changed cells.
+
+3. **Scissor Clipping:** Maintain a stack of clip rectangles; all drawing operations check `is_within_scissor()` before modifying cells.
+
+4. **SGR vs X11 Mouse Protocol:** Parser must distinguish between CSI < ... M (SGR) and CSI M <btn><x><y> (X11) formats.
+
+### Unsafe Code Policy
+
+Unsafe code is **warned** (not forbidden) because terminal control requires FFI:
+
+**Allowed Unsafe:**
+
+1. **termios FFI** (`src/terminal/raw.rs`):
+   - `tcgetattr` / `tcsetattr` for raw mode
+   - `isatty` for TTY detection
+   - `ioctl` with `TIOCGWINSZ` for terminal size
+
+**Requirements for Unsafe:**
+- Module-level `#![allow(unsafe_code)]`
+- Safety comment explaining why it's safe
+- Minimal scope (wrap in safe functions)
+
+### Clippy Configuration
+
+This project enables `pedantic` and `nursery` lints. The following allows are configured at module level where justified:
+
+| Lint | Where Allowed | Reason |
+|------|---------------|--------|
+| `unsafe_code` | `src/terminal/raw.rs` | FFI with libc for termios |
+| `too_many_arguments` | parser functions | Complex parsing state |
+| `match_same_arms` | match expressions | Explicit disambiguation |
+| `option_if_let_else` | text editing | Clarity over conciseness |
+
+When adding new allow directives, include a comment explaining why.
+
+### Performance Requirements
 
 Terminal rendering happens on every frame. Performance is critical:
 
@@ -323,35 +409,22 @@ cargo bench --bench buffer -- --save-baseline after
 cargo bench --bench buffer -- --load-baseline before --baseline after
 ```
 
----
+### CI/CD Pipeline
 
-## Unsafe Code Policy
+| Job | Trigger | Purpose | Blocking |
+|-----|---------|---------|----------|
+| `check` | PR, push | Format, clippy, tests | Yes |
+| `coverage` | PR, push | Coverage thresholds | Yes |
+| `benchmarks` | push to main | Performance regression | Warn only |
 
-Unsafe code is **warned** (not forbidden) because terminal control requires FFI:
+**Coverage Targets:**
 
-### Allowed Unsafe
-
-1. **termios FFI** (`src/terminal/raw.rs`):
-   - `tcgetattr` / `tcsetattr` for raw mode
-   - `isatty` for TTY detection
-   - `ioctl` with `TIOCGWINSZ` for terminal size
-
-### Requirements for Unsafe
-
-- Module-level `#![allow(unsafe_code)]`
-- Safety comment explaining why it's safe
-- Minimal scope (wrap in safe functions)
-
----
-
-## Third-Party Library Usage
-
-If you aren't 100% sure how to use a third-party library, **SEARCH ONLINE** to find the latest documentation and mid-2025 best practices.
-
-Key libraries to know:
-- **ropey:** Rope data structure for text editing
-- **unicode-segmentation:** `.graphemes(true)` for cluster iteration
-- **unicode-width:** `.width()` for display width
+| Module | Target |
+|--------|--------|
+| Overall | >= 70% |
+| `src/color.rs` | >= 90% |
+| `src/buffer/` | >= 80% |
+| `src/text/` | >= 75% |
 
 ---
 
@@ -404,6 +477,58 @@ A mail-like layer that lets coding agents coordinate asynchronously via MCP tool
 
 ---
 
+## Beads (br) — Dependency-Aware Issue Tracking
+
+Beads provides a lightweight, dependency-aware issue database and CLI (`br` - beads_rust) for selecting "ready work," setting priorities, and tracking status. It complements MCP Agent Mail's messaging and file reservations.
+
+**Important:** `br` is non-invasive—it NEVER runs git commands automatically. You must manually commit changes after `br sync --flush-only`.
+
+### Conventions
+
+- **Single source of truth:** Beads for task status/priority/dependencies; Agent Mail for conversation and audit
+- **Shared identifiers:** Use Beads issue ID (e.g., `br-123`) as Mail `thread_id` and prefix subjects with `[br-123]`
+- **Reservations:** When starting a task, call `file_reservation_paths()` with the issue ID in `reason`
+
+### Typical Agent Flow
+
+1. **Pick ready work (Beads):**
+   ```bash
+   br ready --json  # Choose highest priority, no blockers
+   ```
+
+2. **Reserve edit surface (Mail):**
+   ```
+   file_reservation_paths(project_key, agent_name, ["src/**"], ttl_seconds=3600, exclusive=true, reason="br-123")
+   ```
+
+3. **Announce start (Mail):**
+   ```
+   send_message(..., thread_id="br-123", subject="[br-123] Start: <title>", ack_required=true)
+   ```
+
+4. **Work and update:** Reply in-thread with progress
+
+5. **Complete and release:**
+   ```bash
+   br close 123 --reason "Completed"
+   br sync --flush-only  # Export to JSONL (no git operations)
+   ```
+   ```
+   release_file_reservations(project_key, agent_name, paths=["src/**"])
+   ```
+   Final Mail reply: `[br-123] Completed` with summary
+
+### Mapping Cheat Sheet
+
+| Concept | Value |
+|---------|-------|
+| Mail `thread_id` | `br-###` |
+| Mail subject | `[br-###] ...` |
+| File reservation `reason` | `br-###` |
+| Commit messages | Include `br-###` for traceability |
+
+---
+
 ## bv — Graph-Aware Triage Engine
 
 bv is a graph-aware triage engine for Beads projects (`.beads/beads.jsonl`). It computes PageRank, betweenness, critical path, cycles, HITS, eigenvector, and k-core metrics deterministically.
@@ -427,6 +552,70 @@ bv --robot-triage        # THE MEGA-COMMAND: start here
 bv --robot-next          # Minimal: just the single top pick + claim command
 ```
 
+### Command Reference
+
+**Planning:**
+| Command | Returns |
+|---------|---------|
+| `--robot-plan` | Parallel execution tracks with `unblocks` lists |
+| `--robot-priority` | Priority misalignment detection with confidence |
+
+**Graph Analysis:**
+| Command | Returns |
+|---------|---------|
+| `--robot-insights` | Full metrics: PageRank, betweenness, HITS, eigenvector, critical path, cycles, k-core, articulation points, slack |
+| `--robot-label-health` | Per-label health: `health_level`, `velocity_score`, `staleness`, `blocked_count` |
+| `--robot-label-flow` | Cross-label dependency: `flow_matrix`, `dependencies`, `bottleneck_labels` |
+| `--robot-label-attention [--attention-limit=N]` | Attention-ranked labels |
+
+**History & Change Tracking:**
+| Command | Returns |
+|---------|---------|
+| `--robot-history` | Bead-to-commit correlations |
+| `--robot-diff --diff-since <ref>` | Changes since ref: new/closed/modified issues, cycles |
+
+**Other:**
+| Command | Returns |
+|---------|---------|
+| `--robot-burndown <sprint>` | Sprint burndown, scope changes, at-risk items |
+| `--robot-forecast <id\|all>` | ETA predictions with dependency-aware scheduling |
+| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
+| `--robot-suggest` | Hygiene: duplicates, missing deps, label suggestions |
+| `--robot-graph [--graph-format=json\|dot\|mermaid]` | Dependency graph export |
+| `--export-graph <file.html>` | Interactive HTML visualization |
+
+### Scoping & Filtering
+
+```bash
+bv --robot-plan --label backend              # Scope to label's subgraph
+bv --robot-insights --as-of HEAD~30          # Historical point-in-time
+bv --recipe actionable --robot-plan          # Pre-filter: ready to work
+bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank
+bv --robot-triage --robot-triage-by-track    # Group by parallel work streams
+bv --robot-triage --robot-triage-by-label    # Group by domain
+```
+
+### Understanding Robot Output
+
+**All robot JSON includes:**
+- `data_hash` — Fingerprint of source beads.jsonl
+- `status` — Per-metric state: `computed|approx|timeout|skipped` + elapsed ms
+- `as_of` / `as_of_commit` — Present when using `--as-of`
+
+**Two-phase analysis:**
+- **Phase 1 (instant):** degree, topo sort, density
+- **Phase 2 (async, 500ms timeout):** PageRank, betweenness, HITS, eigenvector, cycles
+
+### jq Quick Reference
+
+```bash
+bv --robot-triage | jq '.quick_ref'                        # At-a-glance summary
+bv --robot-triage | jq '.recommendations[0]'               # Top recommendation
+bv --robot-plan | jq '.plan.summary.highest_impact'        # Best unblock target
+bv --robot-insights | jq '.status'                         # Check metric readiness
+bv --robot-insights | jq '.Cycles'                         # Circular deps (must fix!)
+```
+
 ---
 
 ## UBS — Ultimate Bug Scanner
@@ -446,13 +635,55 @@ ubs .                                   # Whole project (ignores target/, Cargo.
 ### Output Format
 
 ```
-⚠️  Category (N errors)
-    file.rs:42:5 – Issue description
-    💡 Suggested fix
+Warning  Category (N errors)
+    file.rs:42:5 - Issue description
+    Suggested fix
 Exit code: 1
 ```
 
-Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
+Parse: `file:line:col` -> location | Suggested fix -> how to fix | Exit 0/1 -> pass/fail
+
+### Fix Workflow
+
+1. Read finding -> category + fix suggestion
+2. Navigate `file:line:col` -> view context
+3. Verify real issue (not false positive)
+4. Fix root cause (not symptom)
+5. Re-run `ubs <file>` -> exit 0
+6. Commit
+
+### Bug Severity
+
+- **Critical (always fix):** Memory safety, use-after-free, data races, SQL injection
+- **Important (production):** Unwrap panics, resource leaks, overflow checks
+- **Contextual (judgment):** TODO/FIXME, println! debugging
+
+---
+
+## RCH — Remote Compilation Helper
+
+RCH offloads `cargo build`, `cargo test`, `cargo clippy`, and other compilation commands to a fleet of 8 remote Contabo VPS workers instead of building locally. This prevents compilation storms from overwhelming csd when many agents run simultaneously.
+
+**RCH is installed at `~/.local/bin/rch` and is hooked into Claude Code's PreToolUse automatically.** Most of the time you don't need to do anything if you are Claude Code — builds are intercepted and offloaded transparently.
+
+To manually offload a build:
+```bash
+rch exec -- cargo build --release
+rch exec -- cargo test
+rch exec -- cargo clippy
+```
+
+Quick commands:
+```bash
+rch doctor                    # Health check
+rch workers probe --all       # Test connectivity to all 8 workers
+rch status                    # Overview of current state
+rch queue                     # See active/waiting builds
+```
+
+If rch or its workers are unavailable, it fails open — builds run locally as normal.
+
+**Note for Codex/GPT-5.2:** Codex does not have the automatic PreToolUse hook, but you can (and should) still manually offload compute-intensive compilation commands using `rch exec -- <command>`. This avoids local resource contention when multiple agents are building simultaneously.
 
 ---
 
@@ -460,12 +691,19 @@ Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fa
 
 **Use `ast-grep` when structure matters.** It parses code and matches AST nodes, ignoring comments/strings, and can **safely rewrite** code.
 
+- Refactors/codemods: rename APIs, change import forms
+- Policy checks: enforce patterns across a repo
+- Editor/automation: LSP mode, `--json` output
+
 **Use `ripgrep` when text is enough.** Fastest way to grep literals/regex.
+
+- Recon: find strings, TODOs, log lines, config values
+- Pre-filter: narrow candidate files before ast-grep
 
 ### Rule of Thumb
 
-- Need correctness or **applying changes** → `ast-grep`
-- Need raw speed or **hunting text** → `rg`
+- Need correctness or **applying changes** -> `ast-grep`
+- Need raw speed or **hunting text** -> `rg`
 - Often combine: `rg` to shortlist files, then `ast-grep` to match/modify
 
 ### Rust Examples
@@ -483,6 +721,45 @@ rg -n 'blend_over' -t rust
 # Combine speed + precision
 rg -l -t rust 'unwrap\(' | xargs ast-grep run -l Rust -p '$X.unwrap()' --json
 ```
+
+---
+
+## Morph Warp Grep — AI-Powered Code Search
+
+**Use `mcp__morph-mcp__warp_grep` for exploratory "how does X work?" questions.** An AI agent expands your query, greps the codebase, reads relevant files, and returns precise line ranges with full context.
+
+**Use `ripgrep` for targeted searches.** When you know exactly what you're looking for.
+
+**Use `ast-grep` for structural patterns.** When you need AST precision for matching/rewriting.
+
+### When to Use What
+
+| Scenario | Tool | Why |
+|----------|------|-----|
+| "How does the alpha blending work?" | `warp_grep` | Exploratory; don't know where to start |
+| "Where is the diff renderer implemented?" | `warp_grep` | Need to understand architecture |
+| "Find all uses of `blend_over`" | `ripgrep` | Targeted literal search |
+| "Find files with `println!`" | `ripgrep` | Simple pattern |
+| "Replace all `unwrap()` with `expect()`" | `ast-grep` | Structural refactor |
+
+### warp_grep Usage
+
+```
+mcp__morph-mcp__warp_grep(
+  repoPath: "/dp/opentui_rust",
+  query: "How does the double-buffered diff rendering work?"
+)
+```
+
+Returns structured results with file paths, line ranges, and extracted code snippets.
+
+### Anti-Patterns
+
+- **Don't** use `warp_grep` to find a specific function name -> use `ripgrep`
+- **Don't** use `ripgrep` to understand "how does X work" -> wastes time with manual reads
+- **Don't** use `ripgrep` for codemods -> risks collateral edits
+
+<!-- bv-agent-instructions-v1 -->
 
 ---
 
@@ -504,7 +781,7 @@ br list --status=open # All open issues
 br show <id>          # Full issue details with dependencies
 br create --title="..." --type=task --priority=2
 br update <id> --status=in_progress
-br close <id> --reason="Completed"
+br close <id> --reason "Completed"
 br close <id1> <id2>  # Close multiple issues at once
 br sync --flush-only  # Export to JSONL (NO git operations)
 ```
@@ -517,36 +794,48 @@ br sync --flush-only  # Export to JSONL (NO git operations)
 4. **Complete**: Use `br close <id>`
 5. **Sync**: Run `br sync --flush-only` then manually commit
 
----
+### Key Concepts
+
+- **Dependencies**: Issues can block other issues. `br ready` shows only unblocked work.
+- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers, not words)
+- **Types**: task, bug, feature, epic, question, docs
+- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
+
+### Session Protocol
+
+**Before ending any session, run this checklist:**
+
+```bash
+git status              # Check what changed
+git add <files>         # Stage code changes
+br sync --flush-only    # Export beads to JSONL
+git add .beads/         # Stage beads changes
+git commit -m "..."     # Commit everything together
+git push                # Push to remote
+```
+
+### Best Practices
+
+- Check `br ready` at session start to find available work
+- Update status as you work (in_progress -> closed)
+- Create new issues with `br create` when you discover tasks
+- Use descriptive titles and set appropriate priority/type
+- Always `br sync --flush-only && git add .beads/` before ending session
+
+<!-- end-bv-agent-instructions -->
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   br sync --flush-only    # Export beads to JSONL (no git ops)
-   git add .beads/         # Stage beads changes
-   git add <other files>   # Stage code changes
-   git commit -m "..."     # Commit everything
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+4. **Sync beads** - `br sync --flush-only` to export to JSONL
+5. **Hand off** - Provide context for next session
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
 
 ---
 
@@ -563,10 +852,10 @@ Next steps (pick one)
 
 1. Decide how to handle the unrelated modified files above so we can resume cleanly.
 2. Triage issues.
-3. If you want a full suite run later, fix clippy blockers and re‑run cargo test --all.
+3. If you want a full suite run later, fix clippy blockers and re-run cargo test --all.
 ```
 
-NEVER EVER DO THAT AGAIN. The answer is literally ALWAYS the same: those are changes created by the potentially dozen of other agents working on the project at the same time. This is not only a common occurence, it happens multiple times PER MINUTE. The way to deal with it is simple: you NEVER, under ANY CIRCUMSTANCE, stash, revert, overwrite, or otherwise disturb in ANY way the work of other agents. Just treat those changes identically to changes that you yourself made. Just fool yourself into think YOU made the changes and simply don't recall it for some reason.
+NEVER EVER DO THAT AGAIN. The answer is literally ALWAYS the same: those are changes created by the potentially dozen of other agents working on the project at the same time. This is not only a common occurence, it happens multiple times PER MINUTE. The way to deal with it is simple: you NEVER, under ANY CIRCUMSTANCE, stash, revert, overwrite, or otherwise disturb in ANY way the work of other agents. Just treat those changes identically to changes that you yourself made. Just fool yourself into thinking YOU made the changes and simply don't recall it for some reason.
 
 ---
 
