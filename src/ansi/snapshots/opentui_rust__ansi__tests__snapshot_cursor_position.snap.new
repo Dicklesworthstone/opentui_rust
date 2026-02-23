@@ -1,0 +1,27 @@
+---
+source: src/ansi/mod.rs
+assertion_line: 613
+expression: sequences
+---
+[
+  {
+    "description": "origin",
+    "hex": "1b 5b 31 3b 31 48",
+    "readable": "ESC[1;1H"
+  },
+  {
+    "description": "row_5_col_10",
+    "hex": "1b 5b 36 3b 31 31 48",
+    "readable": "ESC[6;11H"
+  },
+  {
+    "description": "large_position",
+    "hex": "1b 5b 31 30 31 3b 32 30 31 48",
+    "readable": "ESC[101;201H"
+  },
+  {
+    "description": "max_u32",
+    "hex": "1b 5b 34 32 39 34 39 36 37 32 39 35 3b 34 32 39 34 39 36 37 32 39 35 48",
+    "readable": "ESC[4294967295;4294967295H"
+  }
+]

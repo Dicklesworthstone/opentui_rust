@@ -1,0 +1,62 @@
+---
+source: src/ansi/mod.rs
+assertion_line: 602
+expression: sequences
+---
+[
+  {
+    "description": "bold",
+    "hex": "1b 5b 31 6d",
+    "readable": "ESC[1m"
+  },
+  {
+    "description": "dim",
+    "hex": "1b 5b 32 6d",
+    "readable": "ESC[2m"
+  },
+  {
+    "description": "italic",
+    "hex": "1b 5b 33 6d",
+    "readable": "ESC[3m"
+  },
+  {
+    "description": "underline",
+    "hex": "1b 5b 34 6d",
+    "readable": "ESC[4m"
+  },
+  {
+    "description": "blink",
+    "hex": "1b 5b 35 6d",
+    "readable": "ESC[5m"
+  },
+  {
+    "description": "inverse",
+    "hex": "1b 5b 37 6d",
+    "readable": "ESC[7m"
+  },
+  {
+    "description": "hidden",
+    "hex": "1b 5b 38 6d",
+    "readable": "ESC[8m"
+  },
+  {
+    "description": "strikethrough",
+    "hex": "1b 5b 39 6d",
+    "readable": "ESC[9m"
+  },
+  {
+    "description": "bold_italic",
+    "hex": "1b 5b 31 3b 33 6d",
+    "readable": "ESC[1;3m"
+  },
+  {
+    "description": "bold_underline_inverse",
+    "hex": "1b 5b 31 3b 34 3b 37 6d",
+    "readable": "ESC[1;4;7m"
+  },
+  {
+    "description": "empty",
+    "hex": "",
+    "readable": ""
+  }
+]

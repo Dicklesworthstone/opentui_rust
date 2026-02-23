@@ -1,0 +1,22 @@
+---
+source: src/ansi/mod.rs
+assertion_line: 563
+expression: sequences
+---
+[
+  {
+    "description": "red",
+    "hex": "1b 5b 34 38 3b 35 3b 31 39 36 6d",
+    "readable": "ESC[48;5;196m"
+  },
+  {
+    "description": "green",
+    "hex": "1b 5b 34 38 3b 35 3b 34 36 6d",
+    "readable": "ESC[48;5;46m"
+  },
+  {
+    "description": "blue",
+    "hex": "1b 5b 34 38 3b 35 3b 32 31 6d",
+    "readable": "ESC[48;5;21m"
+  }
+]
