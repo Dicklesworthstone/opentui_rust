@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 30
     if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -90,7 +90,7 @@ jobs:
     timeout-minutes: 15
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -141,7 +141,7 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -155,7 +155,7 @@ jobs:
           echo '<meta http-equiv="refresh" content="0; url=opentui/index.html">' > target/doc/index.html
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: target/doc
 
