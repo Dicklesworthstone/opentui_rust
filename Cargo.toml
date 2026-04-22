@@ -39,7 +39,7 @@ libc = "0.2.185"
 ropey = "1.6"
 unicode-bidi = "0.3.18"
 unicode-normalization = "0.1.25"
-unicode-segmentation = "1.12"
+unicode-segmentation = "1.13"
 unicode-width = "0.2"
 
 [dev-dependencies]
