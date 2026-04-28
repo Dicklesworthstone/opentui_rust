@@ -35,7 +35,7 @@ pty-tests = []
 
 [dependencies]
 bitflags = "2.11"
-libc = "0.2.185"
+libc = "0.2.186"
 ropey = "1.6"
 unicode-bidi = "0.3.18"
 unicode-normalization = "0.1.25"
