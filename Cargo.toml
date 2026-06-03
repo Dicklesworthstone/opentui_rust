@@ -34,7 +34,7 @@ default = []
 pty-tests = []
 
 [dependencies]
-bitflags = "2.11"
+bitflags = "2.12"
 libc = "0.2.186"
 ropey = "1.6"
 unicode-bidi = "0.3.18"
