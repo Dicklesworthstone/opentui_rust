@@ -9,16 +9,43 @@ pub struct HitGrid {
 }
 
 impl HitGrid {
+    /// Upper bound on the number of cells actually backed by the `cells` buffer.
+    ///
+    /// A hit grid mirrors a terminal screen, so the realistic cell count is tiny
+    /// (e.g. 80x24 ~= 1,920 cells). Absurd dimensions — such as a bad
+    /// terminal-size query, a negative value sign-extended into a `u32`, or a
+    /// deliberately huge coordinate — must never translate into a multi-gigabyte
+    /// allocation. We allow generous headroom for very large/hi-DPI terminals
+    /// (16,384 x 16,384 = ~256M cells -> ~2 GiB worst case) while refusing to
+    /// allocate anything beyond that. Out-of-range coordinate queries still
+    /// return `None` because `cell_index` guards on `idx < cells.len()`.
+    const MAX_CELLS: usize = 16_384 * 16_384;
+
+    /// Compute the backing-buffer length for the requested dimensions.
+    ///
+    /// Uses checked/saturating arithmetic so a `width * height` product can never
+    /// overflow `usize`, and clamps the result to [`Self::MAX_CELLS`] so a garbage
+    /// or out-of-range dimension can never trigger a runaway allocation (the bug
+    /// where `HitGrid::new(u32::MAX / 2, 2)` requested 32 GiB and aborted).
+    #[inline]
+    fn backing_len(width: u32, height: u32) -> usize {
+        (width as usize)
+            .saturating_mul(height as usize)
+            .min(Self::MAX_CELLS)
+    }
+
     /// Create a new hit grid with the given dimensions.
     ///
-    /// Uses saturating multiplication to prevent overflow for extremely large dimensions.
+    /// The reported dimensions are preserved exactly, but the backing buffer is
+    /// clamped to [`Self::MAX_CELLS`] so pathological dimensions cannot cause a
+    /// runaway allocation. Coordinate queries outside the backed region simply
+    /// return `None`.
     #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
-        let size = (width as usize).saturating_mul(height as usize);
         Self {
             width,
             height,
-            cells: vec![None; size],
+            cells: vec![None; Self::backing_len(width, height)],
         }
     }
 
@@ -82,8 +109,7 @@ impl HitGrid {
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        let size = (width as usize).saturating_mul(height as usize);
-        self.cells = vec![None; size];
+        self.cells = vec![None; Self::backing_len(width, height)];
     }
 
     /// Get dimensions.
@@ -451,6 +477,54 @@ mod tests {
         // Should not panic on large coordinate queries
         let result = grid.test(u32::MAX, u32::MAX);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_hit_grid_pathological_dimensions_do_not_over_allocate() {
+        // Regression: HitGrid::new(u32::MAX / 2, 2) used to compute a backing
+        // buffer of (2^31 - 1) * 2 = 4_294_967_294 cells. With Option<u32>
+        // (8 bytes) that is exactly 34_359_738_352 bytes (32 GiB), aborting the
+        // process via handle_alloc_error in the CI Coverage job.
+        //
+        // The backing buffer must now be clamped to MAX_CELLS regardless of the
+        // requested dimensions, while still reporting the requested size and
+        // returning None for out-of-range coordinate queries.
+        let cell_bytes = std::mem::size_of::<Option<u32>>();
+        let max_bytes = HitGrid::MAX_CELLS.saturating_mul(cell_bytes);
+
+        // Each of these would have requested >= ~32 GiB before the fix.
+        for (w, h) in [
+            (u32::MAX / 2, 2),
+            (2, u32::MAX / 2),
+            (u32::MAX, u32::MAX),
+            (u32::MAX, 1),
+            (1, u32::MAX),
+        ] {
+            let grid = HitGrid::new(w, h);
+            // Reported dimensions are preserved exactly.
+            assert_eq!(grid.size(), (w, h));
+            // The actual allocation is clamped to a sane bound, never the
+            // multi-gigabyte product of the requested dimensions.
+            assert!(
+                grid.byte_size() <= max_bytes,
+                "byte_size {} exceeded clamp {} for dims {w}x{h}",
+                grid.byte_size(),
+                max_bytes
+            );
+            // Out-of-range coordinate queries still return None gracefully.
+            assert_eq!(grid.test(u32::MAX, u32::MAX), None);
+            assert_eq!(grid.test(w.saturating_sub(1), h.saturating_sub(1)), None);
+        }
+
+        // resize() must apply the same clamp.
+        let mut grid = HitGrid::new(10, 10);
+        grid.resize(u32::MAX / 2, 2);
+        assert_eq!(grid.size(), (u32::MAX / 2, 2));
+        assert!(grid.byte_size() <= max_bytes);
+
+        // Sanity: realistic terminal sizes are unaffected and fully backed.
+        let normal = HitGrid::new(80, 24);
+        assert_eq!(normal.byte_size(), 80 * 24 * cell_bytes);
     }
 
     #[test]
