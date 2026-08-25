@@ -8,9 +8,35 @@ Format: capabilities-oriented, grouped by domain rather than diff order. Commit 
 
 ---
 
+## [v0.2.2] -- 2026-08-24
+
+Everything on `main` since [v0.2.1](https://github.com/Dicklesworthstone/opentui_rust/releases/tag/v0.2.2) (2026-02-22): dependency currency, hit-grid work, documentation, and a lint-cleanliness pass. No API breaks, so this is a patch bump.
+
+Note on release history: **v0.2.1 was tagged and published to crates.io but never got a GitHub Release**, so anything comparing published releases still saw v0.2.0. That gap is closed alongside this release; the v0.2.1 tag itself was left exactly where it was.
+
+### Rendering
+
+- Hit-grid improvements in `src/renderer/hitgrid.rs`.
+
+### Dependencies
+
+- `portable-pty` 0.8 -> 0.9, `vt100` 0.15 -> 0.16, `unicode-segmentation` to 1.13.2, plus grouped minor/patch updates.
+
+### Lint and test hygiene
+
+- Cleared the workspace under `clippy -D warnings` on the current nightly. Two `collapsible_match` sites became guarded match arms whose fall-through is the same no-op `_` arm they previously reached, one `explicit_counter_loop` became a zipped range, and 16 `assert!(x.is_empty())` assertions became `assert_eq!`/`assert_ne!` so a failure prints the offending value instead of just `false`. No test was weakened, ignored, or deleted.
+
+### Gate
+
+- `cargo clippy --all-targets -- -D warnings`: clean
+- `cargo test`: 2403 passed, 0 failed across 29 targets
+- `cargo fmt --all -- --check`: clean
+
+---
+
 ## [Unreleased]
 
-Commits on `main` since v0.2.1 (2026-02-25 through 2026-03-21).
+Commits on `main` since v0.2.2.
 
 ### Maintenance
 

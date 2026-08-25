@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_find_line_breaks_empty() {
         let result = find_line_breaks("");
-        assert!(result.positions.is_empty());
+        assert_eq!(result.positions, [] as [usize; 0]);
     }
 
     #[test]
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn test_find_wrap_breaks() {
         let result = find_wrap_breaks("hello, world!");
-        assert!(!result.positions.is_empty());
+        assert_ne!(result.positions, [] as [usize; 0]);
         assert!(result.break_types.contains(&BreakType::Whitespace));
         assert!(result.break_types.contains(&BreakType::Punctuation));
     }

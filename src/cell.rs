@@ -847,7 +847,7 @@ mod tests {
         let cell = Cell::continuation(Rgba::BLACK);
         let mut buf = Vec::new();
         cell.write_content(&mut buf).unwrap();
-        assert!(buf.is_empty()); // Continuation writes nothing
+        assert_eq!(buf, [] as [u8; 0]); // Continuation writes nothing
     }
 
     #[test]

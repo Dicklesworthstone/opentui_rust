@@ -1623,7 +1623,7 @@ mod tests {
     fn test_iter_active_empty_pool() {
         let pool = GraphemePool::new();
         let active: Vec<_> = pool.iter_active().collect();
-        assert!(active.is_empty());
+        assert_eq!(active, [] as [(u32, &str); 0]);
     }
 
     #[test]
@@ -1950,7 +1950,7 @@ mod tests {
 
         let ids = pool.alloc_batch(&[]);
 
-        assert!(ids.is_empty());
+        assert_eq!(ids, [] as [crate::cell::GraphemeId; 0]);
         assert_eq!(pool.active_count(), 0);
     }
 

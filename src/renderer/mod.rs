@@ -1088,7 +1088,7 @@ mod tests {
         let id1 = pool.alloc("https://example.com");
         let id2 = pool.alloc("https://other.com");
 
-        assert!(id1 != id2);
+        assert_ne!(id1, id2);
         assert_eq!(pool.get(id1), Some("https://example.com"));
         assert_eq!(pool.get(id2), Some("https://other.com"));
     }
@@ -1211,9 +1211,9 @@ mod tests {
     fn test_dirty_regions_cleared_after_present() {
         let mut r = test_renderer(5, 5);
         r.mark_region_dirty(Rect::new(1, 1, 2, 2));
-        assert!(!r.get_dirty_regions().is_empty());
+        assert_ne!(r.get_dirty_regions(), []);
         r.present().unwrap();
-        assert!(r.get_dirty_regions().is_empty());
+        assert_eq!(r.get_dirty_regions(), []);
     }
 
     // ============================================

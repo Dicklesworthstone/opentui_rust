@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn get_bidi_embedding_levels_empty_is_empty() {
-        assert!(get_bidi_embedding_levels("").is_empty());
+        assert_eq!(get_bidi_embedding_levels(""), [] as [u8; 0]);
     }
 
     #[test]
@@ -204,7 +204,7 @@ mod tests {
     fn resolve_bidi_empty_is_neutral() {
         let info = resolve_bidi("");
         assert_eq!(info.base_direction, Direction::Neutral);
-        assert!(info.levels.is_empty());
+        assert_eq!(info.levels, [] as [u8; 0]);
     }
 
     #[test]

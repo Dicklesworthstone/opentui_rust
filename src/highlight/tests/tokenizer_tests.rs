@@ -333,11 +333,11 @@ fn test_empty_and_whitespace() {
     let tokenizer = JsonTokenizer::new();
     let (tokens, state) = tokenizer.tokenize_line("", LineState::Normal);
     debug!(?tokens, ?state, "empty line");
-    assert!(tokens.is_empty());
+    assert_eq!(tokens, [] as [crate::highlight::token::Token; 0]);
 
     let (tokens, state) = tokenizer.tokenize_line("   ", LineState::Normal);
     debug!(?tokens, ?state, "whitespace line");
-    assert!(tokens.is_empty());
+    assert_eq!(tokens, [] as [crate::highlight::token::Token; 0]);
 }
 
 #[test]

@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_grapheme_info_basic() {
         let infos = grapheme_info("ab\tc", 4, WidthMethod::WcWidth);
-        assert!(!infos.is_empty());
+        assert_ne!(infos, [] as [crate::unicode::grapheme::GraphemeInfo; 0]);
         assert_eq!(infos[0].byte_offset, 0);
         assert_eq!(infos[0].width, 1);
     }
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_split_graphemes_with_widths_empty() {
         let pairs = split_graphemes_with_widths("");
-        assert!(pairs.is_empty());
+        assert_eq!(pairs, [] as [(&str, usize); 0]);
     }
 
     #[test]

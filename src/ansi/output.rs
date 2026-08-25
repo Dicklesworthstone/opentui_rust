@@ -581,7 +581,7 @@ mod tests {
     fn test_set_scroll_region_invalid_is_noop() {
         let mut writer = AnsiWriter::new(Vec::new());
         writer.set_scroll_region(5, 5);
-        assert!(writer.buffer().is_empty());
+        assert_eq!(writer.buffer(), []);
     }
 
     #[test]
@@ -596,7 +596,7 @@ mod tests {
         let mut writer = AnsiWriter::new(Vec::new());
 
         writer.scroll_up_in_region(0);
-        assert!(writer.buffer().is_empty());
+        assert_eq!(writer.buffer(), []);
 
         writer.scroll_up_in_region(2);
         writer.scroll_down_in_region(3);

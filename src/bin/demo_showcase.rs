@@ -8762,14 +8762,14 @@ mod tests {
     #[test]
     fn test_input_pump_new() {
         let pump = InputPump::new();
-        assert!(pump.synthetic_queue.is_empty());
-        assert!(pump.accumulator.is_empty());
+        assert_eq!(pump.synthetic_queue, [] as [opentui_rust::Event; 0]);
+        assert_eq!(pump.accumulator, [] as [u8; 0]);
     }
 
     #[test]
     fn test_input_pump_default() {
         let pump = InputPump::default();
-        assert!(pump.accumulator.is_empty());
+        assert_eq!(pump.accumulator, [] as [u8; 0]);
     }
 
     #[test]
@@ -8788,7 +8788,7 @@ mod tests {
         let mut pump = InputPump::new();
         pump.accumulator.extend_from_slice(b"test");
         pump.clear();
-        assert!(pump.accumulator.is_empty());
+        assert_eq!(pump.accumulator, [] as [u8; 0]);
     }
 
     #[test]
@@ -9614,7 +9614,7 @@ mod tests {
         // Filter to "Quit" - should match only one
         state.query = "Quit".to_string();
         state.update_filter();
-        assert!(!state.filtered.is_empty());
+        assert_ne!(state.filtered, [] as [usize; 0]);
     }
 
     #[test]
