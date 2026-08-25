@@ -319,14 +319,13 @@ impl Tokenizer for JsonTokenizer {
                         tokens.push(Token::new(TokenKind::Error, idx, idx + 1));
                     }
                 }
-                'n' => {
-                    if line[idx..].starts_with("null") {
-                        tokens.push(Token::new(TokenKind::Constant, idx, idx + 4));
-                        for _ in 0..3 {
-                            chars.next();
-                        }
-                    } else {
-                        tokens.push(Token::new(TokenKind::Error, idx, idx + 1));
+                // The former `else` branch pushed exactly the same Error token as
+                // the `_` arm below, so guarding the arm and letting a non-`null`
+                // 'n' fall through is behaviour-preserving (clippy::collapsible_match).
+                'n' if line[idx..].starts_with("null") => {
+                    tokens.push(Token::new(TokenKind::Constant, idx, idx + 4));
+                    for _ in 0..3 {
+                        chars.next();
                     }
                 }
 

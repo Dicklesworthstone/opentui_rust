@@ -4547,13 +4547,14 @@ fn run_interactive(config: &Config) -> io::Result<()> {
                             app.handle_resize(new_w, new_h);
                         }
                         // Handle mouse events with hit testing
-                        Event::Mouse(mouse) => {
-                            // Only process left-button clicks
-                            if mouse.button == MouseButton::Left {
-                                if let Some(hit_id) = renderer.hit_test(mouse.x, mouse.y) {
-                                    let action = App::hit_to_action(hit_id, mouse.kind);
-                                    app.apply_action(&action);
-                                }
+                        // Only process left-button clicks. Non-left mouse events
+                        // previously fell through the inner `if` doing nothing, which
+                        // is exactly what the `_ => {}` arm below does, so guarding
+                        // the arm is behaviour-preserving (clippy::collapsible_match).
+                        Event::Mouse(mouse) if mouse.button == MouseButton::Left => {
+                            if let Some(hit_id) = renderer.hit_test(mouse.x, mouse.y) {
+                                let action = App::hit_to_action(hit_id, mouse.kind);
+                                app.apply_action(&action);
                             }
                         }
                         // Other events processed below
@@ -5742,13 +5743,11 @@ fn draw_tour_overlay(
     );
 
     // Description (may have newlines)
-    let mut desc_y = overlay_y + 4;
-    for line in desc.lines() {
+    for (desc_y, line) in (overlay_y + 4..).zip(desc.lines()) {
         if desc_y >= overlay_y + overlay_h - 1 {
             break;
         }
         buffer.draw_text(overlay_x + 3, desc_y, line, Style::fg(theme.fg1));
-        desc_y += 1;
     }
 
     // Navigation hint

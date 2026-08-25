@@ -228,10 +228,10 @@ impl Dashboard {
                                     self.sidebar_selection -= 1;
                                 }
                             }
-                            KeyCode::Down => {
-                                if self.sidebar_selection < self.sidebar_items.len() - 1 {
-                                    self.sidebar_selection += 1;
-                                }
+                            KeyCode::Down
+                                if self.sidebar_selection < self.sidebar_items.len() - 1 =>
+                            {
+                                self.sidebar_selection += 1;
                             }
                             _ => {}
                         }

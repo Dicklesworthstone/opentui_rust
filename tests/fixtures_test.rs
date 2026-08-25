@@ -155,10 +155,10 @@ fn test_color_generators() {
 
 #[test]
 fn test_sample_text_available() {
-    assert!(!sample_text::SHORT_ASCII.is_empty());
-    assert!(!sample_text::LONG_ASCII.is_empty());
-    assert!(!sample_text::UNICODE_MIXED.is_empty());
-    assert!(!sample_text::EMOJI_BASIC.is_empty());
+    assert_ne!(sample_text::SHORT_ASCII, "");
+    assert_ne!(sample_text::LONG_ASCII, "");
+    assert_ne!(sample_text::UNICODE_MIXED, "");
+    assert_ne!(sample_text::EMOJI_BASIC, "");
 }
 
 #[test]
