@@ -13,5 +13,5 @@
 # changing state unrelated work depended on.
 #
 # Bump this deliberately, not accidentally.
-channel = "nightly-2026-08-20"
+channel = "nightly-2026-08-31"
 components = ["rustfmt", "clippy"]
