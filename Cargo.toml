@@ -53,7 +53,7 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 # PTY testing infrastructure
 portable-pty = "0.9"
-vt100 = "0.16"
+vt100 = "0.18"
 
 [[bench]]
 name = "buffer"
