@@ -129,10 +129,11 @@ impl PtyTestHarness {
             .take_writer()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
+        let size = |n| std::num::NonZeroU16::new(n).expect("vt100 screen size must be nonzero");
         Ok(Self {
             pty_writer: writer,
             child,
-            parser: vt100::Parser::new(height, width, 0),
+            parser: vt100::Parser::new(size(height), size(width), 0),
             reader_rx: rx,
             width,
             height,
