@@ -192,7 +192,7 @@ cargo build --release
 
 ```toml
 [dependencies]
-opentui_rust = "0.1"
+opentui_rust = "0.2"
 ```
 
 ---

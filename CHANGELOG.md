@@ -8,6 +8,53 @@ Format: capabilities-oriented, grouped by domain rather than diff order. Commit 
 
 ---
 
+## [v0.2.3] -- 2026-11-22
+
+Release focusing on fuzzing & safety fixes, benchmark harness correctness, release profile performance optimization (`opt-level = 3`), dependency & security hygiene, and full `--all-features` clippy/rustdoc cleanliness. No breaking public API changes, so this is a patch release.
+
+### Bug Fixes & Safety
+
+- **Panic-free hex color parsing (`src/color.rs`)**: Replaced byte-index string slicing in `Rgba::from_hex` with slice pattern matching and direct ASCII hex nibble decoding. Previously, 3-, 6-, or 8-byte inputs containing multi-byte UTF-8 characters (e.g. `"#中"`, `"日本"`, `"🎨🎨"`) panicked on non-UTF-8 char boundaries — discovered by running the restored `fuzz_color_hex` target — and signed strings such as `"+1+2+3"` were accepted by `u8::from_str_radix`. Added unit tests covering multi-byte UTF-8 and signed inputs.
+- **Fuzz crate package binding & harnesses (`fuzz/`)**: Added `package = "opentui_rust"` under `[dependencies.opentui]` in `fuzz/Cargo.toml` (preserving the `opentui` import alias and `path = ".."`), regenerated `fuzz/Cargo.lock`, handled the newer `ParseError` variants (`PasteBufferOverflow`, `InvalidResizeFormat`, `SequenceTooLong`) in `fuzz/fuzz_targets/fuzz_input_parser.rs`, and guarded substring slicing with `is_char_boundary` in `fuzz/fuzz_targets/fuzz_color_hex.rs`. Verified real compilation (including `libfuzzer-sys` C++ build scripts) and bounded runs across all three fuzz targets (`fuzz_input_parser` 20,000 runs over retained corpus, `fuzz_color_hex` 50,000 runs, `fuzz_keyboard_parser` 20,000 runs; 0 crashes). Fixes [#42](https://github.com/Dicklesworthstone/opentui_rust/issues/42).
+- **Benchmark driver failure & regression propagation (`scripts/bench.sh`, `scripts/benchmark_regression.sh`, `tests/e2e_perf.rs`)**:
+  - `scripts/bench.sh`: Preserve exact child and timeout (`124`) exit codes via `PIPESTATUS[0]`, forward `--` before Criterion `--save-baseline` / `--baseline` arguments, fail nonzero when Criterion detects regressions under `--baseline`, record `status`, `exit_code`, and `failed_count` in `benchmark_summary.json`, and propagate aggregate failure instead of unconditionally exiting `0`.
+  - `scripts/benchmark_regression.sh`: Create the log directory before writing, fix the `grep -c ... || echo "0"` double-zero bug, count regression/improvement lines from benchmark output only, preserve `cargo bench` exit status, and exit `1` when regressions are detected.
+  - `tests/e2e_perf.rs`: Classify zero baselines and negative/non-finite thresholds as `PerfStatus::InvalidBaseline` (never `Pass`), make `load_baseline()` return `Result<PerfBaseline, String>` and fail loudly on missing, unreadable, malformed, or zero-valued baseline files instead of silently falling back to defaults (leaving `tests/baselines/perf_baseline.json` unchanged), and add 7 unit tests covering harness integrity. Fixes [#43](https://github.com/Dicklesworthstone/opentui_rust/issues/43).
+
+### Performance
+
+- Switched `[profile.release]` from `opt-level = "z"` to `opt-level = 3` (retaining `lto = true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`).
+- Paired same-host interleaved A/B benchmarks (20 rounds on `demo_showcase` headless workloads, incumbent `opt-level = "z"` vs `v0.2.3` `opt-level = 3`):
+  - `headless_smoke_80x24`: `2.99 ms -> 2.36 ms` (`-21.0%`, `1.27x` faster; A/A noise `-5.4%`)
+  - `headless_smoke_200x60`: `5.66 ms -> 4.32 ms` (`-23.6%`, `1.31x` faster; A/A noise `-4.0%`)
+  - `headless_dump_json_200x60`: `5.76 ms -> 4.45 ms` (`-22.9%`, `1.30x` faster; A/A noise `-0.4%`, byte-identical 1,097 B JSON output)
+  - `headless_check_layout` / `headless_check_hitgrid`: within noise (`+1.2%` / `-1.3%` vs `+1.6%` / `-2.0%` A/A)
+  - 60-benchmark Criterion suite (`workloads`, `buffer`, `renderer`, `color`): `-33.0%` median latency, up to `4.86x` faster (`diff_reuse_80x24`), `4.83x` faster (`color_from_hex`), `4.74x` faster (`cell_get_full/200x60`), and `2.69x` faster (`full_cycle_with_ansi_80x24`), with 0 regressions beyond noise.
+  - Stripped `demo_showcase` release binary: `577,760 B -> 666,760 B` (`+89 KB`, `651 KiB`).
+
+### Dependencies & Security
+
+- Updated `rustix` `1.1.4 -> 1.1.6` resolving `RUSTSEC-2026-0486` (`cargo audit`: **0 vulnerabilities, 0 warnings** across both `Cargo.lock` and `fuzz/Cargo.lock`).
+- Updated runtime transitive dependencies (`smallvec 1.15.2 -> 1.16.6`, `tinyvec 1.12.0 -> 1.13.3` removing `tinyvec_macros 0.1.1`) plus Rust 1.85-compatible dev/build lockfile updates, alongside earlier `unicode-width 0.2.3`, `unicode-normalization 0.1.26`, `libc 0.2.191`, `bitflags 2.13.2`, `insta 1.49.0`, `serde_json 1.0.154`, and `vt100 0.18.1` bumps since `v0.2.2`.
+- Retained `proptest 1.11.0` to respect `rust-version = "1.85"` (`proptest 1.12.0` requires Rust 1.88).
+
+### Lint, Test & Documentation Hygiene
+
+- Resolved nightly `clippy::needless_range_loop` warnings in `src/text/view.rs` tests and pedantic/style clippy warnings in `tests/visual_pty_test.rs` so `cargo clippy --locked --all-targets --all-features -- -D warnings` is completely clean.
+- Updated `README.md` dependency snippet (`opentui_rust = "0.2"`).
+
+### Gate
+
+- `cargo fmt --all -- --check` & `cargo fmt --manifest-path fuzz/Cargo.toml -- --check`: clean
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`: clean (0 warnings)
+- `cargo test --locked --no-fail-fast`: 2,411 passed, 0 failed, 14 ignored across 29 targets
+- `cargo test --locked --all-features --test visual_pty_test`: 8 passed, 0 failed
+- `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features`: clean
+- `cargo audit` & `cargo audit --file fuzz/Cargo.lock`: 0 vulnerabilities, 0 warnings
+- `shellcheck -S warning scripts/bench.sh scripts/benchmark_regression.sh`: clean
+
+---
+
 ## [v0.2.2] -- 2026-08-24
 
 Everything on `main` since [v0.2.1](https://github.com/Dicklesworthstone/opentui_rust/releases/tag/v0.2.2) (2026-02-22): dependency currency, hit-grid work, documentation, and a lint-cleanliness pass. No API breaks, so this is a patch bump.
@@ -277,9 +324,13 @@ A comprehensive interactive demo binary (`demo_showcase`) was built to demonstra
 | 2026-02-04 | Crate renamed to `opentui_rust`, published to crates.io, dirty region tracking |
 | 2026-02-15 | **v0.2.0 released** (first GitHub Release) |
 | 2026-02-22 | **v0.2.1 tagged** -- license updated to MIT + OpenAI/Anthropic Rider |
+| 2026-08-24 | **v0.2.2 released** -- dependency currency, hit-grid improvements, clippy hygiene |
+| 2026-11-22 | **v0.2.3 released** -- fuzz fixes & UTF-8 `Rgba::from_hex` panic fix, benchmark failure propagation, `opt-level = 3`, `RUSTSEC-2026-0486` resolved |
 
 ---
 
-[Unreleased]: https://github.com/Dicklesworthstone/opentui_rust/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Dicklesworthstone/opentui_rust/compare/v0.2.3...HEAD
+[v0.2.3]: https://github.com/Dicklesworthstone/opentui_rust/compare/v0.2.2...v0.2.3
+[v0.2.2]: https://github.com/Dicklesworthstone/opentui_rust/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/Dicklesworthstone/opentui_rust/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/Dicklesworthstone/opentui_rust/releases/tag/v0.2.0

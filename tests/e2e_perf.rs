@@ -47,9 +47,6 @@ use std::time::{Duration, Instant};
 /// Path to baseline file.
 const BASELINE_PATH: &str = "tests/baselines/perf_baseline.json";
 
-/// Default regression threshold (20%).
-const DEFAULT_REGRESSION_THRESHOLD: f64 = 0.20;
-
 /// Baseline configuration loaded from JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PerfBaseline {
@@ -135,18 +132,31 @@ enum PerfStatus {
     Pass,
     Regression,
     Improvement,
+    InvalidBaseline,
+}
+
+impl PerfStatus {
+    const fn is_passing(self) -> bool {
+        matches!(self, Self::Pass | Self::Improvement)
+    }
 }
 
 impl PerfResult {
     fn new(name: &str, actual_ms: u64, baseline_ms: u64, threshold_percent: f64) -> Self {
+        if baseline_ms == 0 || !threshold_percent.is_finite() || threshold_percent < 0.0 {
+            return Self {
+                name: name.to_string(),
+                actual_ms,
+                baseline_ms,
+                diff_percent: 0.0,
+                status: PerfStatus::InvalidBaseline,
+            };
+        }
+
         // `u64 -> f64` is potentially lossy, but these values are milliseconds measured in tests
         // and are expected to be well within the precise integer range of `f64`.
         #[allow(clippy::cast_precision_loss)]
-        let diff_percent = if baseline_ms == 0 {
-            0.0
-        } else {
-            ((actual_ms as f64 - baseline_ms as f64) / baseline_ms as f64) * 100.0
-        };
+        let diff_percent = ((actual_ms as f64 - baseline_ms as f64) / baseline_ms as f64) * 100.0;
 
         let status = if diff_percent > threshold_percent * 100.0 {
             PerfStatus::Regression
@@ -172,6 +182,7 @@ impl PerfResult {
 struct PerfReport {
     results: Vec<PerfResult>,
     regressions: Vec<String>,
+    invalid_baselines: Vec<String>,
     improvements: Vec<String>,
     all_passed: bool,
 }
@@ -189,6 +200,12 @@ impl PerfReport {
                     result.name, result.diff_percent, result.actual_ms, result.baseline_ms
                 ));
             }
+            PerfStatus::InvalidBaseline => {
+                self.invalid_baselines.push(format!(
+                    "{}: invalid baseline ({} ms actual vs {} ms baseline)",
+                    result.name, result.actual_ms, result.baseline_ms
+                ));
+            }
             PerfStatus::Improvement => {
                 self.improvements.push(format!(
                     "{}: {:.1}% faster ({} ms vs {} ms baseline)",
@@ -201,12 +218,20 @@ impl PerfReport {
     }
 
     fn finalize(&mut self) {
-        self.all_passed = self.regressions.is_empty();
+        self.all_passed = self.regressions.is_empty() && self.invalid_baselines.is_empty();
     }
 
     fn to_summary(&self) -> String {
         let mut summary = String::new();
         summary.push_str("=== Performance Test Report ===\n\n");
+
+        if !self.invalid_baselines.is_empty() {
+            summary.push_str("INVALID BASELINES DETECTED:\n");
+            for b in &self.invalid_baselines {
+                summary.push_str(&format!("  ! {b}\n"));
+            }
+            summary.push('\n');
+        }
 
         if !self.regressions.is_empty() {
             summary.push_str("REGRESSIONS DETECTED:\n");
@@ -225,16 +250,17 @@ impl PerfReport {
         }
 
         summary.push_str(&format!(
-            "Total: {} tests, {} regressions, {} improvements\n",
+            "Total: {} tests, {} regressions, {} invalid baselines, {} improvements\n",
             self.results.len(),
             self.regressions.len(),
+            self.invalid_baselines.len(),
             self.improvements.len()
         ));
 
         if self.all_passed {
             summary.push_str("\nResult: PASS\n");
         } else {
-            summary.push_str("\nResult: FAIL (regressions detected)\n");
+            summary.push_str("\nResult: FAIL (regressions or invalid baselines detected)\n");
         }
 
         summary
@@ -245,16 +271,131 @@ impl PerfReport {
     }
 }
 
-/// Load baseline configuration.
-fn load_baseline() -> Option<PerfBaseline> {
-    let path = Path::new(BASELINE_PATH);
-    if !path.exists() {
-        eprintln!("Warning: Baseline file not found at {BASELINE_PATH}");
-        return None;
+impl PerfBaseline {
+    fn validate(&self) -> Result<(), String> {
+        if !self.thresholds.regression_threshold_percent.is_finite()
+            || self.thresholds.regression_threshold_percent < 0.0
+        {
+            return Err(format!(
+                "Invalid regression_threshold_percent: {}",
+                self.thresholds.regression_threshold_percent
+            ));
+        }
+        if !self.thresholds.improvement_threshold_percent.is_finite()
+            || self.thresholds.improvement_threshold_percent < 0.0
+        {
+            return Err(format!(
+                "Invalid improvement_threshold_percent: {}",
+                self.thresholds.improvement_threshold_percent
+            ));
+        }
+
+        for (field, value) in self.required_nonzero_fields() {
+            if value == 0 {
+                return Err(format!("Baseline field '{field}' must be > 0, got 0"));
+            }
+        }
+
+        Ok(())
     }
 
-    let content = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&content).ok()
+    const fn required_nonzero_fields(&self) -> [(&'static str, u64); 19] {
+        let rend = &self.baselines.rendering;
+        let buf = &self.baselines.buffer_operations;
+        let txt = &self.baselines.text_operations;
+        let inp = &self.baselines.input_processing;
+        let e2e = &self.baselines.e2e;
+        [
+            (
+                "rendering.full_screen_clear_100x_ms",
+                rend.full_screen_clear_100x_ms,
+            ),
+            (
+                "rendering.full_screen_text_render_100x_ms",
+                rend.full_screen_text_render_100x_ms,
+            ),
+            (
+                "rendering.diff_render_10pct_changes_ms",
+                rend.diff_render_10pct_changes_ms,
+            ),
+            (
+                "rendering.diff_render_50pct_changes_ms",
+                rend.diff_render_50pct_changes_ms,
+            ),
+            (
+                "rendering.diff_render_90pct_changes_ms",
+                rend.diff_render_90pct_changes_ms,
+            ),
+            (
+                "buffer_operations.large_buffer_create_200x60_ms",
+                buf.large_buffer_create_200x60_ms,
+            ),
+            (
+                "buffer_operations.scissor_push_pop_1000x_ms",
+                buf.scissor_push_pop_1000x_ms,
+            ),
+            (
+                "buffer_operations.opacity_stack_1000x_ms",
+                buf.opacity_stack_1000x_ms,
+            ),
+            (
+                "buffer_operations.cell_iteration_full_buffer_ms",
+                buf.cell_iteration_full_buffer_ms,
+            ),
+            (
+                "text_operations.large_file_load_100kb_ms",
+                txt.large_file_load_100kb_ms,
+            ),
+            (
+                "text_operations.text_insert_1000_chars_ms",
+                txt.text_insert_1000_chars_ms,
+            ),
+            ("text_operations.undo_redo_100x_ms", txt.undo_redo_100x_ms),
+            (
+                "text_operations.wrap_recalculation_ms",
+                txt.wrap_recalculation_ms,
+            ),
+            (
+                "input_processing.parse_1000_keystrokes_ms",
+                inp.parse_1000_keystrokes_ms,
+            ),
+            (
+                "input_processing.parse_1000_mouse_events_ms",
+                inp.parse_1000_mouse_events_ms,
+            ),
+            (
+                "input_processing.parse_large_paste_10kb_ms",
+                inp.parse_large_paste_10kb_ms,
+            ),
+            (
+                "e2e.demo_showcase_tour_max_runtime_s",
+                e2e.demo_showcase_tour_max_runtime_s,
+            ),
+            (
+                "e2e.demo_showcase_tour_min_fps",
+                e2e.demo_showcase_tour_min_fps,
+            ),
+            (
+                "e2e.demo_showcase_headless_smoke_max_ms",
+                e2e.demo_showcase_headless_smoke_max_ms,
+            ),
+        ]
+    }
+}
+
+/// Load and validate baseline configuration from an explicit path.
+fn load_baseline_from_path(path: &Path) -> Result<PerfBaseline, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read baseline file '{}': {e}", path.display()))?;
+    let baseline: PerfBaseline = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse baseline file '{}': {e}", path.display()))?;
+    baseline.validate()?;
+    Ok(baseline)
+}
+
+/// Load baseline configuration from the canonical repository path.
+fn load_baseline() -> Result<PerfBaseline, String> {
+    load_baseline_from_path(Path::new(BASELINE_PATH))
 }
 
 /// Time a closure and return duration in milliseconds.
@@ -271,10 +412,20 @@ fn should_update_baselines() -> bool {
     std::env::var("UPDATE_BASELINES").is_ok()
 }
 
-fn regression_threshold(baseline: Option<&PerfBaseline>) -> f64 {
-    baseline.map_or(DEFAULT_REGRESSION_THRESHOLD, |b| {
-        b.thresholds.regression_threshold_percent / 100.0
-    })
+fn regression_threshold(baseline: &PerfBaseline) -> f64 {
+    baseline.thresholds.regression_threshold_percent / 100.0
+}
+
+fn assert_perf_passing(result: &PerfResult) {
+    assert!(
+        result.status.is_passing(),
+        "{}: {} ms vs {} ms baseline ({:.1}% diff, status={:?})",
+        result.name,
+        result.actual_ms,
+        result.baseline_ms,
+        result.diff_percent,
+        result.status
+    );
 }
 
 // =============================================================================
@@ -283,11 +434,9 @@ fn regression_threshold(baseline: Option<&PerfBaseline>) -> f64 {
 
 #[test]
 fn perf_full_screen_clear() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline
-        .as_ref()
-        .map_or(50, |b| b.baselines.rendering.full_screen_clear_100x_ms);
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.rendering.full_screen_clear_100x_ms;
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     let actual = time_ms(|| buffer.clear(Rgba::BLACK), 100);
@@ -303,22 +452,14 @@ fn perf_full_screen_clear() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_full_screen_text_render() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(100, |b| {
-        b.baselines.rendering.full_screen_text_render_100x_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.rendering.full_screen_text_render_100x_ms;
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     let style = Style::fg(Rgba::WHITE);
@@ -344,13 +485,7 @@ fn perf_full_screen_text_render() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 // =============================================================================
@@ -359,11 +494,12 @@ fn perf_full_screen_text_render() {
 
 #[test]
 fn perf_large_buffer_create() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(10, |b| {
-        b.baselines.buffer_operations.large_buffer_create_200x60_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline
+        .baselines
+        .buffer_operations
+        .large_buffer_create_200x60_ms;
 
     let actual = time_ms(|| drop(OptimizedBuffer::new(200, 60)), 100);
 
@@ -378,24 +514,19 @@ fn perf_large_buffer_create() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_scissor_push_pop() {
     use opentui::buffer::ClipRect;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(20, |b| {
-        b.baselines.buffer_operations.scissor_push_pop_1000x_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline
+        .baselines
+        .buffer_operations
+        .scissor_push_pop_1000x_ms;
 
     let mut buffer = OptimizedBuffer::new(200, 50);
 
@@ -420,22 +551,14 @@ fn perf_scissor_push_pop() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_opacity_stack() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline
-        .as_ref()
-        .map_or(20, |b| b.baselines.buffer_operations.opacity_stack_1000x_ms);
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.buffer_operations.opacity_stack_1000x_ms;
 
     let mut buffer = OptimizedBuffer::new(200, 50);
 
@@ -460,22 +583,17 @@ fn perf_opacity_stack() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_cell_iteration() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(30, |b| {
-        b.baselines.buffer_operations.cell_iteration_full_buffer_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline
+        .baselines
+        .buffer_operations
+        .cell_iteration_full_buffer_ms;
 
     let mut buffer = OptimizedBuffer::new(200, 50);
     buffer.clear(Rgba::WHITE);
@@ -508,13 +626,7 @@ fn perf_cell_iteration() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 // =============================================================================
@@ -525,11 +637,9 @@ fn perf_cell_iteration() {
 fn perf_text_insert() {
     use opentui::text::EditBuffer;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(50, |b| {
-        b.baselines.text_operations.text_insert_1000_chars_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.text_operations.text_insert_1000_chars_ms;
 
     let mut edit_buffer = EditBuffer::new();
 
@@ -554,24 +664,16 @@ fn perf_text_insert() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_undo_redo() {
     use opentui::text::EditBuffer;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline
-        .as_ref()
-        .map_or(30, |b| b.baselines.text_operations.undo_redo_100x_ms);
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.text_operations.undo_redo_100x_ms;
 
     let mut edit_buffer = EditBuffer::new();
 
@@ -607,13 +709,7 @@ fn perf_undo_redo() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 // =============================================================================
@@ -624,11 +720,9 @@ fn perf_undo_redo() {
 fn perf_parse_keystrokes() {
     use opentui::input::InputParser;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(20, |b| {
-        b.baselines.input_processing.parse_1000_keystrokes_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline.baselines.input_processing.parse_1000_keystrokes_ms;
 
     let mut parser = InputParser::new();
 
@@ -666,24 +760,19 @@ fn perf_parse_keystrokes() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_parse_mouse_events() {
     use opentui::input::InputParser;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(30, |b| {
-        b.baselines.input_processing.parse_1000_mouse_events_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline
+        .baselines
+        .input_processing
+        .parse_1000_mouse_events_ms;
 
     let mut parser = InputParser::new();
 
@@ -716,24 +805,19 @@ fn perf_parse_mouse_events() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 #[test]
 fn perf_parse_large_paste() {
     use opentui::input::InputParser;
 
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
-    let expected = baseline.as_ref().map_or(50, |b| {
-        b.baselines.input_processing.parse_large_paste_10kb_ms
-    });
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
+    let expected = baseline
+        .baselines
+        .input_processing
+        .parse_large_paste_10kb_ms;
 
     let mut parser = InputParser::new();
 
@@ -765,13 +849,7 @@ fn perf_parse_large_paste() {
         println!("  Suggested baseline: {actual}");
     }
 
-    assert!(
-        result.status != PerfStatus::Regression,
-        "REGRESSION: {} ms vs {} ms baseline ({:.1}% slower)",
-        actual,
-        expected,
-        result.diff_percent
-    );
+    assert_perf_passing(&result);
 }
 
 // =============================================================================
@@ -780,16 +858,14 @@ fn perf_parse_large_paste() {
 
 #[test]
 fn perf_comprehensive_report() {
-    let baseline = load_baseline();
-    let threshold = regression_threshold(baseline.as_ref());
+    let baseline = load_baseline().expect("valid performance baseline file");
+    let threshold = regression_threshold(&baseline);
 
     let mut report = PerfReport::new();
 
     // Rendering tests
     {
-        let expected = baseline
-            .as_ref()
-            .map_or(50, |b| b.baselines.rendering.full_screen_clear_100x_ms);
+        let expected = baseline.baselines.rendering.full_screen_clear_100x_ms;
         let mut buffer = OptimizedBuffer::new(200, 50);
         let actual = time_ms(|| buffer.clear(Rgba::BLACK), 100);
         report.add(PerfResult::new(
@@ -802,9 +878,10 @@ fn perf_comprehensive_report() {
 
     // Buffer operations
     {
-        let expected = baseline.as_ref().map_or(10, |b| {
-            b.baselines.buffer_operations.large_buffer_create_200x60_ms
-        });
+        let expected = baseline
+            .baselines
+            .buffer_operations
+            .large_buffer_create_200x60_ms;
         let actual = time_ms(|| drop(OptimizedBuffer::new(200, 60)), 100);
         report.add(PerfResult::new(
             "large_buffer_create_100x",
@@ -928,4 +1005,98 @@ fn perf_diff_rendering_simulation() {
         elapsed < Duration::from_millis(50),
         "Diff detection too slow: {elapsed:?}"
     );
+}
+
+// =============================================================================
+// HARNESS INTEGRITY & BASELINE VALIDATION TESTS
+// =============================================================================
+
+#[test]
+fn perf_zero_baseline_is_invalid_not_pass() {
+    let result = PerfResult::new("zero_baseline_case", 100, 0, 0.20);
+    assert_eq!(result.status, PerfStatus::InvalidBaseline);
+    assert!(!result.status.is_passing());
+}
+
+#[test]
+fn perf_invalid_threshold_is_rejected() {
+    let nan_res = PerfResult::new("nan_threshold", 10, 50, f64::NAN);
+    assert_eq!(nan_res.status, PerfStatus::InvalidBaseline);
+    assert!(!nan_res.status.is_passing());
+
+    let neg_res = PerfResult::new("neg_threshold", 10, 50, -0.10);
+    assert_eq!(neg_res.status, PerfStatus::InvalidBaseline);
+    assert!(!neg_res.status.is_passing());
+}
+
+#[test]
+fn perf_missing_baseline_file_errors() {
+    let missing = Path::new("tests/baselines/does_not_exist_perf_baseline.json");
+    let err = load_baseline_from_path(missing).expect_err("missing baseline file must fail");
+    assert!(err.contains("Failed to read baseline file"), "got: {err}");
+}
+
+#[test]
+fn perf_malformed_baseline_file_errors() {
+    let temp = tempfile::NamedTempFile::new().expect("create temp baseline file");
+    fs::write(temp.path(), "{ not valid json").expect("write malformed json");
+
+    let err = load_baseline_from_path(temp.path()).expect_err("malformed baseline JSON must fail");
+    assert!(err.contains("Failed to parse baseline file"), "got: {err}");
+}
+
+#[test]
+fn perf_zero_value_in_baseline_json_errors() {
+    let raw = fs::read_to_string(BASELINE_PATH).expect("read canonical baseline json");
+    let zeroed = raw.replace(
+        "\"full_screen_clear_100x_ms\": 50",
+        "\"full_screen_clear_100x_ms\": 0",
+    );
+    assert_ne!(raw, zeroed, "baseline replacement should mutate field");
+
+    let temp = tempfile::NamedTempFile::new().expect("create temp baseline file");
+    fs::write(temp.path(), zeroed).expect("write zeroed baseline");
+
+    let err =
+        load_baseline_from_path(temp.path()).expect_err("zero baseline field in JSON must fail");
+    assert!(err.contains("must be > 0"), "got: {err}");
+}
+
+#[test]
+fn perf_report_fails_on_regression_and_invalid_baseline() {
+    let mut regressed_report = PerfReport::new();
+    regressed_report.add(PerfResult::new("ok_op", 50, 50, 0.20));
+    regressed_report.add(PerfResult::new("slow_op", 100, 50, 0.20));
+    regressed_report.finalize();
+    assert!(!regressed_report.all_passed);
+    assert_eq!(regressed_report.regressions.len(), 1);
+    assert!(regressed_report.to_summary().contains("Result: FAIL"));
+
+    let mut invalid_report = PerfReport::new();
+    invalid_report.add(PerfResult::new("ok_op", 50, 50, 0.20));
+    invalid_report.add(PerfResult::new("bad_baseline", 10, 0, 0.20));
+    invalid_report.finalize();
+    assert!(!invalid_report.all_passed);
+    assert_eq!(invalid_report.invalid_baselines.len(), 1);
+    assert!(
+        invalid_report
+            .to_summary()
+            .contains("INVALID BASELINES DETECTED")
+    );
+    assert!(invalid_report.to_summary().contains("Result: FAIL"));
+}
+
+#[test]
+fn perf_result_classifies_pass_improvement_and_regression() {
+    let pass = PerfResult::new("within_budget", 55, 50, 0.20);
+    assert_eq!(pass.status, PerfStatus::Pass);
+    assert!(pass.status.is_passing());
+
+    let improved = PerfResult::new("much_faster", 30, 50, 0.20);
+    assert_eq!(improved.status, PerfStatus::Improvement);
+    assert!(improved.status.is_passing());
+
+    let regressed = PerfResult::new("too_slow", 65, 50, 0.20);
+    assert_eq!(regressed.status, PerfStatus::Regression);
+    assert!(!regressed.status.is_passing());
 }

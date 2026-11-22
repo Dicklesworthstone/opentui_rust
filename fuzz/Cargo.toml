@@ -13,6 +13,7 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 
 [dependencies.opentui]
+package = "opentui_rust"
 path = ".."
 
 # Fuzz targets - each corresponds to a file in fuzz_targets/

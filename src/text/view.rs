@@ -1807,8 +1807,13 @@ mod tests {
 
         let info = view.line_info();
         eprintln!("[TEST] Wrap width: 5, LineInfo:");
-        for i in 0..info.virtual_line_count() {
-            eprintln!("[TEST]   Line {}: width={}", i, info.widths[i]);
+        for (i, width) in info
+            .widths
+            .iter()
+            .enumerate()
+            .take(info.virtual_line_count())
+        {
+            eprintln!("[TEST]   Line {i}: width={width}");
         }
 
         // Verify no line has an odd-width ending that would split a CJK char
@@ -1860,8 +1865,13 @@ mod tests {
 
         let info = view.line_info();
         eprintln!("[TEST] Wrap width: 3, LineInfo:");
-        for i in 0..info.virtual_line_count() {
-            eprintln!("[TEST]   Line {}: width={}", i, info.widths[i]);
+        for (i, width) in info
+            .widths
+            .iter()
+            .enumerate()
+            .take(info.virtual_line_count())
+        {
+            eprintln!("[TEST]   Line {i}: width={width}");
         }
 
         // With width 3:
@@ -1960,8 +1970,13 @@ mod tests {
 
         let info = view.line_info();
         eprintln!("[TEST] Virtual lines:");
-        for i in 0..info.virtual_line_count() {
-            eprintln!("[TEST]   Virtual {}: source={}", i, info.sources[i]);
+        for (i, source) in info
+            .sources
+            .iter()
+            .enumerate()
+            .take(info.virtual_line_count())
+        {
+            eprintln!("[TEST]   Virtual {i}: source={source}");
         }
 
         // Test source_to_virtual

@@ -1,6 +1,6 @@
 [package]
 name = "opentui_rust"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.85"
 description = "High-performance terminal UI rendering engine with alpha blending and diffed buffers"
@@ -88,7 +88,7 @@ name = "input"
 harness = false
 
 [profile.release]
-opt-level = "z"
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"

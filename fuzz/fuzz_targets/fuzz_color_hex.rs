@@ -18,11 +18,14 @@ fuzz_target!(|data: &str| {
         let _ = Rgba::from_hex(&with_hash);
     }
 
-    // Try parsing substrings to find edge cases
+    // Try parsing valid UTF-8 substrings to find edge cases without panicking on char boundaries
     for i in 0..data.len().min(10) {
-        let _ = Rgba::from_hex(&data[i..]);
-        if i < data.len() {
-            let _ = Rgba::from_hex(&data[..data.len() - i]);
+        if data.is_char_boundary(i) {
+            let _ = Rgba::from_hex(&data[i..]);
+        }
+        let end = data.len() - i;
+        if i < data.len() && data.is_char_boundary(end) {
+            let _ = Rgba::from_hex(&data[..end]);
         }
     }
 });

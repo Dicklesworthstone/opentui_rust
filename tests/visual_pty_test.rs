@@ -9,6 +9,7 @@
 #![cfg(feature = "pty-tests")]
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::thread;
@@ -29,30 +30,35 @@ pub struct ScreenCapture {
 
 impl ScreenCapture {
     /// Get the text at a specific row (0-indexed).
+    #[must_use]
     pub fn row_text(&self, row: usize) -> Option<&str> {
         self.rows.get(row).map(String::as_str)
     }
 
     /// Check if a specific row contains a substring.
+    #[must_use]
     pub fn row_contains(&self, row: usize, substring: &str) -> bool {
-        self.rows.get(row).map_or(false, |r| r.contains(substring))
+        self.rows.get(row).is_some_and(|r| r.contains(substring))
     }
 
     /// Get the character at a specific position.
+    #[must_use]
     pub fn char_at(&self, col: usize, row: usize) -> Option<char> {
         self.rows.get(row).and_then(|r| r.chars().nth(col))
     }
 
     /// Find the first row containing a substring.
+    #[must_use]
     pub fn find_row_containing(&self, substring: &str) -> Option<usize> {
         self.rows.iter().position(|r| r.contains(substring))
     }
 
     /// Dump the screen to a string for debugging.
+    #[must_use]
     pub fn dump(&self) -> String {
         let mut out = format!("Screen {}x{}:\n", self.width, self.height);
         for (i, row) in self.rows.iter().enumerate() {
-            out.push_str(&format!("{:3}| {}\n", i, row));
+            let _ = writeln!(out, "{i:3}| {row}");
         }
         out
     }
@@ -70,6 +76,15 @@ pub struct PtyTestHarness {
 
 impl PtyTestHarness {
     /// Spawn a command in a PTY with the given dimensions and custom TERM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if opening the PTY, spawning the child command,
+    /// or acquiring the PTY reader/writer fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `width` or `height` is zero.
     pub fn spawn_with_term(
         cmd: &str,
         args: &[&str],
@@ -86,7 +101,7 @@ impl PtyTestHarness {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         let mut cmd_builder = CommandBuilder::new(cmd);
         cmd_builder.args(args);
@@ -98,13 +113,13 @@ impl PtyTestHarness {
         let child = pair
             .slave
             .spawn_command(cmd_builder)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         // Set up async reader for PTY output
         let mut reader = pair
             .master
             .try_clone_reader()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         let (tx, rx) = mpsc::channel();
 
@@ -112,22 +127,18 @@ impl PtyTestHarness {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
-                    Ok(0) => break, // EOF
+                    Ok(0) | Err(_) => break, // EOF or read error
                     Ok(n) => {
                         if tx.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
                     }
-                    Err(_) => break,
                 }
             }
         });
 
         // Get writer for sending input
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let writer = pair.master.take_writer().map_err(std::io::Error::other)?;
 
         let size = |n| std::num::NonZeroU16::new(n).expect("vt100 screen size must be nonzero");
         Ok(Self {
@@ -142,11 +153,19 @@ impl PtyTestHarness {
 
     /// Spawn a command in a PTY with the given dimensions.
     /// Uses TERM=wezterm by default to match WezTerm-specific capability paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if opening the PTY or spawning the command fails.
     pub fn spawn(cmd: &str, args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
         Self::spawn_with_term(cmd, args, width, height, "wezterm")
     }
 
-    /// Spawn demo_showcase with given arguments and TERM type.
+    /// Spawn `demo_showcase` with given arguments and TERM type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if opening the PTY or spawning `demo_showcase` fails.
     pub fn spawn_demo_with_term(
         args: &[&str],
         width: u16,
@@ -157,8 +176,12 @@ impl PtyTestHarness {
         Self::spawn_with_term(demo_path, args, width, height, term)
     }
 
-    /// Spawn demo_showcase with given arguments.
+    /// Spawn `demo_showcase` with given arguments.
     /// Uses TERM=wezterm by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if opening the PTY or spawning `demo_showcase` fails.
     pub fn spawn_demo(args: &[&str], width: u16, height: u16) -> std::io::Result<Self> {
         Self::spawn_demo_with_term(args, width, height, "wezterm")
     }
@@ -192,30 +215,51 @@ impl PtyTestHarness {
     }
 
     /// Send keystrokes to the PTY.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if writing to or flushing the PTY fails.
     pub fn send_keys(&mut self, keys: &str) -> std::io::Result<()> {
         self.pty_writer.write_all(keys.as_bytes())?;
         self.pty_writer.flush()
     }
 
     /// Send a special key (escape sequence).
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if writing to or flushing the PTY fails.
     pub fn send_escape(&mut self, seq: &str) -> std::io::Result<()> {
         self.pty_writer.write_all(seq.as_bytes())?;
         self.pty_writer.flush()
     }
 
     /// Send Ctrl+C.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if writing to or flushing the PTY fails.
     pub fn send_ctrl_c(&mut self) -> std::io::Result<()> {
         self.pty_writer.write_all(&[0x03])?;
         self.pty_writer.flush()
     }
 
     /// Send Escape key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if writing to or flushing the PTY fails.
     pub fn send_esc(&mut self) -> std::io::Result<()> {
         self.pty_writer.write_all(&[0x1b])?;
         self.pty_writer.flush()
     }
 
     /// Capture the current screen state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a cell within the configured `(width, height)` bounds is missing.
+    #[must_use]
     pub fn capture_screen(&self) -> ScreenCapture {
         let screen = self.parser.screen();
         let mut rows = Vec::with_capacity(self.height as usize);
@@ -224,7 +268,7 @@ impl PtyTestHarness {
             let mut line = String::new();
             for col in 0..self.width {
                 let cell = screen.cell(row, col).unwrap();
-                line.push_str(&cell.contents());
+                line.push_str(cell.contents());
             }
             // Trim trailing spaces but keep structure
             let trimmed = line.trim_end();
@@ -339,18 +383,16 @@ fn test_demo_renders_cache_rs_correctly() {
 
     if let Some(row_idx) = io_line {
         let row = screen.row_text(row_idx).unwrap();
-        println!("Found io line at row {}: {}", row_idx, row);
+        println!("Found io line at row {row_idx}: {row}");
 
         // Verify the line is NOT corrupted
         assert!(
             row.contains("self") && row.contains("Write"),
-            "Line should contain 'self' and 'Write', got: {}",
-            row
+            "Line should contain 'self' and 'Write', got: {row}"
         );
         assert!(
             !row.contains("u8tyle") && !row.contains("Wslts"),
-            "Line should NOT contain garbled text like 'u8tyle' or 'Wslts', got: {}",
-            row
+            "Line should NOT contain garbled text like 'u8tyle' or 'Wslts', got: {row}"
         );
     } else {
         // If we can't find std::io, check that we at least have std::collections
@@ -380,15 +422,11 @@ fn test_demo_text_not_garbled() {
         // These are known garbled patterns from the bug
         assert!(
             !row.contains("u8tyle"),
-            "Row {} contains garbled text 'u8tyle': {}",
-            i,
-            row
+            "Row {i} contains garbled text 'u8tyle': {row}"
         );
         assert!(
             !row.contains("Wslts"),
-            "Row {} contains garbled text 'Wslts': {}",
-            i,
-            row
+            "Row {i} contains garbled text 'Wslts': {row}"
         );
     }
 
@@ -419,7 +457,7 @@ fn test_demo_keyboard_navigation() {
     // The screen should have changed (focus moved)
     // We don't assert exact content, just that something changed
     let changed = screen1.rows != screen2.rows;
-    println!("Screen changed after Tab: {}", changed);
+    println!("Screen changed after Tab: {changed}");
 
     harness.send_keys("q").ok();
     harness.wait_exit(Duration::from_secs(2));
@@ -447,9 +485,7 @@ fn test_demo_tour_mode_text_integrity() {
     for (i, row) in screen.rows.iter().enumerate() {
         assert!(
             !row.contains("u8tyle") && !row.contains("Wslts"),
-            "Row {} in tour mode has garbled text: {}",
-            i,
-            row
+            "Row {i} in tour mode has garbled text: {row}"
         );
     }
 
@@ -514,17 +550,13 @@ fn test_terminal_type_consistency() {
     for (i, row) in screen_wez.rows.iter().enumerate() {
         assert!(
             !row.contains("u8tyle") && !row.contains("Wslts"),
-            "wezterm row {} has garbled text: {}",
-            i,
-            row
+            "wezterm row {i} has garbled text: {row}"
         );
     }
     for (i, row) in screen_xterm.rows.iter().enumerate() {
         assert!(
             !row.contains("u8tyle") && !row.contains("Wslts"),
-            "xterm row {} has garbled text: {}",
-            i,
-            row
+            "xterm row {i} has garbled text: {row}"
         );
     }
 }
@@ -535,35 +567,29 @@ fn test_different_screen_sizes() {
     let sizes = [(80, 24), (120, 40), (160, 50)];
 
     for (width, height) in sizes {
-        println!("Testing {}x{}", width, height);
+        println!("Testing {width}x{height}");
 
         let mut harness = PtyTestHarness::spawn_demo(&["--seed", "42"], width, height)
-            .expect(&format!("Failed to spawn demo at {}x{}", width, height));
+            .unwrap_or_else(|e| panic!("Failed to spawn demo at {width}x{height}: {e}"));
 
         harness.wait_for_output(Duration::from_secs(5));
         let screen = harness.capture_screen();
 
-        println!("=== {}x{} ===", width, height);
+        println!("=== {width}x{height} ===");
         println!("{}", screen.dump());
 
         // Should always show header
         assert!(
             screen.find_row_containing("OpenTUI").is_some()
                 || screen.find_row_containing("Showcase").is_some(),
-            "Screen {}x{} should contain header",
-            width,
-            height
+            "Screen {width}x{height} should contain header"
         );
 
         // No garbled text
         for (i, row) in screen.rows.iter().enumerate() {
             assert!(
                 !row.contains("u8tyle") && !row.contains("Wslts"),
-                "Screen {}x{} row {} has garbled text: {}",
-                width,
-                height,
-                i,
-                row
+                "Screen {width}x{height} row {i} has garbled text: {row}"
             );
         }
 
@@ -613,10 +639,7 @@ fn test_arrow_key_navigation() {
         for (i, row) in screen.rows.iter().enumerate() {
             assert!(
                 !row.contains("u8tyle") && !row.contains("Wslts"),
-                "{} row {} has garbled text: {}",
-                name,
-                i,
-                row
+                "{name} row {i} has garbled text: {row}"
             );
         }
     }

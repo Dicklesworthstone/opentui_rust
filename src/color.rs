@@ -146,27 +146,37 @@ impl Rgba {
     /// Supports 3-char (#RGB), 6-char (#RRGGBB), and 8-char (#RRGGBBAA) formats.
     #[must_use]
     pub fn from_hex(hex: &str) -> Option<Self> {
-        let hex = hex.strip_prefix('#').unwrap_or(hex);
+        #[inline]
+        const fn hex_nibble(b: u8) -> Option<u8> {
+            match b {
+                b'0'..=b'9' => Some(b - b'0'),
+                b'a'..=b'f' => Some(b - b'a' + 10),
+                b'A'..=b'F' => Some(b - b'A' + 10),
+                _ => None,
+            }
+        }
 
-        match hex.len() {
-            3 => {
+        let bytes = hex.strip_prefix('#').unwrap_or(hex).as_bytes();
+
+        match *bytes {
+            [r, g, b] => {
                 // #RGB -> #RRGGBB
-                let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
-                let g = u8::from_str_radix(&hex[1..2], 16).ok()?;
-                let b = u8::from_str_radix(&hex[2..3], 16).ok()?;
+                let r = hex_nibble(r)?;
+                let g = hex_nibble(g)?;
+                let b = hex_nibble(b)?;
                 Some(Self::from_rgb_u8(r * 17, g * 17, b * 17))
             }
-            6 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            [r0, r1, g0, g1, b0, b1] => {
+                let r = (hex_nibble(r0)? << 4) | hex_nibble(r1)?;
+                let g = (hex_nibble(g0)? << 4) | hex_nibble(g1)?;
+                let b = (hex_nibble(b0)? << 4) | hex_nibble(b1)?;
                 Some(Self::from_rgb_u8(r, g, b))
             }
-            8 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-                let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            [r0, r1, g0, g1, b0, b1, a0, a1] => {
+                let r = (hex_nibble(r0)? << 4) | hex_nibble(r1)?;
+                let g = (hex_nibble(g0)? << 4) | hex_nibble(g1)?;
+                let b = (hex_nibble(b0)? << 4) | hex_nibble(b1)?;
+                let a = (hex_nibble(a0)? << 4) | hex_nibble(a1)?;
                 Some(Self::from_rgba_u8(r, g, b, a))
             }
             _ => None,
@@ -1252,6 +1262,23 @@ mod edge_case_tests {
         assert_eq!(Rgba::from_hex("#ZZZZZZ"), None);
         assert_eq!(Rgba::from_hex("#12345G"), None);
         assert_eq!(Rgba::from_hex("#XYZ"), None);
+        // Reject signed tokens that u8::from_str_radix would accept
+        assert_eq!(Rgba::from_hex("+1+2+3"), None);
+        assert_eq!(Rgba::from_hex("#+1+2+3+4"), None);
+    }
+
+    #[test]
+    fn test_from_hex_multibyte_utf8_no_panic() {
+        // 3-byte, 6-byte, and 8-byte UTF-8 inputs must return None without panicking
+        // on non-ASCII char boundaries.
+        assert_eq!(Rgba::from_hex("中"), None); // 3 bytes
+        assert_eq!(Rgba::from_hex("#中"), None); // 3 bytes after '#'
+        assert_eq!(Rgba::from_hex("日本"), None); // 6 bytes
+        assert_eq!(Rgba::from_hex("#ééé"), None); // 6 bytes after '#'
+        assert_eq!(Rgba::from_hex("🎨🎨"), None); // 8 bytes
+        assert_eq!(Rgba::from_hex("#🎨🎨"), None); // 8 bytes after '#'
+        assert_eq!(Rgba::from_hex("aé"), None); // 3 bytes mixed ASCII + UTF-8
+        assert_eq!(Rgba::from_hex("#aaébb"), None); // 6 bytes mixed ASCII + UTF-8
     }
 
     #[test]

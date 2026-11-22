@@ -80,14 +80,7 @@ impl KeyboardInput {
                 modifier,
                 direction,
             } => {
-                vec![
-                    0x1b,
-                    b'[',
-                    b'1',
-                    b';',
-                    b'0' + (modifier % 10),
-                    *direction,
-                ]
+                vec![0x1b, b'[', b'1', b';', b'0' + (modifier % 10), *direction]
             }
             SequenceType::RawBytes { bytes } => bytes.iter().take(100).copied().collect(),
         };

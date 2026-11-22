@@ -13,13 +13,15 @@
 # Environment:
 #   BENCH_TIMEOUT=600         Per-benchmark timeout in seconds (default: 300)
 #   BENCH_CONFIRM=1           Skip confirmation for full benchmarks
+#   BENCH_CARGO=cargo         Override cargo executable (useful for testing/wrappers)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ARTIFACTS_DIR="${PROJECT_ROOT}/target/test-artifacts"
+ARTIFACTS_DIR="${BENCH_ARTIFACTS_DIR:-${PROJECT_ROOT}/target/test-artifacts}"
 CRITERION_DIR="${PROJECT_ROOT}/target/criterion"
+CARGO_BIN="${BENCH_CARGO:-cargo}"
 
 JSON_OUTPUT=0
 QUICK_ONLY=0
@@ -27,6 +29,15 @@ CRITERION_ONLY=0
 SAVE_BASELINE=""
 USE_BASELINE=""
 TIMEOUT="${BENCH_TIMEOUT:-300}"
+
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+else
+  echo "[bench] ERROR: Neither 'timeout' nor 'gtimeout' found in PATH." >&2
+  exit 127
+fi
 
 log() {
   if [[ "$JSON_OUTPUT" -eq 0 ]]; then
@@ -42,7 +53,14 @@ error() {
 
 usage() {
   head -n 25 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
-  exit 0
+  exit "${1:-0}"
+}
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -64,22 +82,40 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --save)
+      if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
+        error "--save requires a baseline name"
+        usage 2
+      fi
       SAVE_BASELINE="$2"
       shift 2
       ;;
     --baseline)
+      if [[ $# -lt 2 ]] || [[ -z "$2" ]]; then
+        error "--baseline requires a baseline name"
+        usage 2
+      fi
       USE_BASELINE="$2"
       shift 2
       ;;
     --help|-h)
-      usage
+      usage 0
       ;;
     *)
       error "Unknown argument: $1"
-      usage
+      usage 2
       ;;
   esac
 done
+
+if [[ -n "$SAVE_BASELINE" ]] && [[ -n "$USE_BASELINE" ]]; then
+  error "Cannot specify both --save and --baseline"
+  exit 2
+fi
+
+if [[ "$QUICK_ONLY" -eq 1 ]] && [[ "$CRITERION_ONLY" -eq 1 ]]; then
+  error "Cannot specify both --quick/--compare and --criterion"
+  exit 2
+fi
 
 # Guard for long-running benchmarks unless quick-only.
 if [[ -z "${BENCH_CONFIRM:-}" ]] && [[ "$JSON_OUTPUT" -eq 0 ]] && [[ "$QUICK_ONLY" -eq 0 ]]; then
@@ -97,35 +133,93 @@ mkdir -p "$ARTIFACTS_DIR/benchmark"
 
 START_TIME=$(date +%s)
 RESULTS=()
+FAILED_COUNT=0
+FINAL_EXIT_CODE=0
+
+record_failure() {
+  local rc="$1"
+  FAILED_COUNT=$((FAILED_COUNT + 1))
+  if [[ "$FINAL_EXIT_CODE" -eq 0 ]]; then
+    FINAL_EXIT_CODE="$rc"
+  fi
+}
 
 run_quick_benchmark() {
   log "Running quick comparison benchmark..."
-  if timeout "$TIMEOUT" cargo test --test benchmark_comparison -- --nocapture 2>&1 | tee "$ARTIFACTS_DIR/benchmark/quick_comparison.log"; then
-    RESULTS+=("{\"benchmark\":\"quick_comparison\",\"result\":\"pass\"}")
-    log "  Quick comparison: PASS"
+  local log_file="$ARTIFACTS_DIR/benchmark/quick_comparison.log"
+  local rc=0
+
+  set +e
+  if [[ "$JSON_OUTPUT" -eq 1 ]]; then
+    "$TIMEOUT_BIN" "$TIMEOUT" "$CARGO_BIN" test --test benchmark_comparison -- --nocapture >"$log_file" 2>&1
+    rc=$?
   else
-    RESULTS+=("{\"benchmark\":\"quick_comparison\",\"result\":\"fail\"}")
-    error "  Quick comparison: FAIL"
+    "$TIMEOUT_BIN" "$TIMEOUT" "$CARGO_BIN" test --test benchmark_comparison -- --nocapture 2>&1 | tee "$log_file"
+    rc=${PIPESTATUS[0]}
+  fi
+  set -e
+
+  if [[ "$rc" -eq 0 ]]; then
+    RESULTS+=("{\"benchmark\":\"quick_comparison\",\"result\":\"pass\",\"exit_code\":0}")
+    log "  Quick comparison: PASS"
+  elif [[ "$rc" -eq 124 ]]; then
+    RESULTS+=("{\"benchmark\":\"quick_comparison\",\"result\":\"timeout\",\"exit_code\":124}")
+    error "  Quick comparison: TIMEOUT (exit 124 after ${TIMEOUT}s)"
+    record_failure 124
+  else
+    RESULTS+=("{\"benchmark\":\"quick_comparison\",\"result\":\"fail\",\"exit_code\":${rc}}")
+    error "  Quick comparison: FAIL (exit ${rc})"
+    record_failure "$rc"
   fi
 }
 
 run_criterion_benchmarks() {
   log "Running criterion benchmarks..."
-  local baseline_args=""
+  local log_file="$ARTIFACTS_DIR/benchmark/criterion.log"
+  local rc=0
+  local -a cmd=("$CARGO_BIN" bench)
+
   if [[ -n "$SAVE_BASELINE" ]]; then
-    baseline_args="--save-baseline $SAVE_BASELINE"
+    cmd+=(-- --save-baseline "$SAVE_BASELINE")
     log "  Saving baseline as: $SAVE_BASELINE"
   elif [[ -n "$USE_BASELINE" ]]; then
-    baseline_args="--baseline $USE_BASELINE"
+    cmd+=(-- --baseline "$USE_BASELINE")
     log "  Comparing against baseline: $USE_BASELINE"
   fi
 
-  if timeout "$TIMEOUT" cargo bench $baseline_args 2>&1 | tee "$ARTIFACTS_DIR/benchmark/criterion.log"; then
-    RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"pass\"}")
-    log "  Criterion benchmarks: PASS"
+  set +e
+  if [[ "$JSON_OUTPUT" -eq 1 ]]; then
+    "$TIMEOUT_BIN" "$TIMEOUT" "${cmd[@]}" >"$log_file" 2>&1
+    rc=$?
   else
-    RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"fail\"}")
-    error "  Criterion benchmarks: FAIL"
+    "$TIMEOUT_BIN" "$TIMEOUT" "${cmd[@]}" 2>&1 | tee "$log_file"
+    rc=${PIPESTATUS[0]}
+  fi
+  set -e
+
+  if [[ "$rc" -eq 124 ]]; then
+    RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"timeout\",\"exit_code\":124}")
+    error "  Criterion benchmarks: TIMEOUT (exit 124 after ${TIMEOUT}s)"
+    record_failure 124
+  elif [[ "$rc" -ne 0 ]]; then
+    RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"fail\",\"exit_code\":${rc}}")
+    error "  Criterion benchmarks: FAIL (exit ${rc})"
+    record_failure "$rc"
+  else
+    local regressions=0
+    if [[ -n "$USE_BASELINE" ]]; then
+      regressions=$(grep -c "Performance has regressed" "$log_file" 2>/dev/null || true)
+      regressions="${regressions:-0}"
+    fi
+
+    if [[ "$regressions" -gt 0 ]]; then
+      RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"regressed\",\"exit_code\":1,\"regressions\":${regressions}}")
+      error "  Criterion benchmarks: REGRESSED (${regressions} benchmark(s) regressed vs baseline '${USE_BASELINE}')"
+      record_failure 1
+    else
+      RESULTS+=("{\"benchmark\":\"criterion\",\"result\":\"pass\",\"exit_code\":0}")
+      log "  Criterion benchmarks: PASS"
+    fi
   fi
 }
 
@@ -141,18 +235,36 @@ fi
 END_TIME=$(date +%s)
 TOTAL_DURATION=$((END_TIME - START_TIME))
 
+OVERALL_STATUS="pass"
+if [[ "$FAILED_COUNT" -gt 0 ]]; then
+  OVERALL_STATUS="fail"
+fi
+
+SAVE_JSON="null"
+if [[ -n "$SAVE_BASELINE" ]]; then
+  SAVE_JSON="\"$(json_escape "$SAVE_BASELINE")\""
+fi
+
+USE_JSON="null"
+if [[ -n "$USE_BASELINE" ]]; then
+  USE_JSON="\"$(json_escape "$USE_BASELINE")\""
+fi
+
 SUMMARY_FILE="$ARTIFACTS_DIR/benchmark_summary.json"
 RESULTS_JSON=$(printf '%s\n' "${RESULTS[@]}" | paste -sd, -)
 
 cat > "$SUMMARY_FILE" << EOF
 {
   "suite": "benchmark",
+  "status": "$OVERALL_STATUS",
+  "exit_code": $FINAL_EXIT_CODE,
+  "failed_count": $FAILED_COUNT,
   "generated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "duration_s": $TOTAL_DURATION,
-  "baseline_saved": ${SAVE_BASELINE:+"\"$SAVE_BASELINE\""}${SAVE_BASELINE:-null},
-  "baseline_used": ${USE_BASELINE:+"\"$USE_BASELINE\""}${USE_BASELINE:-null},
-  "criterion_dir": "$CRITERION_DIR",
-  "artifacts_dir": "$ARTIFACTS_DIR/benchmark",
+  "baseline_saved": $SAVE_JSON,
+  "baseline_used": $USE_JSON,
+  "criterion_dir": "$(json_escape "$CRITERION_DIR")",
+  "artifacts_dir": "$(json_escape "$ARTIFACTS_DIR/benchmark")",
   "results": [$RESULTS_JSON]
 }
 EOF
@@ -165,9 +277,10 @@ fi
 
 log "============================================"
 log "Benchmark Results"
+log "Status: ${OVERALL_STATUS} (exit_code=${FINAL_EXIT_CODE}, failures=${FAILED_COUNT})"
 log "Duration: ${TOTAL_DURATION}s"
 log "Criterion: $CRITERION_DIR"
 log "Artifacts: $ARTIFACTS_DIR/benchmark"
 log "============================================"
 
-exit 0
+exit "$FINAL_EXIT_CODE"

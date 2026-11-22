@@ -108,7 +108,7 @@ The release build optimizes for both speed and size:
 
 ```toml
 [profile.release]
-opt-level = "z"     # Optimize for size (lean library)
+opt-level = 3       # Optimize for speed (rendering hot paths)
 lto = true          # Link-time optimization
 codegen-units = 1   # Single codegen unit for better optimization
 panic = "abort"     # Smaller binary, no unwinding overhead

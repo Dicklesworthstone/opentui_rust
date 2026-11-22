@@ -38,14 +38,14 @@ fuzz_target!(|data: &[u8]| {
                 // Need more data - done with this input
                 break;
             }
-            Err(ParseError::UnrecognizedSequence(_)) => {
-                // Unknown sequence - skip one byte and continue
-                if !remaining.is_empty() {
-                    remaining = &remaining[1..];
-                }
-            }
-            Err(ParseError::InvalidUtf8) => {
-                // Invalid UTF-8 - skip one byte and continue
+            Err(
+                ParseError::UnrecognizedSequence(_)
+                | ParseError::InvalidUtf8
+                | ParseError::PasteBufferOverflow
+                | ParseError::InvalidResizeFormat
+                | ParseError::SequenceTooLong,
+            ) => {
+                // Recoverable parse error - skip one byte and continue
                 if !remaining.is_empty() {
                     remaining = &remaining[1..];
                 }
